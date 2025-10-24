@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CornerThought - Admin Portal</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+
+<header class="toolbar">
+    <div class="company-name">CornerThought</div>
+    <div class="user-info">
+        <span>Yash Nigam</span>
+        <button class="logout-button">Logout</button>
+    </div>
+</header>
+
+<div class="admin-dashboard-layout">
+    <aside class="sidebar">
+        <nav class="main-nav">
+            <a href="#" class="nav-item active"><i class="fas fa-building"></i> Organizations</a>
+            <a href="#" class="nav-item"><i class="fas fa-users"></i> Users</a>
+            <a href="#" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
+            <a href="#" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+        </nav>
+    </aside>
+
+    <main class="content-panel">
+        <h2>Organizations Management</h2>
+        <div class="controls">
+            <button class="add-organization-button">Add New Organization</button>
+            <input type="text" placeholder="Search..." class="search-input">
+        </div>
+
+        <table class="organizations-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Admin Email</th>
+                    <th>Users Allotted</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>Acme Corp</td>
+                    <td>Tech</td>
+                    <td>jane.doe@acme.com</td>
+                    <td>200</td>
+                    <td><button class="edit-button">Edit</button><button class="delete-button">Delete</button></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="pagination">
+            <button>Previous</button>
+            <span>1</span> <span>2</span> <span>3</span>
+            <button>Next</button>
+        </div>
+    </main>
+</div>
+
+<!-- Add Organization Popup -->
+<div id="addOrgModal" class="modal">
+    <div class="modal-content collapsible-form">
+        <div class="form-toggle" id="addOrgToggle">
+            <i class="fas fa-chevron-right" id="addOrgToggleIcon"></i>
+        </div>
+        <div class="form-content">
+            <span class="close-button">&times;</span>
+            <h3>Add New Organization</h3>
+            <form id="addOrgForm">
+                <div class="input-group">
+                    <label for="orgName">Organization Name</label>
+                    <input type="text" id="orgName" name="orgName" required>
+                </div>
+                <div class="input-group">
+                    <label for="orgType">Type</label>
+                    <input type="text" id="orgType" name="orgType" required>
+                </div>
+                <div class="input-group">
+                    <label for="orgEmail">Admin Email</label>
+                    <input type="email" id="orgEmail" name="orgEmail" required>
+                </div>
+                <div class="input-group">
+                    <label for="orgUsers">Users Allotted</label>
+                    <input type="number" id="orgUsers" name="orgUsers" required min="1">
+                </div>
+                <button type="submit" class="save-org-button">Save</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="js/admin-portal.js"></script>
+</body>
+</html>

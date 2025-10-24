@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CornerThought - User Portal</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="toolbar">
+        <div class="company-name">CornerThought</div>
+        <div class="user-info">
+            <button class="create-project-button">Create New Project</button>
+            <button class="add-data-button">Add Data</button>
+            <button class="logout-button">Logout</button>
+        </div>
+    </header>
+
+    <!-- Layout -->
+    <div class="admin-dashboard-layout">
+        <aside class="sidebar">
+            <nav class="main-nav">
+                <a href="#" class="nav-item active">
+                    <i class="fas fa-folder"></i> My Projects
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-search"></i> Search Projects
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-globe"></i> General Search
+                </a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Welcome, User</h1>
+
+            <!-- Display area for Issue/Success entries -->
+            <div id="issueSuccessDisplay" class="display-area" style="display: none;"></div>
+
+            <!-- Forms will be injected here dynamically -->
+            <div id="projectFormContainer"></div>
+        </main>
+    </div>
+
+    <!-- JS (always placed at end for performance) -->
+    <script src="js/user-portal.js"></script>
+</body>
+</html>
