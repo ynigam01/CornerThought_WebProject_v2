@@ -781,13 +781,19 @@ body {
     border-top: 1px solid #eee;
 }
 
-#causesSection label {
+#causesSection label,
+#impactsSection label,
+#actionsSection label,
+#lessonsSection label {
     margin-bottom: 6px;
     font-weight: 500;
     color: #333;
 }
 
-#causesSection input {
+#causesSection input,
+#impactsSection input,
+#actionsSection input,
+#lessonsSection input {
     padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -812,7 +818,7 @@ body {
 }
 
 .add-impact-button {
-    background-color: #6f42c1;
+    background-color: #17a2b8;
     color: white;
     border: none;
     padding: 8px 16px;
@@ -823,11 +829,11 @@ body {
 }
 
 .add-impact-button:hover {
-    background-color: #5a2d91;
+    background-color: #138496;
 }
 
 .add-action-button {
-    background-color: #fd7e14;
+    background-color: #17a2b8;
     color: white;
     border: none;
     padding: 8px 16px;
@@ -838,11 +844,11 @@ body {
 }
 
 .add-action-button:hover {
-    background-color: #e8650e;
+    background-color: #138496;
 }
 
 .add-lesson-button {
-    background-color: #20c997;
+    background-color: #17a2b8;
     color: white;
     border: none;
     padding: 8px 16px;
@@ -853,7 +859,7 @@ body {
 }
 
 .add-lesson-button:hover {
-    background-color: #1aa179;
+    background-color: #138496;
 }
 
 /* === Sub-Item Display Styles === */
