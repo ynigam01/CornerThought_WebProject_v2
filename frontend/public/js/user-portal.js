@@ -9,40 +9,40 @@ const projectFormHTML = `
                 <i class="fas fa-chevron-right" id="createProjectToggleIcon"></i>
             </div>
             <div class="form-content">
-                <span class="close-button" id="closeCreateProject">&times;</span>
-                <h3>Create New Project</h3>
-                <form id="createProjectForm">
-                    <div class="input-group">
-                        <label for="projectName">Project Name</label>
-                        <input type="text" id="projectName" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="projectType">Type</label>
-                        <input type="text" id="projectType">
-                    </div>
-                    <div class="input-group">
-                        <label for="assetType">New Asset or Existing</label>
-                        <select id="assetType" required>
-                            <option value="">Select an option</option>
-                            <option value="New">New</option>
-                            <option value="Existing">Existing</option>
-                            <option value="N/A">N/A</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="projectDescription">Description</label>
-                        <textarea id="projectDescription" required></textarea>
-                    </div>
-                    <div class="input-group">
-                        <label for="startDate">Start Date</label>
-                        <input type="date" id="startDate">
-                    </div>
-                    <div class="input-group">
-                        <label for="endDate">End Date</label>
-                        <input type="date" id="endDate">
-                    </div>
-                    <button type="submit" class="save-project-button">Save Project</button>
-                </form>
+            <span class="close-button" id="closeCreateProject">&times;</span>
+            <h3>Create New Project</h3>
+            <form id="createProjectForm">
+                <div class="input-group">
+                    <label for="projectName">Project Name</label>
+                    <input type="text" id="projectName" required>
+                </div>
+                <div class="input-group">
+                    <label for="projectType">Type</label>
+                    <input type="text" id="projectType">
+                </div>
+                <div class="input-group">
+                    <label for="assetType">New Asset or Existing</label>
+                    <select id="assetType" required>
+                        <option value="">Select an option</option>
+                        <option value="New">New</option>
+                        <option value="Existing">Existing</option>
+                        <option value="N/A">N/A</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="projectDescription">Description</label>
+                    <textarea id="projectDescription" required></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="startDate">Start Date</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div class="input-group">
+                    <label for="endDate">End Date</label>
+                    <input type="date" id="endDate">
+                </div>
+                <button type="submit" class="save-project-button">Save Project</button>
+            </form>
             </div>
         </div>
     </div>`;
@@ -54,13 +54,13 @@ const projectFormHTML = `
                 <i class="fas fa-chevron-right" id="addDataToggleIcon"></i>
             </div>
             <div class="form-content">
-                <span class="close-button" id="closeAddData">&times;</span>
-                <h3>Add Data</h3>
-                <form id="addDataForm">
-                    <div class="input-group">
-                        <label for="issueSuccess">Issue/Success</label>
-                        <input type="text" id="issueSuccess" required>
-                    </div>
+            <span class="close-button" id="closeAddData">&times;</span>
+            <h3>Add Data</h3>
+            <form id="addDataForm">
+                <div class="input-group">
+                    <label for="issueSuccess">Issue/Success</label>
+                    <input type="text" id="issueSuccess" required>
+                </div>
                     <div class="button-group">
                         <button type="button" class="issue-button">Issue</button>
                         <button type="button" class="success-button">Success</button>
@@ -70,7 +70,22 @@ const projectFormHTML = `
                         <input type="text" id="causes" placeholder="Enter a cause...">
                         <button type="button" class="add-cause-button">Add</button>
                     </div>
-                </form>
+                    <div class="input-group" id="impactsSection" style="display: none;">
+                        <label for="impacts">Impacts</label>
+                        <input type="text" id="impacts" placeholder="Enter an impact...">
+                        <button type="button" class="add-impact-button">Add</button>
+                    </div>
+                    <div class="input-group" id="actionsSection" style="display: none;">
+                        <label for="actions">Actions Taken</label>
+                        <input type="text" id="actions" placeholder="Enter an action...">
+                        <button type="button" class="add-action-button">Add</button>
+                    </div>
+                    <div class="input-group" id="lessonsSection" style="display: none;">
+                        <label for="lessons">Lessons Learned</label>
+                        <input type="text" id="lessons" placeholder="Enter a lesson...">
+                        <button type="button" class="add-lesson-button">Add</button>
+                    </div>
+            </form>
             </div>
         </div>
     </div>`;
@@ -122,8 +137,11 @@ const projectFormHTML = `
             inputField.style.backgroundColor = "#f5f5f5";
             inputField.style.color = "#999";
             inputField.disabled = true;
-            // Show the causes section
+            // Show all sections
             document.getElementById("causesSection").style.display = "block";
+            document.getElementById("impactsSection").style.display = "block";
+            document.getElementById("actionsSection").style.display = "block";
+            document.getElementById("lessonsSection").style.display = "block";
             // Keep the form open - don't close it
         }
     };
@@ -138,8 +156,11 @@ const projectFormHTML = `
             inputField.style.backgroundColor = "#f5f5f5";
             inputField.style.color = "#999";
             inputField.disabled = true;
-            // Show the causes section
+            // Show all sections
             document.getElementById("causesSection").style.display = "block";
+            document.getElementById("impactsSection").style.display = "block";
+            document.getElementById("actionsSection").style.display = "block";
+            document.getElementById("lessonsSection").style.display = "block";
             // Keep the form open - don't close it
         }
     };
@@ -150,26 +171,99 @@ const projectFormHTML = `
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
         entry.innerHTML = `<strong>${type}:</strong> ${text}`;
+        
+        // Add containers for all sub-items
+        const causesContainer = document.createElement("div");
+        causesContainer.className = "sub-item-container";
+        causesContainer.style.display = "none";
+        causesContainer.innerHTML = '<div class="sub-item-header"><strong>Causes:</strong></div><ul class="sub-item-list"></ul>';
+        
+        const impactsContainer = document.createElement("div");
+        impactsContainer.className = "sub-item-container";
+        impactsContainer.style.display = "none";
+        impactsContainer.innerHTML = '<div class="sub-item-header"><strong>Impacts:</strong></div><ul class="sub-item-list"></ul>';
+        
+        const actionsContainer = document.createElement("div");
+        actionsContainer.className = "sub-item-container";
+        actionsContainer.style.display = "none";
+        actionsContainer.innerHTML = '<div class="sub-item-header"><strong>Actions Taken:</strong></div><ul class="sub-item-list"></ul>';
+        
+        const lessonsContainer = document.createElement("div");
+        lessonsContainer.className = "sub-item-container";
+        lessonsContainer.style.display = "none";
+        lessonsContainer.innerHTML = '<div class="sub-item-header"><strong>Lessons Learned:</strong></div><ul class="sub-item-list"></ul>';
+        
+        entry.appendChild(causesContainer);
+        entry.appendChild(impactsContainer);
+        entry.appendChild(actionsContainer);
+        entry.appendChild(lessonsContainer);
         displayArea.appendChild(entry);
+        
+        // Store references to the lists for this entry
+        entry.causesList = causesContainer.querySelector('.sub-item-list');
+        entry.impactsList = impactsContainer.querySelector('.sub-item-list');
+        entry.actionsList = actionsContainer.querySelector('.sub-item-list');
+        entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
     }
 
     // Handle Add Cause button click
     document.querySelector(".add-cause-button").onclick = () => {
         const causeText = document.getElementById("causes").value.trim();
         if (causeText) {
-            addCauseEntry(causeText);
+            addSubItemEntry('causes', causeText);
             // Reset the causes field
             document.getElementById("causes").value = "";
         }
     };
 
-    // Function to add Cause entry to display area
-    function addCauseEntry(text) {
+    // Handle Add Impact button click
+    document.querySelector(".add-impact-button").onclick = () => {
+        const impactText = document.getElementById("impacts").value.trim();
+        if (impactText) {
+            addSubItemEntry('impacts', impactText);
+            // Reset the impacts field
+            document.getElementById("impacts").value = "";
+        }
+    };
+
+    // Handle Add Action button click
+    document.querySelector(".add-action-button").onclick = () => {
+        const actionText = document.getElementById("actions").value.trim();
+        if (actionText) {
+            addSubItemEntry('actions', actionText);
+            // Reset the actions field
+            document.getElementById("actions").value = "";
+        }
+    };
+
+    // Handle Add Lesson button click
+    document.querySelector(".add-lesson-button").onclick = () => {
+        const lessonText = document.getElementById("lessons").value.trim();
+        if (lessonText) {
+            addSubItemEntry('lessons', lessonText);
+            // Reset the lessons field
+            document.getElementById("lessons").value = "";
+        }
+    };
+
+    // Function to add sub-item entry to the most recent Issue/Success
+    function addSubItemEntry(listType, text) {
         const displayArea = document.getElementById("issueSuccessDisplay");
-        const entry = document.createElement("div");
-        entry.className = "issue-success-entry";
-        entry.innerHTML = `<strong>Causes:</strong> ${text}`;
-        displayArea.appendChild(entry);
+        const entries = displayArea.querySelectorAll('.issue-success-entry');
+        
+        if (entries.length > 0) {
+            const lastEntry = entries[entries.length - 1];
+            const container = lastEntry.querySelector(`.sub-item-container:nth-child(${listType === 'causes' ? '2' : listType === 'impacts' ? '3' : listType === 'actions' ? '4' : '5'})`);
+            const list = lastEntry[`${listType}List`];
+            
+            // Show the container if it's hidden
+            container.style.display = "block";
+            
+            // Add the item as a bullet point
+            const item = document.createElement("li");
+            item.textContent = text;
+            list.appendChild(item);
+        }
     }
 
     // Function to reset the Add Data form
@@ -179,10 +273,16 @@ const projectFormHTML = `
         inputField.disabled = false;
         inputField.style.backgroundColor = "";
         inputField.style.color = "";
-        // Hide the causes section
+        // Hide all sections
         document.getElementById("causesSection").style.display = "none";
-        // Reset causes field
+        document.getElementById("impactsSection").style.display = "none";
+        document.getElementById("actionsSection").style.display = "none";
+        document.getElementById("lessonsSection").style.display = "none";
+        // Reset all fields
         document.getElementById("causes").value = "";
+        document.getElementById("impacts").value = "";
+        document.getElementById("actions").value = "";
+        document.getElementById("lessons").value = "";
     }
 
     // Collapsible form functionality
