@@ -774,4 +774,41 @@ body {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
+/* === Causes Section Styles === */
+#causesSection {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+#causesSection label {
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #333;
+}
+
+#causesSection input {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+    font-size: 1rem;
+    margin-bottom: 10px;
+}
+
+.add-cause-button {
+    background-color: #17a2b8;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.add-cause-button:hover {
+    background-color: #138496;
+}
+
 

@@ -65,6 +65,11 @@ const projectFormHTML = `
                         <button type="button" class="issue-button">Issue</button>
                         <button type="button" class="success-button">Success</button>
                     </div>
+                    <div class="input-group" id="causesSection" style="display: none;">
+                        <label for="causes">Causes</label>
+                        <input type="text" id="causes" placeholder="Enter a cause...">
+                        <button type="button" class="add-cause-button">Add</button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -117,6 +122,8 @@ const projectFormHTML = `
             inputField.style.backgroundColor = "#f5f5f5";
             inputField.style.color = "#999";
             inputField.disabled = true;
+            // Show the causes section
+            document.getElementById("causesSection").style.display = "block";
             // Keep the form open - don't close it
         }
     };
@@ -131,6 +138,8 @@ const projectFormHTML = `
             inputField.style.backgroundColor = "#f5f5f5";
             inputField.style.color = "#999";
             inputField.disabled = true;
+            // Show the causes section
+            document.getElementById("causesSection").style.display = "block";
             // Keep the form open - don't close it
         }
     };
@@ -144,6 +153,25 @@ const projectFormHTML = `
         displayArea.appendChild(entry);
     }
 
+    // Handle Add Cause button click
+    document.querySelector(".add-cause-button").onclick = () => {
+        const causeText = document.getElementById("causes").value.trim();
+        if (causeText) {
+            addCauseEntry(causeText);
+            // Reset the causes field
+            document.getElementById("causes").value = "";
+        }
+    };
+
+    // Function to add Cause entry to display area
+    function addCauseEntry(text) {
+        const displayArea = document.getElementById("issueSuccessDisplay");
+        const entry = document.createElement("div");
+        entry.className = "issue-success-entry";
+        entry.innerHTML = `<strong>Causes:</strong> ${text}`;
+        displayArea.appendChild(entry);
+    }
+
     // Function to reset the Add Data form
     function resetAddDataForm() {
         const inputField = document.getElementById("issueSuccess");
@@ -151,6 +179,10 @@ const projectFormHTML = `
         inputField.disabled = false;
         inputField.style.backgroundColor = "";
         inputField.style.color = "";
+        // Hide the causes section
+        document.getElementById("causesSection").style.display = "none";
+        // Reset causes field
+        document.getElementById("causes").value = "";
     }
 
     // Collapsible form functionality
