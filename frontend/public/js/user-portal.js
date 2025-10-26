@@ -170,7 +170,25 @@ const projectFormHTML = `
         const displayArea = document.getElementById("issueSuccessDisplay");
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
-        entry.innerHTML = `<strong>${type}:</strong> ${text}`;
+        
+        // Create the main content with edit/delete buttons
+        const mainContent = document.createElement("div");
+        mainContent.className = "entry-main-content";
+        mainContent.innerHTML = `
+            <div class="entry-text">
+                <strong>${type}:</strong> ${text}
+            </div>
+            <div class="entry-actions">
+                <button class="edit-entry-button" title="Edit ${type}">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="delete-entry-button" title="Delete ${type}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `;
+        
+        entry.appendChild(mainContent);
         
         // Add containers for all sub-items
         const causesContainer = document.createElement("div");

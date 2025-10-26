@@ -720,6 +720,58 @@ body {
     margin-bottom: 0;
 }
 
+/* === Entry Action Buttons === */
+.entry-main-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.entry-text {
+    flex: 1;
+    margin-right: 15px;
+}
+
+.entry-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.edit-entry-button,
+.delete-entry-button {
+    background: none;
+    border: none;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.edit-entry-button {
+    color: #007bff;
+    background-color: #f8f9fa;
+}
+
+.edit-entry-button:hover {
+    background-color: #007bff;
+    color: white;
+}
+
+.delete-entry-button {
+    color: #dc3545;
+    background-color: #f8f9fa;
+}
+
+.delete-entry-button:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
 /* === Collapsible Forms === */
 .modal.collapsed .modal-content {
     width: 50px; /* Collapse to just the toggle tab width */
