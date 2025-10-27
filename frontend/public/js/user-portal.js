@@ -310,28 +310,34 @@ const projectFormHTML = `
     const createProjectToggleIcon = document.getElementById("createProjectToggleIcon");
 
     // Toggle Add Data form
-    addDataToggle.addEventListener("click", () => {
-        const modal = document.getElementById("addDataModal");
-        modal.classList.toggle("collapsed");
-        
-        if (modal.classList.contains("collapsed")) {
-            addDataToggleIcon.style.transform = "rotate(0deg)";
-        } else {
-            addDataToggleIcon.style.transform = "rotate(180deg)";
-        }
-    });
+    if (addDataToggle) {
+        addDataToggle.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const modal = document.getElementById("addDataModal");
+            modal.classList.toggle("collapsed");
+            
+            if (modal.classList.contains("collapsed")) {
+                addDataToggleIcon.style.transform = "rotate(0deg)";
+            } else {
+                addDataToggleIcon.style.transform = "rotate(180deg)";
+            }
+        });
+    }
 
     // Toggle Create Project form
-    createProjectToggle.addEventListener("click", () => {
-        const modal = document.getElementById("createProjectModal");
-        modal.classList.toggle("collapsed");
-        
-        if (modal.classList.contains("collapsed")) {
-            createProjectToggleIcon.style.transform = "rotate(0deg)";
-        } else {
-            createProjectToggleIcon.style.transform = "rotate(180deg)";
-        }
-    });
+    if (createProjectToggle) {
+        createProjectToggle.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const modal = document.getElementById("createProjectModal");
+            modal.classList.toggle("collapsed");
+            
+            if (modal.classList.contains("collapsed")) {
+                createProjectToggleIcon.style.transform = "rotate(0deg)";
+            } else {
+                createProjectToggleIcon.style.transform = "rotate(180deg)";
+            }
+        });
+    }
 
     // Show display area when Add Data is clicked
     addDataButton.onclick = () => {
