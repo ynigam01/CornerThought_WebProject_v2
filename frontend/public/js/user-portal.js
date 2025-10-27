@@ -145,11 +145,9 @@ const projectFormHTML = `
 
     createProjectButton.onclick = () => {
         if (confirmNavigation("Create New Project")) {
-            exitOrganizationSettings();
-            // Ensure default header is visible
-            const header = document.querySelector('.main-content h1');
-            if (header) header.style.display = '';
-            createProjectModal.classList.add("show");
+            // Navigate to home then open modal
+            location.hash = 'home';
+            setTimeout(() => createProjectModal.classList.add('show'), 0);
         }
     };
     logoutButton.onclick = () => {
@@ -472,14 +470,13 @@ const projectFormHTML = `
                 return;
             }
         }
-        // Leave Organization Settings view if active
-        exitOrganizationSettings();
-        // Ensure default header is visible
-        const header = document.querySelector('.main-content h1');
-        if (header) header.style.display = '';
-        addDataModal.classList.add("show");
-        const display = document.getElementById("issueSuccessDisplay");
-        if (display) display.style.display = "block";
+        // Navigate to home then open modal and reveal display area
+        location.hash = 'home';
+        setTimeout(() => {
+            addDataModal.classList.add('show');
+            const display = document.getElementById('issueSuccessDisplay');
+            if (display) display.style.display = 'block';
+        }, 0);
     };
 
     // Function to check if there's unsaved data in the main area
@@ -569,82 +566,103 @@ const projectFormHTML = `
         }
     });
 
-    // Add event listeners for sidebar navigation
-    const sidebarLinks = document.querySelectorAll('.sidebar .nav-item');
-    sidebarLinks.forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (confirmNavigation("navigate")) {
-                // Remove active class from all links
-                sidebarLinks.forEach(l => l.classList.remove('active'));
-                // Add active class to clicked link
-                link.classList.add('active');
-                
-                // Get the link text to determine what to show
-                const linkText = link.textContent.trim();
-                
-                // Load different content based on the link
-                if (linkText === "Organization Settings") {
-                    // Reset and show organization settings
-                    resetMainArea();
-                    displayOrganizationSettings();
-                } else {
-                    // Exit Organization Settings and show default blank area
-                    exitOrganizationSettings();
-                    resetMainArea();
-                    const header = document.querySelector('.main-content h1');
-                    if (header) {
-                        header.textContent = 'Welcome, User';
-                        header.style.display = '';
-                    }
-                }
-            }
-        });
+    // Sidebar navigation (delegation)
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.addEventListener('click', (e) => {
+        const link = e.target.closest('.nav-item');
+        if (!link) return;
+        e.preventDefault();
+        if (!confirmNavigation('navigate')) return;
+        const text = link.textContent.trim();
+        const route = text === 'Organization Settings' ? 'org'
+                    : text === 'General Search' || text === 'Search Projects' ? 'search'
+                    : 'home';
+        location.hash = route;
     });
+
+    // Simple router
+    function setActiveSidebar(route) {
+        const links = document.querySelectorAll('.sidebar .nav-item');
+        links.forEach(l => {
+            const text = l.textContent.trim();
+            const r = text === 'Organization Settings' ? 'org'
+                    : text === 'General Search' || text === 'Search Projects' ? 'search'
+                    : 'home';
+            if (r === route) l.classList.add('active'); else l.classList.remove('active');
+            l.setAttribute('aria-current', r === route ? 'page' : 'false');
+        });
+    }
+
+    function show(elSelector) {
+        const el = document.querySelector(elSelector);
+        if (el) el.hidden = false;
+    }
+    function hide(elSelector) {
+        const el = document.querySelector(elSelector);
+        if (el) el.hidden = true;
+    }
+
+    function showHomeView() {
+        // Remove org view if present, show home, hide search
+        exitOrganizationSettings();
+        show('#homeView');
+        hide('#searchView');
+        // Ensure header visible and display area hidden by default
+        const header = document.querySelector('#homeView h1');
+        if (header) header.style.display = '';
+    }
+
+    function showSearchView() {
+        // Remove org view, hide home, show search
+        exitOrganizationSettings();
+        hide('#homeView');
+        show('#searchView');
+    }
 
     // Function to display Organization Settings
     function displayOrganizationSettings() {
-        const mainContent = document.querySelector('.main-content');
-        // Hide default main items
-        const header = mainContent.querySelector('h1');
-        const displayArea = document.getElementById('issueSuccessDisplay');
-        const projectContainer = document.getElementById('projectFormContainer');
-        if (header) header.style.display = 'none';
-        if (displayArea) displayArea.style.display = 'none';
-        if (projectContainer) projectContainer.style.display = 'none';
-
+        // Hide other views
+        hide('#homeView');
+        hide('#searchView');
         // If already present, don't duplicate
-        if (document.getElementById('organizationSettingsContent')) return;
-
-        const wrapper = document.createElement('div');
-        wrapper.id = 'organizationSettingsContent';
-        wrapper.innerHTML = `
-            <div style="margin-bottom: 30px;">
-                <h2 style="color: #2c3e50; font-size: 28px; margin-bottom: 10px;">Number of Users: <span id="userCount" style="color: #3498db;">0</span></h2>
-            </div>
-            <div>
-                <h3 style="color: #2c3e50; font-size: 20px; margin-bottom: 20px;">Manage Users</h3>
-                <button id="addNewUserButton" style="background-color: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background-color 0.3s ease;">Add New User</button>
-            </div>
-        `;
-        mainContent.appendChild(wrapper);
-
-        const addBtn = document.getElementById('addNewUserButton');
-        if (addBtn) {
-            addBtn.onclick = () => addUserModal.classList.add('show');
+        if (!document.getElementById('orgView')) {
+            const tpl = document.getElementById('orgSettingsTemplate');
+            if (tpl) {
+                document.querySelector('.main-content').appendChild(tpl.content.cloneNode(true));
+                const addBtn = document.getElementById('addNewUserButton');
+                if (addBtn) addBtn.onclick = () => addUserModal.classList.add('show');
+            }
         }
     }
 
     // Function to exit Organization Settings and restore default main
     function exitOrganizationSettings() {
-        const org = document.getElementById('organizationSettingsContent');
+        const org = document.getElementById('orgView');
         if (org) org.remove();
-        const header = document.querySelector('.main-content h1');
-        const displayArea = document.getElementById('issueSuccessDisplay');
-        const projectContainer = document.getElementById('projectFormContainer');
-        if (header) header.style.display = '';
-        if (projectContainer) projectContainer.style.display = '';
-        // Do not auto-show display area; only show when needed
-        if (displayArea) displayArea.style.display = 'none';
+        // Restore home view visibility if needed
+        show('#homeView');
     }
+
+    function navigate(route) {
+        setActiveSidebar(route);
+        if (route === 'org') {
+            resetMainArea();
+            displayOrganizationSettings();
+        } else if (route === 'search') {
+            resetMainArea();
+            showSearchView();
+        } else {
+            resetMainArea();
+            showHomeView();
+        }
+    }
+
+    window.addEventListener('hashchange', () => {
+        const route = (location.hash || '#home').replace('#','');
+        navigate(route);
+    });
+
+    // initial route
+    const initialRoute = (location.hash || '#home').replace('#','');
+    navigate(initialRoute);
 });

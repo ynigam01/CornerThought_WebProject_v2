@@ -42,13 +42,25 @@
         </aside>
 
         <main class="main-content">
-            <h1>Welcome, User</h1>
+            <section id="homeView" class="view">
+                <h1>Welcome, User</h1>
 
-            <!-- Display area for Issue/Success entries -->
-            <div id="issueSuccessDisplay" class="display-area" style="display: none;"></div>
+                <!-- Display area for Issue/Success entries -->
+                <div id="issueSuccessDisplay" class="display-area" style="display: none;"></div>
 
-            <!-- Forms will be injected here dynamically -->
-            <div id="projectFormContainer"></div>
+                <!-- Forms will be injected here dynamically -->
+                <div id="projectFormContainer"></div>
+            </section>
+
+            <section id="searchView" class="view" hidden></section>
+
+            <template id="orgSettingsTemplate">
+                <section id="orgView" class="view">
+                    <h2>Number of Users: <span id="userCount">0</span></h2>
+                    <h3>Manage Users</h3>
+                    <button id="addNewUserButton">Add New User</button>
+                </section>
+            </template>
         </main>
     </div>
 

@@ -530,6 +530,18 @@ body {
     z-index: 1000;
 }
 
+/* Add New User button base style */
+#addNewUserButton {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+}
+
 /* Add New User button hover effect */
 #addNewUserButton:hover {
     background-color: #2980b9 !important;
