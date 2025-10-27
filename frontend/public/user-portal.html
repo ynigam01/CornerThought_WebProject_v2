@@ -54,11 +54,28 @@
 
             <section id="searchView" class="view" hidden></section>
 
+            <section id="createView" class="view" hidden>
+                <h2>Create New Project</h2>
+                <p>Use the form to create a new project.</p>
+            </section>
+
+            <section id="addDataView" class="view" hidden>
+                <h2>Add Data</h2>
+                <div id="addDataDisplay" class="display-area" style="display: none;"></div>
+            </section>
+
             <template id="orgSettingsTemplate">
                 <section id="orgView" class="view">
                     <h2>Number of Users: <span id="userCount">0</span></h2>
                     <h3>Manage Users</h3>
-                    <button id="addNewUserButton">Add New User</button>
+                    <div class="org-users-actions">
+                        <button id="addNewUserButton">Add New User</button>
+                        <button id="manageUsersButton">Manage Users</button>
+                    </div>
+                    <h3>Manage Projects</h3>
+                    <div class="org-projects-actions">
+                        <button id="manageProjectsButton">Manage Projects</button>
+                    </div>
                 </section>
             </template>
         </main>

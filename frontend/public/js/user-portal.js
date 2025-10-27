@@ -41,7 +41,7 @@ const projectFormHTML = `
                     <label for="endDate">End Date</label>
                     <input type="date" id="endDate">
                 </div>
-                <button type="submit" class="save-project-button">Save Project</button>
+                <button type="submit" class="save-project-button">Create Project</button>
             </form>
             </div>
         </div>
@@ -123,8 +123,8 @@ const projectFormHTML = `
         </div>
     </div>`;
 
-    container.insertAdjacentHTML("beforeend", projectFormHTML);
-    container.insertAdjacentHTML("beforeend", addDataFormHTML);
+    document.body.insertAdjacentHTML("beforeend", projectFormHTML);
+    document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
 
     const createProjectButton = document.querySelector(".create-project-button");
@@ -145,9 +145,7 @@ const projectFormHTML = `
 
     createProjectButton.onclick = () => {
         if (confirmNavigation("Create New Project")) {
-            // Navigate to home then open modal
-            location.hash = 'home';
-            setTimeout(() => createProjectModal.classList.add('show'), 0);
+            location.hash = 'create';
         }
     };
     logoutButton.onclick = () => {
@@ -226,7 +224,7 @@ const projectFormHTML = `
 
     // Function to add Issue/Success entry to display area
     function addIssueSuccessEntry(type, text) {
-        const displayArea = document.getElementById("issueSuccessDisplay");
+        const displayArea = getActiveDisplayArea();
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
         
@@ -365,7 +363,7 @@ const projectFormHTML = `
 
     // Function to add sub-item entry to the most recent Issue/Success
     function addSubItemEntry(listType, text) {
-        const displayArea = document.getElementById("issueSuccessDisplay");
+        const displayArea = getActiveDisplayArea();
         const entries = displayArea.querySelectorAll('.issue-success-entry');
         
         if (entries.length > 0) {
@@ -470,27 +468,35 @@ const projectFormHTML = `
                 return;
             }
         }
-        // Navigate to home then open modal and reveal display area
-        location.hash = 'home';
+        // Navigate to add data then open modal and reveal display area
+        location.hash = 'adddata';
         setTimeout(() => {
             addDataModal.classList.add('show');
-            const display = document.getElementById('issueSuccessDisplay');
+            const display = getActiveDisplayArea();
             if (display) display.style.display = 'block';
         }, 0);
     };
 
+    function getActiveDisplayArea() {
+        // Prefer Add Data view's area if present; fallback to homeView's area
+        return document.getElementById('addDataDisplay') || document.getElementById('issueSuccessDisplay');
+    }
+
     // Function to check if there's unsaved data in the main area
     function hasUnsavedData() {
-        const displayArea = document.getElementById("issueSuccessDisplay");
+        const displayArea = getActiveDisplayArea();
+        if (!displayArea) return false;
         const entries = displayArea.querySelectorAll('.issue-success-entry');
         return entries.length > 0;
     }
 
     // Function to reset the main area to blank state
     function resetMainArea() {
-        const displayArea = document.getElementById("issueSuccessDisplay");
-        displayArea.innerHTML = '';
-        displayArea.style.display = "none";
+        const displayArea = getActiveDisplayArea();
+        if (displayArea) {
+            displayArea.innerHTML = '';
+            displayArea.style.display = "none";
+        }
         
         // Reset the Add Data form
         resetAddDataForm();
@@ -607,6 +613,8 @@ const projectFormHTML = `
         exitOrganizationSettings();
         show('#homeView');
         hide('#searchView');
+        hide('#createView');
+        hide('#addDataView');
         // Ensure header visible and display area hidden by default
         const header = document.querySelector('#homeView h1');
         if (header) header.style.display = '';
@@ -617,6 +625,89 @@ const projectFormHTML = `
         exitOrganizationSettings();
         hide('#homeView');
         show('#searchView');
+        hide('#createView');
+        hide('#addDataView');
+    }
+
+    function showCreateView() {
+        exitOrganizationSettings();
+        hide('#homeView');
+        hide('#searchView');
+        show('#createView');
+        hide('#addDataView');
+        // Inject form once
+        const container = document.querySelector('#createView');
+        if (container && !container.querySelector('#inlineCreateProjectForm')) {
+            container.insertAdjacentHTML('beforeend', `
+                <form id="inlineCreateProjectForm" class="project-form half-width">
+                    <div class="form-group">
+                        <label for="inlineProjectName">Project Name</label>
+                        <input type="text" id="inlineProjectName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="inlineProjectType">Type</label>
+                        <input type="text" id="inlineProjectType" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="inlineAssetType">New Asset or Existing</label>
+                        <select id="inlineAssetType">
+                            <option value="">Select an option</option>
+                            <option value="New">New</option>
+                            <option value="Existing">Existing</option>
+                            <option value="N/A">N/A</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="inlineProjectDescription">Description</label>
+                        <textarea id="inlineProjectDescription"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="inlineStartDate">Start Date</label>
+                        <input type="date" id="inlineStartDate">
+                    </div>
+                    <div class="form-group">
+                        <label for="inlineEndDate">End Date</label>
+                        <input type="date" id="inlineEndDate">
+                    </div>
+                    <button type="submit" class="save-project-button">Create Project</button>
+                </form>
+                <div id="createSummary" class="create-summary" style="display:none;"></div>
+            `);
+
+            const inlineForm = document.getElementById('inlineCreateProjectForm');
+            inlineForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = document.getElementById('inlineProjectName').value.trim();
+                const type = document.getElementById('inlineProjectType').value.trim();
+                if (!name || !type) {
+                    alert('Please fill in both Project Name and Type.');
+                    return;
+                }
+                const asset = document.getElementById('inlineAssetType').value.trim() || 'N/A';
+                const desc = document.getElementById('inlineProjectDescription').value.trim() || 'N/A';
+                const start = document.getElementById('inlineStartDate').value.trim() || 'N/A';
+                const end = document.getElementById('inlineEndDate').value.trim() || 'N/A';
+
+                const summary = document.getElementById('createSummary');
+                summary.innerHTML = `
+                    <div><strong>Project Name:</strong> ${name}</div>
+                    <div><strong>Type:</strong> ${type}</div>
+                    <div><strong>New Asset or Existing:</strong> ${asset}</div>
+                    <div><strong>Description:</strong> ${desc}</div>
+                    <div><strong>Start Date:</strong> ${start}</div>
+                    <div><strong>End Date:</strong> ${end}</div>
+                `;
+                summary.style.display = '';
+            });
+        }
+    }
+
+    function showAddDataView() {
+        exitOrganizationSettings();
+        hide('#homeView');
+        hide('#searchView');
+        hide('#createView');
+        show('#addDataView');
     }
 
     // Function to display Organization Settings
@@ -624,6 +715,8 @@ const projectFormHTML = `
         // Hide other views
         hide('#homeView');
         hide('#searchView');
+        hide('#createView');
+        hide('#addDataView');
         // If already present, don't duplicate
         if (!document.getElementById('orgView')) {
             const tpl = document.getElementById('orgSettingsTemplate');
@@ -651,6 +744,12 @@ const projectFormHTML = `
         } else if (route === 'search') {
             resetMainArea();
             showSearchView();
+        } else if (route === 'create') {
+            resetMainArea();
+            showCreateView();
+        } else if (route === 'adddata') {
+            resetMainArea();
+            showAddDataView();
         } else {
             resetMainArea();
             showHomeView();

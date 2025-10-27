@@ -547,6 +547,40 @@ body {
     background-color: #2980b9 !important;
 }
 
+/* Manage Users button style (match Add New User) */
+#manageUsersButton {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-left: 10px;
+}
+
+#manageUsersButton:hover {
+    background-color: #2980b9;
+}
+
+/* Manage Projects button style */
+#manageProjectsButton {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-top: 10px;
+}
+
+#manageProjectsButton:hover {
+    background-color: #2980b9;
+}
+
 
 .modal h3 {
     margin-top: 0;
@@ -602,6 +636,24 @@ body {
     margin-top: 20px;
     margin-left: 40px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Half-width variant for left-side staging areas */
+.project-form.half-width {
+    width: 50%;
+    max-width: 600px;
+}
+
+#createView .create-summary {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    width: 50%;
+    max-width: 600px;
+    margin-top: 15px;
+    margin-left: 40px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.06);
 }
 
 .project-form h2 {
