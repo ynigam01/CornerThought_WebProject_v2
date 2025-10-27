@@ -222,6 +222,46 @@ const projectFormHTML = `
         entry.impactsList = impactsContainer.querySelector('.sub-item-list');
         entry.actionsList = actionsContainer.querySelector('.sub-item-list');
         entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
+        
+        // Add event listener for the delete button
+        const deleteButton = mainContent.querySelector('.delete-entry-button');
+        deleteButton.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering the entry click
+            // Show confirmation dialog
+            const confirmed = confirm(`Are you sure you want to delete this ${type.toLowerCase()} entry and all its sub-items?`);
+            if (confirmed) {
+                // Add fade out animation before removing
+                entry.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                entry.style.opacity = '0';
+                entry.style.transform = 'translateX(-20px)';
+                
+                // Remove the entry after animation completes
+                setTimeout(() => {
+                    entry.remove();
+                }, 300);
+            }
+        });
+
+        // Add event listener for the edit button
+        const editButton = mainContent.querySelector('.edit-entry-button');
+        editButton.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering the entry click
+            openEditModal(type, text, (newText) => {
+                // Update the main text
+                const textElement = mainContent.querySelector('.entry-text');
+                textElement.innerHTML = `<strong>${type}:</strong> ${newText}`;
+            });
+        });
+
+        // Add event listener for clicking on the entry text to edit main content
+        const textElement = mainContent.querySelector('.entry-text');
+        textElement.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEditModal(type, text, (newText) => {
+                // Update the main text
+                textElement.innerHTML = `<strong>${type}:</strong> ${newText}`;
+            });
+        });
     }
 
     // Handle Add Cause button click
@@ -277,9 +317,32 @@ const projectFormHTML = `
             // Show the container if it's hidden
             container.style.display = "block";
             
-            // Add the item as a bullet point
+            // Add the item as a clickable bullet point
             const item = document.createElement("li");
             item.textContent = text;
+            item.style.cursor = "pointer";
+            item.style.padding = "4px 8px";
+            item.style.borderRadius = "4px";
+            item.style.transition = "background-color 0.2s ease";
+            item.style.marginBottom = "2px";
+            
+            // Add hover effect
+            item.addEventListener('mouseenter', () => {
+                item.style.backgroundColor = "#f0f0f0";
+            });
+            
+            item.addEventListener('mouseleave', () => {
+                item.style.backgroundColor = "transparent";
+            });
+            
+            // Add click event to edit the sub-item
+            item.addEventListener('click', () => {
+                const capitalizedType = listType.charAt(0).toUpperCase() + listType.slice(1);
+                openEditModal(capitalizedType, text, (newText) => {
+                    item.textContent = newText;
+                });
+            });
+            
             list.appendChild(item);
         }
     }
@@ -348,4 +411,61 @@ const projectFormHTML = `
     createProjectButton.onclick = () => {
         createProjectModal.classList.add("show");
     };
+
+    // Edit Modal functionality
+    const editModal = document.getElementById("editModal");
+    const editTextarea = document.getElementById("editTextarea");
+    const editModalTitle = document.getElementById("editModalTitle");
+    const closeEditModal = document.getElementById("closeEditModal");
+    const cancelEdit = document.getElementById("cancelEdit");
+    const saveEdit = document.getElementById("saveEdit");
+
+    let currentEditCallback = null;
+
+    // Function to open edit modal
+    function openEditModal(title, currentText, callback) {
+        editModalTitle.textContent = `Edit ${title}`;
+        editTextarea.value = currentText;
+        editModal.classList.add("show");
+        currentEditCallback = callback;
+        
+        // Focus on textarea and select all text
+        setTimeout(() => {
+            editTextarea.focus();
+            editTextarea.select();
+        }, 100);
+    }
+
+    // Function to close edit modal
+    function closeEditModalFunc() {
+        editModal.classList.remove("show");
+        currentEditCallback = null;
+        editTextarea.value = "";
+    }
+
+    // Event listeners for edit modal
+    closeEditModal.onclick = closeEditModalFunc;
+    cancelEdit.onclick = closeEditModalFunc;
+    
+    saveEdit.onclick = () => {
+        const newText = editTextarea.value.trim();
+        if (newText && currentEditCallback) {
+            currentEditCallback(newText);
+        }
+        closeEditModalFunc();
+    };
+
+    // Close modal when clicking outside
+    editModal.onclick = (e) => {
+        if (e.target === editModal) {
+            closeEditModalFunc();
+        }
+    };
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && editModal.classList.contains('show')) {
+            closeEditModalFunc();
+        }
+    });
 });
