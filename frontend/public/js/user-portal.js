@@ -106,12 +106,16 @@ const projectFormHTML = `
         resetAddDataForm();
     };
 
-    createProjectButton.onclick = () => createProjectModal.classList.add("show");
-    addDataButton.onclick = () => {
-        addDataModal.classList.add("show");
-        document.getElementById("issueSuccessDisplay").style.display = "block";
+    createProjectButton.onclick = () => {
+        if (confirmNavigation("Create New Project")) {
+            createProjectModal.classList.add("show");
+        }
     };
-    logoutButton.onclick = () => window.location.href = "index.html";
+    logoutButton.onclick = () => {
+        if (confirmNavigation("logout")) {
+            window.location.href = "index.html";
+        }
+    };
 
     window.onclick = (e) => {
     if (e.target === createProjectModal) createProjectModal.classList.remove("show");
@@ -404,13 +408,46 @@ const projectFormHTML = `
 
     // Show display area when Add Data is clicked
     addDataButton.onclick = () => {
+        // If there's already data, ask for confirmation
+        if (hasUnsavedData()) {
+            const confirmed = confirm("You have existing data in the main area. Do you want to add more data to the current entries?");
+            if (!confirmed) {
+                return;
+            }
+        }
         addDataModal.classList.add("show");
         document.getElementById("issueSuccessDisplay").style.display = "block";
     };
 
-    createProjectButton.onclick = () => {
-        createProjectModal.classList.add("show");
-    };
+    // Function to check if there's unsaved data in the main area
+    function hasUnsavedData() {
+        const displayArea = document.getElementById("issueSuccessDisplay");
+        const entries = displayArea.querySelectorAll('.issue-success-entry');
+        return entries.length > 0;
+    }
+
+    // Function to reset the main area to blank state
+    function resetMainArea() {
+        const displayArea = document.getElementById("issueSuccessDisplay");
+        displayArea.innerHTML = '';
+        displayArea.style.display = "none";
+        
+        // Reset the Add Data form
+        resetAddDataForm();
+    }
+
+    // Function to show confirmation dialog for unsaved data
+    function confirmNavigation(action) {
+        if (hasUnsavedData()) {
+            const confirmed = confirm("You have unsaved data in the main area. Do you want to proceed without saving?");
+            if (confirmed) {
+                resetMainArea();
+                return true;
+            }
+            return false;
+        }
+        return true;
+    }
 
     // Edit Modal functionality
     const editModal = document.getElementById("editModal");
@@ -467,5 +504,28 @@ const projectFormHTML = `
         if (e.key === 'Escape' && editModal.classList.contains('show')) {
             closeEditModalFunc();
         }
+    });
+
+    // Add event listeners for sidebar navigation
+    const sidebarLinks = document.querySelectorAll('.sidebar .nav-item');
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirmNavigation("navigate")) {
+                // Remove active class from all links
+                sidebarLinks.forEach(l => l.classList.remove('active'));
+                // Add active class to clicked link
+                link.classList.add('active');
+                
+                // Reset main area
+                resetMainArea();
+                
+                // Here you would typically load different content based on the link
+                // For now, we'll just show a placeholder
+                const mainContent = document.querySelector('.main-content h1');
+                const linkText = link.textContent.trim();
+                mainContent.textContent = `Welcome to ${linkText}`;
+            }
+        });
     });
 });
