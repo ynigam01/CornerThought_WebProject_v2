@@ -439,7 +439,7 @@ body {
   justify-content: flex-start;
   align-items: center;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.3s ease, background 0.3s ease;
   z-index: 1000;
 }
 
@@ -450,6 +450,8 @@ body {
 .modal.show {
     display: flex;
     opacity: 1;
+    background: rgba(0, 0, 0, 0.5);
+    justify-content: flex-start;
 }
 
 .modal-content {
@@ -465,6 +467,10 @@ body {
     overflow: visible;
     display: flex;
     flex-direction: column;
+}
+
+.modal.show .modal-content {
+    margin-left: 20px;
 }
 
 .modal-content h3 {
@@ -522,6 +528,11 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 1000;
+}
+
+/* Add New User button hover effect */
+#addNewUserButton:hover {
+    background-color: #2980b9 !important;
 }
 
 

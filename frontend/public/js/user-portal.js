@@ -90,8 +90,42 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const addUserModalHTML = `
+    <div class="modal" id="addUserModal">
+        <div class="modal-content" style="width: 500px; max-width: 90%; padding: 30px;">
+            <button class="close-button" id="closeAddUser">&times;</button>
+            <h3>Add New User</h3>
+            <form id="addUserForm">
+                <div class="input-group">
+                    <label for="userName">Name</label>
+                    <input type="text" id="userName" required>
+                </div>
+                <div class="input-group">
+                    <label for="userEmail">Email</label>
+                    <input type="email" id="userEmail" required>
+                </div>
+                <div class="input-group">
+                    <label for="userType">User Type</label>
+                    <select id="userType" required>
+                        <option value="">Select a user type</option>
+                        <option value="Company Administrator">Company Administrator</option>
+                        <option value="Leadership">Leadership</option>
+                        <option value="Project Manager">Project Manager</option>
+                        <option value="Subject Matter Expert">Subject Matter Expert</option>
+                        <option value="Team Member">Team Member</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="cancelAddUser">Cancel</button>
+                    <button type="submit">Add User</button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+
     container.insertAdjacentHTML("beforeend", projectFormHTML);
     container.insertAdjacentHTML("beforeend", addDataFormHTML);
+    document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
 
     const createProjectButton = document.querySelector(".create-project-button");
     const addDataButton = document.querySelector(".add-data-button");
@@ -99,15 +133,22 @@ const projectFormHTML = `
 
     const createProjectModal = document.getElementById("createProjectModal");
     const addDataModal = document.getElementById("addDataModal");
+    const addUserModal = document.getElementById("addUserModal");
 
     document.getElementById("closeCreateProject").onclick = () => createProjectModal.classList.remove("show");
     document.getElementById("closeAddData").onclick = () => {
         addDataModal.classList.remove("show");
         resetAddDataForm();
     };
+    document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
+    document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
 
     createProjectButton.onclick = () => {
         if (confirmNavigation("Create New Project")) {
+            exitOrganizationSettings();
+            // Ensure default header is visible
+            const header = document.querySelector('.main-content h1');
+            if (header) header.style.display = '';
             createProjectModal.classList.add("show");
         }
     };
@@ -123,6 +164,22 @@ const projectFormHTML = `
         addDataModal.classList.remove("show");
         resetAddDataForm();
     }
+    if (e.target === addUserModal) addUserModal.classList.remove("show");
+    };
+
+    // Handle Add User form submission
+    document.getElementById("addUserForm").onsubmit = (e) => {
+        e.preventDefault();
+        const userName = document.getElementById("userName").value;
+        const userEmail = document.getElementById("userEmail").value;
+        const userType = document.getElementById("userType").value;
+        
+        // Here you would typically send this data to a backend API
+        alert(`User added successfully!\nName: ${userName}\nEmail: ${userEmail}\nUser Type: ${userType}`);
+        
+        // Close modal and reset form
+        addUserModal.classList.remove("show");
+        document.getElementById("addUserForm").reset();
     };
 
     document.getElementById("createProjectForm").onsubmit = (e) => {
@@ -415,8 +472,14 @@ const projectFormHTML = `
                 return;
             }
         }
+        // Leave Organization Settings view if active
+        exitOrganizationSettings();
+        // Ensure default header is visible
+        const header = document.querySelector('.main-content h1');
+        if (header) header.style.display = '';
         addDataModal.classList.add("show");
-        document.getElementById("issueSuccessDisplay").style.display = "block";
+        const display = document.getElementById("issueSuccessDisplay");
+        if (display) display.style.display = "block";
     };
 
     // Function to check if there's unsaved data in the main area
@@ -517,15 +580,71 @@ const projectFormHTML = `
                 // Add active class to clicked link
                 link.classList.add('active');
                 
-                // Reset main area
-                resetMainArea();
-                
-                // Here you would typically load different content based on the link
-                // For now, we'll just show a placeholder
-                const mainContent = document.querySelector('.main-content h1');
+                // Get the link text to determine what to show
                 const linkText = link.textContent.trim();
-                mainContent.textContent = `Welcome to ${linkText}`;
+                
+                // Load different content based on the link
+                if (linkText === "Organization Settings") {
+                    // Reset and show organization settings
+                    resetMainArea();
+                    displayOrganizationSettings();
+                } else {
+                    // Exit Organization Settings and show default blank area
+                    exitOrganizationSettings();
+                    resetMainArea();
+                    const header = document.querySelector('.main-content h1');
+                    if (header) {
+                        header.textContent = 'Welcome, User';
+                        header.style.display = '';
+                    }
+                }
             }
         });
     });
+
+    // Function to display Organization Settings
+    function displayOrganizationSettings() {
+        const mainContent = document.querySelector('.main-content');
+        // Hide default main items
+        const header = mainContent.querySelector('h1');
+        const displayArea = document.getElementById('issueSuccessDisplay');
+        const projectContainer = document.getElementById('projectFormContainer');
+        if (header) header.style.display = 'none';
+        if (displayArea) displayArea.style.display = 'none';
+        if (projectContainer) projectContainer.style.display = 'none';
+
+        // If already present, don't duplicate
+        if (document.getElementById('organizationSettingsContent')) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.id = 'organizationSettingsContent';
+        wrapper.innerHTML = `
+            <div style="margin-bottom: 30px;">
+                <h2 style="color: #2c3e50; font-size: 28px; margin-bottom: 10px;">Number of Users: <span id="userCount" style="color: #3498db;">0</span></h2>
+            </div>
+            <div>
+                <h3 style="color: #2c3e50; font-size: 20px; margin-bottom: 20px;">Manage Users</h3>
+                <button id="addNewUserButton" style="background-color: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background-color 0.3s ease;">Add New User</button>
+            </div>
+        `;
+        mainContent.appendChild(wrapper);
+
+        const addBtn = document.getElementById('addNewUserButton');
+        if (addBtn) {
+            addBtn.onclick = () => addUserModal.classList.add('show');
+        }
+    }
+
+    // Function to exit Organization Settings and restore default main
+    function exitOrganizationSettings() {
+        const org = document.getElementById('organizationSettingsContent');
+        if (org) org.remove();
+        const header = document.querySelector('.main-content h1');
+        const displayArea = document.getElementById('issueSuccessDisplay');
+        const projectContainer = document.getElementById('projectFormContainer');
+        if (header) header.style.display = '';
+        if (projectContainer) projectContainer.style.display = '';
+        // Do not auto-show display area; only show when needed
+        if (displayArea) displayArea.style.display = 'none';
+    }
 });
