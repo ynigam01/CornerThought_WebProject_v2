@@ -635,10 +635,19 @@ const projectFormHTML = `
         hide('#searchView');
         show('#createView');
         hide('#addDataView');
-        // Inject form once
-        const container = document.querySelector('#createView');
-        if (container && !container.querySelector('#inlineCreateProjectForm')) {
-            container.insertAdjacentHTML('beforeend', `
+        // Ensure two-column container exists
+        const createView = document.querySelector('#createView');
+        if (createView && !createView.querySelector('#createColumns')) {
+            createView.insertAdjacentHTML('beforeend', `
+                <div id="createColumns">
+                    <div class="left-col" id="createLeftCol"></div>
+                    <div class="right-col" id="createRightCol"></div>
+                </div>
+            `);
+        }
+        const leftCol = document.getElementById('createLeftCol');
+        if (leftCol && !document.getElementById('inlineCreateProjectForm')) {
+            leftCol.insertAdjacentHTML('beforeend', `
                 <form id="inlineCreateProjectForm" class="project-form half-width">
                     <div class="form-group">
                         <label for="inlineProjectName">Project Name</label>
@@ -698,6 +707,15 @@ const projectFormHTML = `
                     <div><strong>End Date:</strong> ${end}</div>
                 `;
                 summary.style.display = '';
+
+                const rightCol = document.getElementById('createRightCol');
+                if (rightCol && !rightCol.querySelector('#projectDetailsBtn')) {
+                    rightCol.insertAdjacentHTML('beforeend', `
+                        <button id="projectDetailsBtn" class="side-button">Project Details</button>
+                        <button id="projectTeamBtn" class="side-button">Project Team</button>
+                        <button id="lessonsMetadataBtn" class="side-button">Lessons Learned Metadata</button>
+                    `);
+                }
             });
         }
     }

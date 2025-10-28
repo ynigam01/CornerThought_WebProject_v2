@@ -1,3 +1,40 @@
+#createColumns {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin-top: 10px;
+    flex-wrap: nowrap; /* keep columns side by side */
+}
+
+#createColumns .left-col {
+    flex: 0 0 45%;
+    padding-left: 24px; /* visual offset */
+    box-sizing: border-box;
+}
+
+#createColumns .right-col {
+    flex: 1 1 0;
+    min-width: 260px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.side-button {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+}
+
+.side-button:hover {
+    background-color: #2980b9;
+}
 /* Basic Reset & Body Styling */
 body {
     font-family: Arial, sans-serif;
@@ -640,8 +677,18 @@ body {
 
 /* Half-width variant for left-side staging areas */
 .project-form.half-width {
-    width: 50%;
-    max-width: 600px;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+}
+
+/* In create view, avoid external margins that can overflow the column */
+#createView .project-form.half-width {
+    margin-left: 0;
+}
+
+#createView .create-summary {
+    margin-left: 0;
 }
 
 #createView .create-summary {
@@ -649,11 +696,11 @@ body {
     border: 1px solid #ddd;
     border-radius: 8px;
     padding: 20px;
-    width: 50%;
-    max-width: 600px;
+    width: 100%;
+    max-width: none;
     margin-top: 15px;
-    margin-left: 40px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.06);
+    box-sizing: border-box;
 }
 
 .project-form h2 {
