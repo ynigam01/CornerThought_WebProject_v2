@@ -130,6 +130,7 @@ const projectFormHTML = `
     const createProjectButton = document.querySelector(".create-project-button");
     const addDataButton = document.querySelector(".add-data-button");
     const logoutButton = document.querySelector(".logout-button");
+    const homeLink = document.getElementById("homeLink");
 
     const createProjectModal = document.getElementById("createProjectModal");
     const addDataModal = document.getElementById("addDataModal");
@@ -148,6 +149,18 @@ const projectFormHTML = `
             location.hash = 'create';
         }
     };
+    if (homeLink) {
+        homeLink.onclick = (e) => {
+            e.preventDefault();
+            if (!confirmNavigation('home')) return;
+            const currentRoute = (location.hash || '#home').replace('#','');
+            if (currentRoute !== 'home') {
+                location.hash = 'home';
+            } else {
+                navigate('home');
+            }
+        };
+    }
     logoutButton.onclick = () => {
         if (confirmNavigation("logout")) {
             window.location.href = "index.html";

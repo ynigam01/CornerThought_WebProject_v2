@@ -73,6 +73,15 @@ body {
     font-size: 28px; /* Slightly larger for main branding */
 }
 
+/* Remove underline from brand link in toolbar */
+.toolbar .company-name {
+    text-decoration: none;
+    color: inherit;
+}
+.toolbar .company-name:hover {
+    text-decoration: none;
+}
+
 /* Dropdown Container */
 .dropdown-container {
     position: relative;
