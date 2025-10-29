@@ -594,6 +594,7 @@ const projectFormHTML = `
         if (!confirmNavigation('navigate')) return;
         const text = link.textContent.trim();
         const route = text === 'Organization Settings' ? 'org'
+                    : text === 'My Projects' ? 'projects'
                     : text === 'General Search' || text === 'Search Projects' ? 'search'
                     : 'home';
         location.hash = route;
@@ -605,6 +606,7 @@ const projectFormHTML = `
         links.forEach(l => {
             const text = l.textContent.trim();
             const r = text === 'Organization Settings' ? 'org'
+                    : text === 'My Projects' ? 'projects'
                     : text === 'General Search' || text === 'Search Projects' ? 'search'
                     : 'home';
             if (r === route) l.classList.add('active'); else l.classList.remove('active');
@@ -628,6 +630,7 @@ const projectFormHTML = `
         hide('#searchView');
         hide('#createView');
         hide('#addDataView');
+        hide('#projectsView');
         // Ensure header visible and display area hidden by default
         const header = document.querySelector('#homeView h1');
         if (header) header.style.display = '';
@@ -640,6 +643,16 @@ const projectFormHTML = `
         show('#searchView');
         hide('#createView');
         hide('#addDataView');
+        hide('#projectsView');
+    }
+
+    function showProjectsView() {
+        exitOrganizationSettings();
+        hide('#homeView');
+        hide('#searchView');
+        hide('#createView');
+        hide('#addDataView');
+        show('#projectsView');
     }
 
     function showCreateView() {
@@ -648,6 +661,7 @@ const projectFormHTML = `
         hide('#searchView');
         show('#createView');
         hide('#addDataView');
+        hide('#projectsView');
         // Ensure two-column container exists
         const createView = document.querySelector('#createView');
         if (createView && !createView.querySelector('#createColumns')) {
@@ -739,6 +753,7 @@ const projectFormHTML = `
         hide('#searchView');
         hide('#createView');
         show('#addDataView');
+        hide('#projectsView');
     }
 
     // Function to display Organization Settings
@@ -748,6 +763,7 @@ const projectFormHTML = `
         hide('#searchView');
         hide('#createView');
         hide('#addDataView');
+        hide('#projectsView');
         // If already present, don't duplicate
         if (!document.getElementById('orgView')) {
             const tpl = document.getElementById('orgSettingsTemplate');
@@ -775,6 +791,9 @@ const projectFormHTML = `
         } else if (route === 'search') {
             resetMainArea();
             showSearchView();
+        } else if (route === 'projects') {
+            resetMainArea();
+            showProjectsView();
         } else if (route === 'create') {
             resetMainArea();
             showCreateView();
