@@ -1,4 +1,5 @@
 // js/user-portal.js
+import { supabase } from './supabase-client.js';
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("projectFormContainer");
 
