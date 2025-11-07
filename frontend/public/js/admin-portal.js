@@ -7,6 +7,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const closeButton = document.querySelector(".close-button");
     const form = document.getElementById("addOrgForm");
     const orgTableBody = document.querySelector(".organizations-table tbody");
+    const editModal = document.getElementById('editOrgModal');
+    const editCloseButton = document.querySelector('.edit-close-button');
+    const editForm = document.getElementById('editOrgForm');
+    const editNameInput = document.getElementById('editOrgName');
+    const editTypeInput = document.getElementById('editOrgType');
+    const editEmailInput = document.getElementById('editOrgEmail');
+    const editUsersInput = document.getElementById('editOrgUsers');
+    let currentEditingId = null;
 
     // Helper to render an organization row
     function renderOrganizationRow(org) {
@@ -83,8 +91,34 @@ document.addEventListener("DOMContentLoaded", () => {
         data.forEach(renderOrganizationRow);
     }
 
-    // Handle table action buttons (delete)
+    // Handle table action buttons (edit, delete)
     orgTableBody.addEventListener('click', async (event) => {
+        // Edit button
+        const editBtn = event.target.closest('.edit-button');
+        if (editBtn) {
+            const row = editBtn.closest('tr');
+            const idAttr = row?.dataset?.orgId;
+            const idText = row?.querySelector('td')?.textContent?.trim();
+            const idValue = idAttr ?? idText;
+            const id = idValue ? Number(idValue) : NaN;
+            if (!Number.isFinite(id)) {
+                alert('Invalid organization id.');
+                return;
+            }
+            currentEditingId = id;
+            // Prefill from row cells
+            const cells = row.querySelectorAll('td');
+            editNameInput.value = cells[1]?.textContent?.trim() ?? '';
+            editTypeInput.value = cells[2]?.textContent?.trim() ?? '';
+            editEmailInput.value = cells[3]?.textContent?.trim() ?? '';
+            const usersVal = cells[4]?.textContent?.trim();
+            editUsersInput.value = usersVal ? Number(usersVal) : '';
+            // Show edit modal
+            editModal.classList.add('show');
+            return;
+        }
+
+        // Delete button
         const deleteBtn = event.target.closest('.delete-button');
         if (!deleteBtn) return;
 
@@ -121,6 +155,77 @@ document.addEventListener("DOMContentLoaded", () => {
 
         row?.remove();
     });
+
+    // Edit modal close behavior
+    if (editCloseButton) {
+        editCloseButton.addEventListener('click', () => {
+            editModal.classList.remove('show');
+            currentEditingId = null;
+        });
+    }
+    window.addEventListener('click', (e) => {
+        if (e.target === editModal) {
+            editModal.classList.remove('show');
+            currentEditingId = null;
+        }
+    });
+
+    // Edit form submit -> persist update
+    if (editForm) {
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = currentEditingId;
+            if (!Number.isFinite(id)) {
+                alert('Invalid organization id.');
+                return;
+            }
+            const payload = {
+                name: editNameInput.value.trim(),
+                type: editTypeInput.value.trim(),
+                admin_email: editEmailInput.value.trim(),
+                users_allotted: Number(editUsersInput.value)
+            };
+            if (!payload.name || !payload.type || !payload.admin_email || !payload.users_allotted) {
+                alert('Please fill in all fields.');
+                return;
+            }
+            const saveBtn = editForm.querySelector('.save-edit-button');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+            }
+            const { data, error } = await supabase
+                .from('organizations')
+                .update(payload)
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) {
+                console.error('Supabase update error:', error);
+                alert('Failed to update organization. You may not have permission.');
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Changes';
+                }
+                return;
+            }
+            // Update UI row
+            const row = orgTableBody.querySelector(`tr[data-org-id=\"${id}\"]`) || Array.from(orgTableBody.querySelectorAll('tr')).find(tr => tr.querySelector('td')?.textContent?.trim() === String(id));
+            if (row) {
+                const cells = row.querySelectorAll('td');
+                if (cells[1]) cells[1].textContent = data?.name ?? payload.name;
+                if (cells[2]) cells[2].textContent = data?.type ?? payload.type;
+                if (cells[3]) cells[3].textContent = data?.admin_email ?? payload.admin_email;
+                if (cells[4]) cells[4].textContent = String(data?.users_allotted ?? payload.users_allotted);
+            }
+            editModal.classList.remove('show');
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Changes';
+            }
+            alert('Organization updated successfully!');
+        });
+    }
 
     addOrgButton.addEventListener("click", () => {
         modal.classList.add("show");

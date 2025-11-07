@@ -89,6 +89,33 @@
     </div>
 </div>
 
+<!-- Edit Organization Popup -->
+<div id="editOrgModal" class="modal modal--center">
+    <div class="modal-content">
+        <span class="edit-close-button">&times;</span>
+        <h3>Edit Organization</h3>
+        <form id="editOrgForm">
+            <div class="input-group">
+                <label for="editOrgName">Organization Name</label>
+                <input type="text" id="editOrgName" name="editOrgName" required>
+            </div>
+            <div class="input-group">
+                <label for="editOrgType">Type</label>
+                <input type="text" id="editOrgType" name="editOrgType" required>
+            </div>
+            <div class="input-group">
+                <label for="editOrgEmail">Admin Email</label>
+                <input type="email" id="editOrgEmail" name="editOrgEmail" required>
+            </div>
+            <div class="input-group">
+                <label for="editOrgUsers">Users Allotted</label>
+                <input type="number" id="editOrgUsers" name="editOrgUsers" required min="1">
+            </div>
+            <button type="submit" class="save-edit-button">Save Changes</button>
+        </form>
+    </div>
+</div>
+
 <script type="module" src="js/admin-portal.js"></script>
 </body>
 </html>

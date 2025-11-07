@@ -483,7 +483,7 @@ body {
   width: 100%; height: 100%;
   background: transparent;
   justify-content: flex-start;
-  align-items: center;
+  align-items: flex-start;
   opacity: 0;
   transition: opacity 0.3s ease, background 0.3s ease;
   z-index: 1000;
@@ -549,6 +549,40 @@ body {
     background-color: #f0f0f0;
 }
 
+/* Apply same close button styling for edit modal's X */
+.edit-close-button {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    background: none;
+    border: none;
+    padding: 5px;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+.edit-close-button:hover {
+    color: #000;
+    background-color: #f0f0f0;
+}
+
+/* Centered modal modifier */
+.modal.modal--center {
+    justify-content: center;
+    align-items: center;
+}
+.modal.modal--center .modal-content {
+    width: 560px;
+    margin-left: 0;
+}
 .save-org-button {
   margin-top: 1rem;
   padding: 0.5rem 1.5rem;
@@ -1045,6 +1079,17 @@ body {
     max-height: calc(90vh - 60px);
 }
 
+/* Edit Organization modal spacing */
+#editOrgModal .modal-content {
+    padding: 24px;
+}
+#editOrgModal h3 {
+    margin-bottom: 16px;
+}
+#editOrgModal .save-edit-button {
+    margin-top: 12px;
+}
+
 /* Form styling within modals */
 .modal form {
     display: flex;
@@ -1055,11 +1100,11 @@ body {
 .modal .input-group {
     display: flex;
     flex-direction: column;
-    margin-bottom: 0;
+    margin-bottom: 16px;
 }
 
 .modal .input-group label {
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     font-weight: 500;
     color: #333;
 }
