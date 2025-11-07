@@ -8,6 +8,78 @@ document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("addOrgForm");
     const orgTableBody = document.querySelector(".organizations-table tbody");
 
+    // Helper to render an organization row
+    function renderOrganizationRow(org) {
+        const newRow = document.createElement('tr');
+
+        const idCell = document.createElement('td');
+        idCell.textContent = org?.id ?? '—';
+
+        const nameCell = document.createElement('td');
+        nameCell.textContent = org?.name ?? '—';
+
+        const typeCell = document.createElement('td');
+        typeCell.textContent = org?.type ?? '—';
+
+        const emailCell = document.createElement('td');
+        emailCell.textContent = org?.admin_email ?? '—';
+
+        const usersCell = document.createElement('td');
+        usersCell.textContent = String(org?.users_allotted ?? '—');
+
+        const actionsCell = document.createElement('td');
+        actionsCell.innerHTML = '<button class="edit-button">Edit</button><button class="delete-button">Delete</button>';
+
+        newRow.appendChild(idCell);
+        newRow.appendChild(nameCell);
+        newRow.appendChild(typeCell);
+        newRow.appendChild(emailCell);
+        newRow.appendChild(usersCell);
+        newRow.appendChild(actionsCell);
+        orgTableBody.appendChild(newRow);
+    }
+
+    // Load and render organizations on page load
+    async function loadOrganizations() {
+        // show loading state
+        orgTableBody.innerHTML = '';
+        const loadingRow = document.createElement('tr');
+        const loadingCell = document.createElement('td');
+        loadingCell.colSpan = 6;
+        loadingCell.textContent = 'Loading organizations...';
+        loadingRow.appendChild(loadingCell);
+        orgTableBody.appendChild(loadingRow);
+
+        const { data, error } = await supabase
+            .from('organizations')
+            .select('id, name, type, admin_email, users_allotted')
+            .order('date_added', { ascending: false });
+
+        orgTableBody.innerHTML = '';
+        if (error) {
+            const errRow = document.createElement('tr');
+            const errCell = document.createElement('td');
+            errCell.colSpan = 6;
+            errCell.textContent = 'Failed to load organizations.';
+            errRow.appendChild(errCell);
+            orgTableBody.appendChild(errRow);
+            console.error('Supabase select error:', error);
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.colSpan = 6;
+            emptyCell.textContent = 'No organizations yet.';
+            emptyRow.appendChild(emptyCell);
+            orgTableBody.appendChild(emptyRow);
+            return;
+        }
+
+        data.forEach(renderOrganizationRow);
+    }
+
     addOrgButton.addEventListener("click", () => {
         modal.classList.add("show");
     });
@@ -59,27 +131,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             // Update table UI with the new organization row
-            const newRow = document.createElement('tr');
-            const idCell = document.createElement('td');
-            idCell.textContent = data?.id ?? '—';
-            const nameCell = document.createElement('td');
-            nameCell.textContent = data?.name ?? orgName;
-            const typeCell = document.createElement('td');
-            typeCell.textContent = data?.type ?? orgType;
-            const emailCell = document.createElement('td');
-            emailCell.textContent = data?.admin_email ?? adminEmail;
-            const usersCell = document.createElement('td');
-            usersCell.textContent = String(data?.users_allotted ?? usersAllotted);
-            const actionsCell = document.createElement('td');
-            actionsCell.innerHTML = '<button class="edit-button">Edit</button><button class="delete-button">Delete</button>';
-
-            newRow.appendChild(idCell);
-            newRow.appendChild(nameCell);
-            newRow.appendChild(typeCell);
-            newRow.appendChild(emailCell);
-            newRow.appendChild(usersCell);
-            newRow.appendChild(actionsCell);
-            orgTableBody.appendChild(newRow);
+            renderOrganizationRow(data);
 
             // Reset and close modal
             form.reset();
@@ -111,4 +163,7 @@ document.addEventListener("DOMContentLoaded", () => {
             addOrgToggleIcon.style.transform = "rotate(180deg)";
         }
     });
+
+    // Kick off initial load
+    loadOrganizations();
 });
