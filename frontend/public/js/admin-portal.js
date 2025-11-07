@@ -11,6 +11,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // Helper to render an organization row
     function renderOrganizationRow(org) {
         const newRow = document.createElement('tr');
+        if (org?.id !== undefined && org?.id !== null) {
+            newRow.dataset.orgId = String(org.id);
+        }
 
         const idCell = document.createElement('td');
         idCell.textContent = org?.id ?? '—';
@@ -79,6 +82,45 @@ document.addEventListener("DOMContentLoaded", () => {
 
         data.forEach(renderOrganizationRow);
     }
+
+    // Handle table action buttons (delete)
+    orgTableBody.addEventListener('click', async (event) => {
+        const deleteBtn = event.target.closest('.delete-button');
+        if (!deleteBtn) return;
+
+        const row = deleteBtn.closest('tr');
+        const idAttr = row?.dataset?.orgId;
+        const idText = row?.querySelector('td')?.textContent?.trim();
+        const idValue = idAttr ?? idText;
+
+        const id = idValue ? Number(idValue) : NaN;
+        if (!Number.isFinite(id)) {
+            alert('Invalid organization id.');
+            return;
+        }
+
+        const confirmed = confirm('Are you sure you want to delete this organization? This cannot be undone.');
+        if (!confirmed) return;
+
+        deleteBtn.disabled = true;
+        const originalText = deleteBtn.textContent;
+        deleteBtn.textContent = 'Deleting...';
+
+        const { error } = await supabase
+            .from('organizations')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            console.error('Supabase delete error:', error);
+            alert('Failed to delete organization.');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
+            return;
+        }
+
+        row?.remove();
+    });
 
     addOrgButton.addEventListener("click", () => {
         modal.classList.add("show");
