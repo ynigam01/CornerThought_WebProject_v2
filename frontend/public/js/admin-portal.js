@@ -14,6 +14,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const editTypeInput = document.getElementById('editOrgType');
     const editEmailInput = document.getElementById('editOrgEmail');
     const editUsersInput = document.getElementById('editOrgUsers');
+    const editFirstNameInput = document.getElementById('editAdminFirstName');
+    const editLastNameInput = document.getElementById('editAdminLastName');
     let currentEditingId = null;
 
     // Helper to render an organization row
@@ -113,6 +115,32 @@ document.addEventListener("DOMContentLoaded", () => {
             editEmailInput.value = cells[3]?.textContent?.trim() ?? '';
             const usersVal = cells[4]?.textContent?.trim();
             editUsersInput.value = usersVal ? Number(usersVal) : '';
+            // Try to prefill first/last name from users table by email
+            try {
+                const adminEmail = editEmailInput.value.trim();
+                if (adminEmail) {
+                    const { data: userRows, error: selErr } = await supabase
+                        .from('users')
+                        .select('name')
+                        .eq('email', adminEmail)
+                        .limit(1);
+                    if (!selErr && userRows && userRows.length > 0 && userRows[0]?.name) {
+                        const name = String(userRows[0].name);
+                        const parts = name.trim().split(/\\s+/);
+                        const first = parts.shift() || '';
+                        const last = parts.join(' ');
+                        if (editFirstNameInput) editFirstNameInput.value = first;
+                        if (editLastNameInput) editLastNameInput.value = last;
+                    } else {
+                        if (editFirstNameInput) editFirstNameInput.value = '';
+                        if (editLastNameInput) editLastNameInput.value = '';
+                    }
+                }
+            } catch (e) {
+                console.warn('Prefill admin name failed:', e);
+                if (editFirstNameInput) editFirstNameInput.value = '';
+                if (editLastNameInput) editLastNameInput.value = '';
+            }
             // Show edit modal
             editModal.classList.add('show');
             return;
@@ -209,6 +237,54 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 return;
             }
+            // Upsert admin user for this organization (create or update)
+            try {
+                const first = (editFirstNameInput?.value || '').trim();
+                const last = (editLastNameInput?.value || '').trim();
+                const fullName = [first, last].filter(Boolean).join(' ') || null;
+                const adminEmail = payload.admin_email;
+                if (adminEmail) {
+                    // Check if user exists by email
+                    const { data: existing, error: existErr } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('email', adminEmail)
+                        .limit(1);
+                    if (existErr) {
+                        console.warn('Could not check existing user:', existErr);
+                    }
+                    const hasUser = Array.isArray(existing) && existing.length > 0;
+                    if (hasUser) {
+                        const { error: updErr } = await supabase
+                            .from('users')
+                            .update({
+                                name: fullName,
+                                organization: data?.name ?? payload.name,
+                                organizationid: data?.id ?? id,
+                                usertype: 'Company Administrator'
+                            })
+                            .eq('email', adminEmail);
+                        if (updErr) {
+                            console.error('Supabase users update error:', updErr);
+                        }
+                    } else if (first || last) {
+                        const { error: insErr } = await supabase
+                            .from('users')
+                            .insert({
+                                name: fullName,
+                                organization: data?.name ?? payload.name,
+                                email: adminEmail,
+                                organizationid: data?.id ?? id,
+                                usertype: 'Company Administrator'
+                            });
+                        if (insErr) {
+                            console.error('Supabase users insert error:', insErr);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Upsert admin user failed:', e);
+            }
             // Update UI row
             const row = orgTableBody.querySelector(`tr[data-org-id=\"${id}\"]`) || Array.from(orgTableBody.querySelectorAll('tr')).find(tr => tr.querySelector('td')?.textContent?.trim() === String(id));
             if (row) {
@@ -285,16 +361,15 @@ document.addEventListener("DOMContentLoaded", () => {
             const adminLast = (document.getElementById('orgAdminLastName')?.value || '').trim();
             if (adminFirst && adminLast) {
                 const fullName = `${adminFirst} ${adminLast}`.trim();
-                const usersPayload = {
-                    username: fullName,
-                    userorganization: orgName,
-                    useremail: adminEmail,
-                    organizationid: data?.id ?? null,
-                    usertype: 'Company Administrator'
-                };
                 const { error: userInsertError } = await supabase
                     .from('users')
-                    .insert(usersPayload);
+                    .insert({
+                        name: fullName,
+                        organization: orgName,
+                        email: adminEmail,
+                        organizationid: data?.id ?? null,
+                        usertype: 'Company Administrator'
+                    });
                 if (userInsertError) {
                     console.error('Supabase users insert error:', userInsertError);
                     // Non-blocking: org created successfully; inform user but don’t roll back
