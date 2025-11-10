@@ -280,6 +280,28 @@ document.addEventListener("DOMContentLoaded", () => {
             // Update table UI with the new organization row
             renderOrganizationRow(data);
 
+            // Also create admin user in users table if first/last name provided
+            const adminFirst = (document.getElementById('orgAdminFirstName')?.value || '').trim();
+            const adminLast = (document.getElementById('orgAdminLastName')?.value || '').trim();
+            if (adminFirst && adminLast) {
+                const fullName = `${adminFirst} ${adminLast}`.trim();
+                const usersPayload = {
+                    username: fullName,
+                    userorganization: orgName,
+                    useremail: adminEmail,
+                    organizationid: data?.id ?? null,
+                    usertype: 'Company Administrator'
+                };
+                const { error: userInsertError } = await supabase
+                    .from('users')
+                    .insert(usersPayload);
+                if (userInsertError) {
+                    console.error('Supabase users insert error:', userInsertError);
+                    // Non-blocking: org created successfully; inform user but don’t roll back
+                    alert('Organization saved, but failed to add admin user. Check console for details.');
+                }
+            }
+
             // Reset and close modal
             form.reset();
             modal.classList.remove('show');
