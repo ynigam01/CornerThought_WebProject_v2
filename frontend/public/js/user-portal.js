@@ -1,5 +1,15 @@
 // js/user-portal.js
 import { supabase } from './supabase-client.js';
+
+// Require login: redirect to user-login if no session is present
+try {
+    const ctUser = JSON.parse(sessionStorage.getItem('ct_user'));
+    if (!ctUser) {
+        window.location.href = 'user-login.html';
+    }
+} catch (_) {
+    window.location.href = 'user-login.html';
+}
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("projectFormContainer");
 
@@ -175,6 +185,7 @@ const projectFormHTML = `
     }
     logoutButton.onclick = () => {
         if (confirmNavigation("logout")) {
+            try { sessionStorage.removeItem('ct_user'); } catch (_) {}
             window.location.href = "index.html";
         }
     };
