@@ -130,7 +130,7 @@ const projectFormHTML = `
                     <label for="userType">User Type</label>
                     <select id="userType" required>
                         <option value="">Select a user type</option>
-                        <option value="Company Administrator">Company Administrator</option>
+                        <option value="Administrator">Administrator</option>
                         <option value="Leadership">Leadership</option>
                         <option value="Project Manager">Project Manager</option>
                         <option value="Subject Matter Expert">Subject Matter Expert</option>
@@ -199,16 +199,65 @@ const projectFormHTML = `
     if (e.target === addUserModal) addUserModal.classList.remove("show");
     };
 
-    // Handle Add User form submission
-    document.getElementById("addUserForm").onsubmit = (e) => {
+    // Handle Add User form submission -> persist to Supabase 'users'
+    document.getElementById("addUserForm").onsubmit = async (e) => {
         e.preventDefault();
-        const userName = document.getElementById("userName").value;
-        const userEmail = document.getElementById("userEmail").value;
-        const userType = document.getElementById("userType").value;
-        
-        // Here you would typically send this data to a backend API
-        alert(`User added successfully!\nName: ${userName}\nEmail: ${userEmail}\nUser Type: ${userType}`);
-        
+        const userName = document.getElementById("userName").value.trim();
+        const userEmail = document.getElementById("userEmail").value.trim().toLowerCase();
+        let userType = document.getElementById("userType").value;
+
+        // Normalize: ensure Company Administrator is never used from this portal
+        if (userType === 'Company Administrator') {
+            userType = 'Administrator';
+        }
+
+        if (!userName || !userEmail || !userType) {
+            alert('Please fill in Name, Email, and User Type.');
+            return;
+        }
+
+        // Pull organizationid from session
+        let organizationid = null;
+        try {
+            const stored = JSON.parse(sessionStorage.getItem('ct_user'));
+            if (stored && stored.organizationid) {
+                organizationid = stored.organizationid;
+            }
+        } catch (_) {}
+
+        // Optionally fetch organization name by id
+        let organization = null;
+        try {
+            if (organizationid != null) {
+                const { data: orgRow, error: orgErr } = await supabase
+                    .from('organizations')
+                    .select('name')
+                    .eq('id', organizationid)
+                    .maybeSingle();
+                if (!orgErr && orgRow && orgRow.name) {
+                    organization = orgRow.name;
+                }
+            }
+        } catch (_) {}
+
+        // Insert into public.users with correct column names
+        const { error } = await supabase
+            .from('users')
+            .insert({
+                name: userName,
+                email: userEmail,
+                usertype: userType,
+                organization,
+                organizationid
+            });
+
+        if (error) {
+            console.error('Supabase users insert error:', error);
+            alert('Failed to add user. Please try again.');
+            return;
+        }
+
+        alert(`User added successfully!`);
         // Close modal and reset form
         addUserModal.classList.remove("show");
         document.getElementById("addUserForm").reset();
