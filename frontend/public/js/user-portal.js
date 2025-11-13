@@ -3,6 +3,17 @@ import { supabase } from './supabase-client.js';
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("projectFormContainer");
 
+    // Personalize welcome header with first name if session exists
+    try {
+        const stored = JSON.parse(sessionStorage.getItem('ct_user'));
+        const fullName = stored && stored.name ? String(stored.name).trim() : '';
+        if (fullName) {
+            const firstName = fullName.split(/\s+/)[0] || 'User';
+            const headerEl = document.querySelector('#homeView h1');
+            if (headerEl) headerEl.textContent = `Welcome ${firstName}`;
+        }
+    } catch (_) {}
+
 const projectFormHTML = `
     <div class="modal" id="createProjectModal">
         <div class="modal-content collapsible-form">
