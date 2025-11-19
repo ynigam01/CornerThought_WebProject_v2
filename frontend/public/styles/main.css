@@ -1082,6 +1082,10 @@ body {
 /* Edit Organization modal spacing */
 #editOrgModal .modal-content {
     padding: 24px;
+    /* Allow vertical scrolling when content exceeds viewport height */
+    max-height: calc(90vh - 40px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 #editOrgModal h3 {
     margin-bottom: 16px;
