@@ -13,6 +13,39 @@ try {
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("projectFormContainer");
 
+    // Get user info and check permissions
+    let ctUser = null;
+    let canCreateProjects = false;
+    let canManageOrgSettings = false;
+    
+    try {
+        ctUser = JSON.parse(sessionStorage.getItem('ct_user'));
+        if (ctUser && ctUser.usertype) {
+            const userType = String(ctUser.usertype).trim();
+            // Only Administrators and Company Administrators can create projects and manage org settings
+            canCreateProjects = userType === 'Administrator' || userType === 'Company Administrator';
+            canManageOrgSettings = userType === 'Administrator' || userType === 'Company Administrator';
+        }
+    } catch (_) {}
+
+    // Hide Create New Project button if user doesn't have permission
+    const createProjectButton = document.querySelector(".create-project-button");
+    if (createProjectButton && !canCreateProjects) {
+        createProjectButton.style.display = 'none';
+    }
+
+    // Hide Organization Settings menu item if user doesn't have permission
+    const sidebarNav = document.querySelector('.sidebar .main-nav');
+    if (sidebarNav && !canManageOrgSettings) {
+        const navItems = sidebarNav.querySelectorAll('.nav-item');
+        navItems.forEach(item => {
+            const text = item.textContent.trim();
+            if (text === 'Organization Settings' || text.includes('Organization Settings')) {
+                item.style.display = 'none';
+            }
+        });
+    }
+
     // Personalize welcome header with first name if session exists
     try {
         const stored = JSON.parse(sessionStorage.getItem('ct_user'));
@@ -149,7 +182,6 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
 
-    const createProjectButton = document.querySelector(".create-project-button");
     const addDataButton = document.querySelector(".add-data-button");
     const logoutButton = document.querySelector(".logout-button");
     const homeLink = document.getElementById("homeLink");
@@ -166,11 +198,18 @@ const projectFormHTML = `
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
 
-    createProjectButton.onclick = () => {
-        if (confirmNavigation("Create New Project")) {
-            location.hash = 'create';
-        }
-    };
+    if (createProjectButton) {
+        createProjectButton.onclick = () => {
+            // Check permissions before allowing navigation
+            if (!canCreateProjects) {
+                alert('You do not have permission to create new projects. Please contact your administrator.');
+                return;
+            }
+            if (confirmNavigation("Create New Project")) {
+                location.hash = 'create';
+            }
+        };
+    }
     if (homeLink) {
         homeLink.onclick = (e) => {
             e.preventDefault();
@@ -858,17 +897,31 @@ const projectFormHTML = `
     function navigate(route) {
         setActiveSidebar(route);
         if (route === 'org') {
+            // Check permissions before allowing access to Organization Settings
+            if (!canManageOrgSettings) {
+                alert('You do not have permission to access Organization Settings. Please contact your administrator.');
+                location.hash = 'home';
+                showHomeView();
+                return;
+            }
             resetMainArea();
             displayOrganizationSettings();
+        } else if (route === 'create') {
+            // Check permissions before allowing access to Create Project
+            if (!canCreateProjects) {
+                alert('You do not have permission to create new projects. Please contact your administrator.');
+                location.hash = 'home';
+                showHomeView();
+                return;
+            }
+            resetMainArea();
+            showCreateView();
         } else if (route === 'search') {
             resetMainArea();
             showSearchView();
         } else if (route === 'projects') {
             resetMainArea();
             showProjectsView();
-        } else if (route === 'create') {
-            resetMainArea();
-            showCreateView();
         } else if (route === 'adddata') {
             resetMainArea();
             showAddDataView();
