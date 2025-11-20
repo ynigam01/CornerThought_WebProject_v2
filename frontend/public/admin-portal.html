@@ -20,39 +20,48 @@
 <div class="admin-dashboard-layout">
     <aside class="sidebar">
         <nav class="main-nav">
-            <a href="#" class="nav-item active"><i class="fas fa-building"></i> Organizations</a>
-            <a href="#" class="nav-item"><i class="fas fa-users"></i> Users</a>
-            <a href="#" class="nav-item"><i class="fas fa-cog"></i> Settings</a>
-            <a href="#" class="nav-item"><i class="fas fa-chart-bar"></i> Reports</a>
+            <a href="#" class="nav-item active" data-view="organizations"><i class="fas fa-building"></i> Organizations</a>
+            <a href="#" class="nav-item" data-view="users"><i class="fas fa-users"></i> Users</a>
+            <a href="#" class="nav-item" data-view="public-database"><i class="fas fa-database"></i> Public Database</a>
+            <a href="#" class="nav-item" data-view="settings"><i class="fas fa-cog"></i> Settings</a>
+            <a href="#" class="nav-item" data-view="reports"><i class="fas fa-chart-bar"></i> Reports</a>
         </nav>
     </aside>
 
     <main class="content-panel">
-        <h2>Organizations Management</h2>
-        <div class="controls">
-            <button class="add-organization-button">Add New Organization</button>
-            <input type="text" placeholder="Search..." class="search-input">
+        <!-- Organizations View -->
+        <div id="organizations-view" class="view-content">
+            <h2>Organizations Management</h2>
+            <div class="controls">
+                <button class="add-organization-button">Add New Organization</button>
+                <input type="text" placeholder="Search..." class="search-input">
+            </div>
+
+            <table class="organizations-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Admin Email</th>
+                        <th>Users Allotted</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+
+            <div class="pagination">
+                <button>Previous</button>
+                <span>1</span> <span>2</span> <span>3</span>
+                <button>Next</button>
+            </div>
         </div>
 
-        <table class="organizations-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Admin Email</th>
-                    <th>Users Allotted</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
-
-        <div class="pagination">
-            <button>Previous</button>
-            <span>1</span> <span>2</span> <span>3</span>
-            <button>Next</button>
+        <!-- Public Database View -->
+        <div id="public-database-view" class="view-content" style="display: none;">
+            <h2>Public Database</h2>
         </div>
     </main>
 </div>

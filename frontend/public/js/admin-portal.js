@@ -408,6 +408,64 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Sidebar navigation
+    const sidebarNav = document.querySelector('.sidebar .main-nav');
+    const navItems = sidebarNav.querySelectorAll('.nav-item');
+    const viewContents = {
+        'organizations': document.getElementById('organizations-view'),
+        'public-database': document.getElementById('public-database-view')
+    };
+
+    // Function to switch views
+    function switchView(viewName) {
+        // Update active state in sidebar
+        navItems.forEach(item => {
+            if (item.dataset.view === viewName) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+
+        // Show/hide view contents
+        Object.keys(viewContents).forEach(key => {
+            const view = viewContents[key];
+            if (view) {
+                if (key === viewName) {
+                    view.style.display = '';
+                } else {
+                    view.style.display = 'none';
+                }
+            }
+        });
+    }
+
+    // Handle sidebar navigation clicks
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const viewName = item.dataset.view;
+            if (viewName) {
+                if (viewContents[viewName]) {
+                    switchView(viewName);
+                } else {
+                    // View not implemented yet - update active state only
+                    navItems.forEach(navItem => {
+                        if (navItem === item) {
+                            navItem.classList.add('active');
+                        } else {
+                            navItem.classList.remove('active');
+                        }
+                    });
+                    // For now, hide all views if clicking on unimplemented view
+                    Object.values(viewContents).forEach(view => {
+                        if (view) view.style.display = 'none';
+                    });
+                }
+            }
+        });
+    });
+
     // Kick off initial load
     loadOrganizations();
 });
