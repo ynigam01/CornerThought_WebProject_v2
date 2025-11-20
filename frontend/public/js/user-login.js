@@ -5,8 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('userLoginForm');
     const emailEl = document.getElementById('loginEmail');
     const pwdEl = document.getElementById('loginPassword');
-    const submitBtn = document.getElementById('loginSubmit');
-    const msgBox = document.getElementById('loginMessage');
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const msgBox = document.querySelector('.login-status-message');
 
     function showMessage(text, type = 'info') {
         msgBox.textContent = text;
