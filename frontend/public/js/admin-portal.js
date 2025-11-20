@@ -1,5 +1,6 @@
 // js/admin-portal.js
 import { supabase } from './supabase-client.js';
+import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 
 document.addEventListener("DOMContentLoaded", () => {
     const addOrgButton = document.querySelector(".add-organization-button");
@@ -440,6 +441,60 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Public Database preview modal
+    const publicDbPreviewModal = document.getElementById('publicDbPreviewModal');
+    const publicDbPreviewBody = document.getElementById('publicDbPreviewBody');
+    const closePublicDbPreview = document.getElementById('closePublicDbPreview');
+
+    function openPublicDbPreview(entries) {
+        if (!publicDbPreviewModal || !publicDbPreviewBody) return;
+
+        publicDbPreviewBody.innerHTML = '';
+
+        if (!entries || entries.length === 0) {
+            const emptyMsg = document.createElement('p');
+            emptyMsg.textContent = 'No matching Issues or Successes were found in this file.';
+            publicDbPreviewBody.appendChild(emptyMsg);
+        } else {
+            entries.forEach(entry => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'public-db-entry';
+
+                const title = document.createElement('div');
+                title.className = 'public-db-entry-title';
+                title.textContent = `${entry.dataId}: ${entry.type}: ${entry.text}`;
+                wrapper.appendChild(title);
+
+                if (entry.causes && entry.causes.length > 0) {
+                    const ul = document.createElement('ul');
+                    ul.className = 'public-db-entry-causes';
+                    entry.causes.forEach(cause => {
+                        const li = document.createElement('li');
+                        li.textContent = cause;
+                        ul.appendChild(li);
+                    });
+                    wrapper.appendChild(ul);
+                }
+
+                publicDbPreviewBody.appendChild(wrapper);
+            });
+        }
+
+        publicDbPreviewModal.classList.add('show');
+    }
+
+    if (closePublicDbPreview && publicDbPreviewModal) {
+        closePublicDbPreview.addEventListener('click', () => {
+            publicDbPreviewModal.classList.remove('show');
+        });
+
+        publicDbPreviewModal.addEventListener('click', (e) => {
+            if (e.target === publicDbPreviewModal) {
+                publicDbPreviewModal.classList.remove('show');
+            }
+        });
+    }
+
     // Public Database file dropzone setup
     const publicDbDropzone = document.getElementById('publicDbDropzone');
     const publicDbFileInput = document.getElementById('publicDbFileInput');
@@ -456,6 +511,119 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    async function parsePublicDbExcel(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+        function normalizeHeader(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function findSheetWithHeaders(requiredHeaders) {
+            for (const sheetName of workbook.SheetNames) {
+                const sheet = workbook.Sheets[sheetName];
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+                if (!rows || rows.length === 0) continue;
+
+                const headerRow = rows[0];
+                const headerMap = {};
+                headerRow.forEach((cell, idx) => {
+                    const key = normalizeHeader(cell);
+                    if (key) headerMap[key] = idx;
+                });
+
+                const hasAll = requiredHeaders.every(h => headerMap[normalizeHeader(h)] !== undefined);
+                if (hasAll) {
+                    return {
+                        sheetName,
+                        rows,
+                        headerMap
+                    };
+                }
+            }
+            return null;
+        }
+
+        // Find Issues/Successes sheet
+        const issuesSheetInfo = findSheetWithHeaders(['Data ID', 'Issue', 'Success']);
+        if (!issuesSheetInfo) {
+            setPublicDbMessage('Could not find a sheet with columns: Data ID, Issue, Success.', 'error');
+            return;
+        }
+
+        const causesSheetInfo = findSheetWithHeaders(['Data ID', 'Cause']);
+        // causesSheetInfo can be null; that just means no causes
+
+        const entriesById = new Map();
+
+        const dataIdKey = normalizeHeader('Data ID');
+        const issueKey = normalizeHeader('Issue');
+        const successKey = normalizeHeader('Success');
+
+        const idxDataId = issuesSheetInfo.headerMap[dataIdKey];
+        const idxIssue = issuesSheetInfo.headerMap[issueKey];
+        const idxSuccess = issuesSheetInfo.headerMap[successKey];
+
+        for (let i = 1; i < issuesSheetInfo.rows.length; i++) {
+            const row = issuesSheetInfo.rows[i];
+            if (!row) continue;
+            const dataIdRaw = row[idxDataId];
+            const issueRaw = row[idxIssue];
+            const successRaw = row[idxSuccess];
+
+            const dataId = dataIdRaw != null ? String(dataIdRaw).trim() : '';
+            const issueText = issueRaw != null ? String(issueRaw).trim() : '';
+            const successText = successRaw != null ? String(successRaw).trim() : '';
+
+            if (!dataId) continue;
+            if (!issueText && !successText) continue;
+
+            const type = issueText ? 'Issue' : 'Success';
+            const text = issueText || successText;
+
+            if (!entriesById.has(dataId)) {
+                entriesById.set(dataId, {
+                    dataId,
+                    type,
+                    text,
+                    causes: []
+                });
+            }
+        }
+
+        // Attach causes if a causes sheet exists
+        if (causesSheetInfo) {
+            const causeDataIdKey = normalizeHeader('Data ID');
+            const causeKey = normalizeHeader('Cause');
+            const idxCauseDataId = causesSheetInfo.headerMap[causeDataIdKey];
+            const idxCause = causesSheetInfo.headerMap[causeKey];
+
+            for (let i = 1; i < causesSheetInfo.rows.length; i++) {
+                const row = causesSheetInfo.rows[i];
+                if (!row) continue;
+                const dataIdRaw = row[idxCauseDataId];
+                const causeRaw = row[idxCause];
+                const dataId = dataIdRaw != null ? String(dataIdRaw).trim() : '';
+                const causeText = causeRaw != null ? String(causeRaw).trim() : '';
+                if (!dataId || !causeText) continue;
+
+                const entry = entriesById.get(dataId);
+                if (entry) {
+                    entry.causes.push(causeText);
+                }
+            }
+        }
+
+        const entries = Array.from(entriesById.values());
+        if (entries.length === 0) {
+            setPublicDbMessage('No Issues or Successes were found in this file.', 'error');
+            return;
+        }
+
+        setPublicDbMessage(`Loaded ${entries.length} Issue/Success entries from the Excel file.`, 'success');
+        openPublicDbPreview(entries);
+    }
+
     function handlePublicDbFiles(fileList) {
         if (!fileList || fileList.length === 0) {
             return;
@@ -465,7 +633,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
 
         if (isExcel) {
-            setPublicDbMessage(`File "${name}" was accepted as an Excel file. (No processing will be done yet.)`, 'success');
+            setPublicDbMessage(`Reading "${name}"...`, 'success');
+            parsePublicDbExcel(file).catch((err) => {
+                console.error('Error parsing Excel file:', err);
+                setPublicDbMessage('An error occurred while reading the Excel file.', 'error');
+            });
         } else {
             setPublicDbMessage('Only Excel files (.xlsx, .xls) are supported at this time.', 'error');
         }

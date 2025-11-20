@@ -62,7 +62,7 @@
         <!-- Public Database View -->
         <div id="public-database-view" class="view-content" style="display: none;">
             <h2>Public Database</h2>
-            <p>Upload an Excel file to begin working with the public database.</p>
+            <p>Upload an Excel file to preview Issues, Successes, and their Causes.</p>
 
             <div id="publicDbDropzone" class="file-dropzone">
                 <input
@@ -155,6 +155,17 @@
             </div>
             <button type="submit" class="save-edit-button">Save Changes</button>
         </form>
+    </div>
+</div>
+
+<!-- Public Database Preview Modal -->
+<div id="publicDbPreviewModal" class="modal modal--center">
+    <div class="modal-content public-db-modal-content">
+        <button class="edit-close-button" id="closePublicDbPreview" aria-label="Close preview">&times;</button>
+        <h3>Public Database Preview</h3>
+        <div id="publicDbPreviewBody" class="public-db-preview-body">
+            <!-- Entries will be injected here -->
+        </div>
     </div>
 </div>
 
