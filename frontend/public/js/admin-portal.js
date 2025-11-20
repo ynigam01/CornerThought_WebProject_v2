@@ -440,6 +440,73 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Public Database file dropzone setup
+    const publicDbDropzone = document.getElementById('publicDbDropzone');
+    const publicDbFileInput = document.getElementById('publicDbFileInput');
+    const publicDbMessage = document.getElementById('publicDbMessage');
+
+    function setPublicDbMessage(text, type) {
+        if (!publicDbMessage) return;
+        publicDbMessage.textContent = text;
+        publicDbMessage.classList.remove('upload-message--success', 'upload-message--error');
+        if (type === 'success') {
+            publicDbMessage.classList.add('upload-message--success');
+        } else if (type === 'error') {
+            publicDbMessage.classList.add('upload-message--error');
+        }
+    }
+
+    function handlePublicDbFiles(fileList) {
+        if (!fileList || fileList.length === 0) {
+            return;
+        }
+        const file = fileList[0];
+        const name = file.name || '';
+        const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
+
+        if (isExcel) {
+            setPublicDbMessage(`File "${name}" was accepted as an Excel file. (No processing will be done yet.)`, 'success');
+        } else {
+            setPublicDbMessage('Only Excel files (.xlsx, .xls) are supported at this time.', 'error');
+        }
+    }
+
+    if (publicDbDropzone && publicDbFileInput) {
+        // Click opens file picker
+        publicDbDropzone.addEventListener('click', () => {
+            publicDbFileInput.click();
+        });
+
+        // File selected via picker
+        publicDbFileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            handlePublicDbFiles(files);
+        });
+
+        // Drag & drop support
+        ['dragenter', 'dragover'].forEach(eventName => {
+            publicDbDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                publicDbDropzone.classList.add('drag-over');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            publicDbDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                publicDbDropzone.classList.remove('drag-over');
+            });
+        });
+
+        publicDbDropzone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt && dt.files;
+            handlePublicDbFiles(files);
+        });
+    }
+
     // Handle sidebar navigation clicks
     navItems.forEach(item => {
         item.addEventListener('click', (e) => {

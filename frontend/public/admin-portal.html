@@ -62,6 +62,23 @@
         <!-- Public Database View -->
         <div id="public-database-view" class="view-content" style="display: none;">
             <h2>Public Database</h2>
+            <p>Upload an Excel file to begin working with the public database.</p>
+
+            <div id="publicDbDropzone" class="file-dropzone">
+                <input
+                    type="file"
+                    id="publicDbFileInput"
+                    accept=".xlsx,.xls"
+                    style="display: none;"
+                >
+                <div class="file-dropzone-content">
+                    <i class="fas fa-file-excel"></i>
+                    <p><strong>Click to choose an Excel file</strong> or drag and drop it here</p>
+                    <p class="file-dropzone-hint">Supported formats: .xlsx, .xls</p>
+                </div>
+            </div>
+
+            <div id="publicDbMessage" class="upload-message" aria-live="polite"></div>
         </div>
     </main>
 </div>

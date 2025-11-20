@@ -360,6 +360,52 @@ body {
     margin-bottom: 25px;
 }
 
+/* Public Database upload area */
+.file-dropzone {
+    margin-top: 16px;
+    padding: 30px;
+    border: 2px dashed #3498db;
+    border-radius: 10px;
+    background-color: #ffffff;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.file-dropzone-content i.fas.fa-file-excel {
+    font-size: 32px;
+    color: #27ae60;
+    margin-bottom: 8px;
+}
+
+.file-dropzone-hint {
+    font-size: 0.9rem;
+    color: #777;
+}
+
+.file-dropzone:hover {
+    border-color: #2980b9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.file-dropzone.drag-over {
+    background-color: #eaf4ff;
+    border-color: #2980b9;
+}
+
+.upload-message {
+    margin-top: 12px;
+    font-size: 0.95rem;
+}
+
+.upload-message--success {
+    color: #27ae60;
+}
+
+.upload-message--error {
+    color: #c0392b;
+}
+
 .controls {
     display: flex;
     justify-content: space-between;
