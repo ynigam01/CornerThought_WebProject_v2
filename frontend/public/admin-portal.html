@@ -63,6 +63,51 @@
         <!-- Public Projects View -->
         <div id="public-projects-view" class="view-content" style="display: none;">
             <h2>Public Projects</h2>
+            <p>Use this form to define a public project template that is not tied to a specific organization.</p>
+
+            <div id="publicCreateColumns" class="create-columns-wrapper">
+                <div class="left-col" id="publicCreateLeftCol">
+                    <form id="publicInlineCreateProjectForm" class="project-form half-width">
+                        <div class="form-group">
+                            <label for="publicProjectName">Project Name</label>
+                            <input type="text" id="publicProjectName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="publicProjectType">Type</label>
+                            <input type="text" id="publicProjectType" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="publicAssetType">New Asset or Existing</label>
+                            <select id="publicAssetType">
+                                <option value="">Select an option</option>
+                                <option value="New">New</option>
+                                <option value="Existing">Existing</option>
+                                <option value="N/A">N/A</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="publicProjectDescription">Description</label>
+                            <textarea id="publicProjectDescription"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="publicStartDate">Start Date</label>
+                            <input type="date" id="publicStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label for="publicEndDate">End Date</label>
+                            <input type="date" id="publicEndDate">
+                        </div>
+                        <div class="form-buttons">
+                            <button type="submit" class="save-project-button">Create Public Project</button>
+                            <button type="button" id="publicEditProjectBtn" class="secondary-button" style="display: none;">Edit Project</button>
+                        </div>
+                    </form>
+                    <div id="publicCreateSummary" class="create-summary" style="display:none;"></div>
+                </div>
+                <div class="right-col" id="publicCreateRightCol">
+                    <!-- Only include Project Details button (no Project Team / Lessons Learned Metadata) -->
+                </div>
+            </div>
         </div>
 
         <!-- Public Database View -->
@@ -160,6 +205,49 @@
                 <input type="number" id="editOrgUsers" name="editOrgUsers" required min="1">
             </div>
             <button type="submit" class="save-edit-button">Save Changes</button>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Public Project Modal -->
+<div id="publicProjectEditModal" class="modal modal--center">
+    <div class="modal-content public-project-edit-modal-content">
+        <button class="edit-close-button" id="closePublicProjectEdit" aria-label="Close edit form">&times;</button>
+        <h3>Edit Public Project</h3>
+        <form id="publicProjectEditForm">
+            <div class="input-group">
+                <label for="editPublicProjectName">Project Name</label>
+                <input type="text" id="editPublicProjectName" required>
+            </div>
+            <div class="input-group">
+                <label for="editPublicProjectType">Type</label>
+                <input type="text" id="editPublicProjectType" required>
+            </div>
+            <div class="input-group">
+                <label for="editPublicAssetType">New Asset or Existing</label>
+                <select id="editPublicAssetType">
+                    <option value="">Select an option</option>
+                    <option value="New">New</option>
+                    <option value="Existing">Existing</option>
+                    <option value="N/A">N/A</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="editPublicProjectDescription">Description</label>
+                <textarea id="editPublicProjectDescription"></textarea>
+            </div>
+            <div class="input-group">
+                <label for="editPublicStartDate">Start Date</label>
+                <input type="date" id="editPublicStartDate">
+            </div>
+            <div class="input-group">
+                <label for="editPublicEndDate">End Date</label>
+                <input type="date" id="editPublicEndDate">
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="deletePublicProjectBtn">Delete Project</button>
+                <button type="submit">Save Edits</button>
+            </div>
         </form>
     </div>
 </div>

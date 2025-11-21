@@ -496,6 +496,185 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Public Projects inline create form (Admin Portal)
+    const publicInlineForm = document.getElementById('publicInlineCreateProjectForm');
+    const publicCreateSummary = document.getElementById('publicCreateSummary');
+    const publicCreateRightCol = document.getElementById('publicCreateRightCol');
+    const publicEditProjectBtn = document.getElementById('publicEditProjectBtn');
+
+    let currentPublicProject = null;
+
+    if (publicInlineForm && publicCreateSummary && publicCreateRightCol) {
+        publicInlineForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('publicProjectName').value.trim();
+            const type = document.getElementById('publicProjectType').value.trim();
+            if (!name || !type) {
+                alert('Please fill in both Project Name and Type.');
+                return;
+            }
+            const asset = (document.getElementById('publicAssetType').value || '').trim() || 'N/A';
+            const desc = (document.getElementById('publicProjectDescription').value || '').trim() || 'N/A';
+            const start = (document.getElementById('publicStartDate').value || '').trim() || 'N/A';
+            const end = (document.getElementById('publicEndDate').value || '').trim() || 'N/A';
+
+            currentPublicProject = {
+                name,
+                type,
+                asset,
+                desc,
+                start,
+                end
+            };
+
+            publicCreateSummary.innerHTML = `
+                <div><strong>Project Name:</strong> ${name}</div>
+                <div><strong>Type:</strong> ${type}</div>
+                <div><strong>New Asset or Existing:</strong> ${asset}</div>
+                <div><strong>Description:</strong> ${desc}</div>
+                <div><strong>Start Date:</strong> ${start}</div>
+                <div><strong>End Date:</strong> ${end}</div>
+            `;
+            publicCreateSummary.style.display = '';
+
+            // Show Edit Project button next to Create button
+            if (publicEditProjectBtn) {
+                publicEditProjectBtn.style.display = 'inline-block';
+            }
+
+            // Insert only the Project Details button (no Project Team / Lessons Learned Metadata)
+            if (!publicCreateRightCol.querySelector('#publicProjectDetailsBtn')) {
+                publicCreateRightCol.insertAdjacentHTML('beforeend', `
+                    <button id="publicProjectDetailsBtn" class="side-button">Project Details</button>
+                `);
+            }
+        });
+    }
+
+    // Edit Public Project modal wiring
+    const publicProjectEditModal = document.getElementById('publicProjectEditModal');
+    const closePublicProjectEdit = document.getElementById('closePublicProjectEdit');
+    const publicProjectEditForm = document.getElementById('publicProjectEditForm');
+    const deletePublicProjectBtn = document.getElementById('deletePublicProjectBtn');
+
+    function openPublicProjectEditModal() {
+        if (!publicProjectEditModal || !currentPublicProject) return;
+
+        // Populate fields
+        document.getElementById('editPublicProjectName').value = currentPublicProject.name || '';
+        document.getElementById('editPublicProjectType').value = currentPublicProject.type || '';
+        document.getElementById('editPublicAssetType').value = currentPublicProject.asset === 'N/A' ? '' : (currentPublicProject.asset || '');
+        document.getElementById('editPublicProjectDescription').value = currentPublicProject.desc || '';
+        document.getElementById('editPublicStartDate').value = currentPublicProject.start === 'N/A' ? '' : (currentPublicProject.start || '');
+        document.getElementById('editPublicEndDate').value = currentPublicProject.end === 'N/A' ? '' : (currentPublicProject.end || '');
+
+        publicProjectEditModal.classList.add('show');
+    }
+
+    if (publicEditProjectBtn && publicProjectEditModal) {
+        publicEditProjectBtn.addEventListener('click', () => {
+            if (!currentPublicProject) {
+                alert('Please create a public project first.');
+                return;
+            }
+            openPublicProjectEditModal();
+        });
+    }
+
+    if (closePublicProjectEdit && publicProjectEditModal) {
+        closePublicProjectEdit.addEventListener('click', () => {
+            publicProjectEditModal.classList.remove('show');
+        });
+
+        publicProjectEditModal.addEventListener('click', (e) => {
+            if (e.target === publicProjectEditModal) {
+                publicProjectEditModal.classList.remove('show');
+            }
+        });
+    }
+
+    if (publicProjectEditForm) {
+        publicProjectEditForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (!currentPublicProject) {
+                publicProjectEditModal.classList.remove('show');
+                return;
+            }
+
+            const name = document.getElementById('editPublicProjectName').value.trim();
+            const type = document.getElementById('editPublicProjectType').value.trim();
+            if (!name || !type) {
+                alert('Please fill in both Project Name and Type.');
+                return;
+            }
+
+            const asset = (document.getElementById('editPublicAssetType').value || '').trim() || 'N/A';
+            const desc = (document.getElementById('editPublicProjectDescription').value || '').trim() || 'N/A';
+            const start = (document.getElementById('editPublicStartDate').value || '').trim() || 'N/A';
+            const end = (document.getElementById('editPublicEndDate').value || '').trim() || 'N/A';
+
+            currentPublicProject = { name, type, asset, desc, start, end };
+
+            // Update main form fields
+            document.getElementById('publicProjectName').value = name;
+            document.getElementById('publicProjectType').value = type;
+            document.getElementById('publicAssetType').value = asset === 'N/A' ? '' : asset;
+            document.getElementById('publicProjectDescription').value = desc === 'N/A' ? '' : desc;
+            document.getElementById('publicStartDate').value = start === 'N/A' ? '' : start;
+            document.getElementById('publicEndDate').value = end === 'N/A' ? '' : end;
+
+            // Update summary
+            publicCreateSummary.innerHTML = `
+                <div><strong>Project Name:</strong> ${name}</div>
+                <div><strong>Type:</strong> ${type}</div>
+                <div><strong>New Asset or Existing:</strong> ${asset}</div>
+                <div><strong>Description:</strong> ${desc}</div>
+                <div><strong>Start Date:</strong> ${start}</div>
+                <div><strong>End Date:</strong> ${end}</div>
+            `;
+            publicCreateSummary.style.display = '';
+
+            publicProjectEditModal.classList.remove('show');
+        });
+    }
+
+    if (deletePublicProjectBtn) {
+        deletePublicProjectBtn.addEventListener('click', () => {
+            if (!currentPublicProject) {
+                publicProjectEditModal.classList.remove('show');
+                return;
+            }
+            const confirmed = confirm('Are you sure you want to delete this public project?');
+            if (!confirmed) return;
+
+            // Clear current project data
+            currentPublicProject = null;
+
+            // Clear form fields
+            document.getElementById('publicProjectName').value = '';
+            document.getElementById('publicProjectType').value = '';
+            document.getElementById('publicAssetType').value = '';
+            document.getElementById('publicProjectDescription').value = '';
+            document.getElementById('publicStartDate').value = '';
+            document.getElementById('publicEndDate').value = '';
+
+            // Hide summary
+            publicCreateSummary.innerHTML = '';
+            publicCreateSummary.style.display = 'none';
+
+            // Hide buttons
+            if (publicEditProjectBtn) {
+                publicEditProjectBtn.style.display = 'none';
+            }
+            const detailsBtn = publicCreateRightCol.querySelector('#publicProjectDetailsBtn');
+            if (detailsBtn) {
+                detailsBtn.remove();
+            }
+
+            publicProjectEditModal.classList.remove('show');
+        });
+    }
+
     // Public Database file dropzone setup
     const publicDbDropzone = document.getElementById('publicDbDropzone');
     const publicDbFileInput = document.getElementById('publicDbFileInput');
