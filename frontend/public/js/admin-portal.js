@@ -414,6 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const navItems = sidebarNav.querySelectorAll('.nav-item');
     const viewContents = {
         'organizations': document.getElementById('organizations-view'),
+        'public-projects': document.getElementById('public-projects-view'),
         'public-database': document.getElementById('public-database-view')
     };
 
