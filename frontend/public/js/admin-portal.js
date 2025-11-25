@@ -1143,30 +1143,110 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Simple Excel file format validation for Project Details upload
+    // Read Excel for Project Details and write rows to Supabase project_details
     if (publicProjectDetailsValidateButton && publicProjectDetailsFileInput && publicProjectDetailsStatus) {
-        publicProjectDetailsValidateButton.addEventListener('click', () => {
+        publicProjectDetailsValidateButton.addEventListener('click', async () => {
+            publicProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
+
+            if (!currentPublicProject || !currentPublicProject.id) {
+                publicProjectDetailsStatus.textContent = 'Please select a public project before uploading details.';
+                publicProjectDetailsStatus.classList.add('upload-message--error');
+                return;
+            }
+
             const file = publicProjectDetailsFileInput.files && publicProjectDetailsFileInput.files[0];
             if (!file) {
                 publicProjectDetailsStatus.textContent = 'Please choose a file first.';
-                publicProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
                 publicProjectDetailsStatus.classList.add('upload-message--error');
                 return;
             }
 
             const name = file.name || '';
             const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
-            publicProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
-
             if (!isExcel) {
                 publicProjectDetailsStatus.textContent = 'Only Excel files (.xlsx, .xls) are supported.';
                 publicProjectDetailsStatus.classList.add('upload-message--error');
                 return;
             }
 
-            // For now we only validate the extension and do not read the file contents.
-            publicProjectDetailsStatus.textContent = `File "${name}" looks like a valid Excel file.`;
-            publicProjectDetailsStatus.classList.add('upload-message--success');
+            try {
+                publicProjectDetailsStatus.textContent = `Reading "${name}"...`;
+
+                const arrayBuffer = await file.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+                // Use the first sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[firstSheetName];
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+                if (!rows || rows.length === 0) {
+                    publicProjectDetailsStatus.textContent = 'The Excel file is empty.';
+                    publicProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const headerRow = rows[0];
+                const normalize = (v) => String(v || '').trim().toLowerCase();
+
+                let idxParamName = -1;
+                let idxParamEntry = -1;
+                headerRow.forEach((cell, idx) => {
+                    const key = normalize(cell);
+                    if (key === 'parameter name') idxParamName = idx;
+                    if (key === 'parameter entry') idxParamEntry = idx;
+                });
+
+                if (idxParamName === -1 || idxParamEntry === -1) {
+                    publicProjectDetailsStatus.textContent = 'Could not find required headers "Parameter Name" and "Parameter Entry".';
+                    publicProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const projectId = currentPublicProject.id;
+                const inserts = [];
+
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    if (!row) continue;
+                    const rawName = row[idxParamName];
+                    const rawEntry = row[idxParamEntry];
+                    const paramName = rawName != null ? String(rawName).trim() : '';
+                    const paramEntry = rawEntry != null ? String(rawEntry).trim() : '';
+                    if (!paramName && !paramEntry) continue;
+
+                    inserts.push({
+                        project_id: projectId,
+                        organization_id: null,
+                        parameter_name: paramName,
+                        parameter_entry: paramEntry
+                    });
+                }
+
+                if (inserts.length === 0) {
+                    publicProjectDetailsStatus.textContent = 'No parameter rows found under the required headers.';
+                    publicProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const { error } = await supabase
+                    .from('project_details')
+                    .insert(inserts);
+
+                if (error) {
+                    console.error('Error inserting project_details rows:', error);
+                    publicProjectDetailsStatus.textContent = 'Failed to save project details to the database.';
+                    publicProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                publicProjectDetailsStatus.textContent = `Saved ${inserts.length} project detail entries for this project.`;
+                publicProjectDetailsStatus.classList.add('upload-message--success');
+            } catch (err) {
+                console.error('Unexpected error processing project details Excel:', err);
+                publicProjectDetailsStatus.textContent = 'An unexpected error occurred while processing the Excel file.';
+                publicProjectDetailsStatus.classList.add('upload-message--error');
+            }
         });
     }
 
