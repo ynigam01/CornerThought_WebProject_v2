@@ -500,14 +500,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicInlineForm = document.getElementById('publicInlineCreateProjectForm');
     const publicCreateSummary = document.getElementById('publicCreateSummary');
     const publicCreateRightCol = document.getElementById('publicCreateRightCol');
-    const publicEditProjectBtn = document.getElementById('publicEditProjectBtn');
     const publicProjectIndustryInput = document.getElementById('publicProjectIndustry');
     const publicProjectTypeInput = document.getElementById('publicProjectType');
     const manageProjectTypesButton = document.getElementById('manageProjectTypesButton');
+    const managePublicProjectsButton = document.getElementById('managePublicProjectsButton');
     const projectTypesPanel = document.getElementById('projectTypesPanel');
     const projectTypesForm = document.getElementById('projectTypesForm');
     const projectTypesBackButton = document.getElementById('projectTypesBackButton');
     const publicCreateColumns = document.getElementById('publicCreateColumns');
+    const publicProjectsManagePanel = document.getElementById('publicProjectsManagePanel');
+    const publicProjectsBackButton = document.getElementById('publicProjectsBackButton');
+    const publicProjectSelect = document.getElementById('publicProjectSelect');
+    const publicProjectsStatus = document.getElementById('publicProjectsStatus');
 
     let currentPublicProject = null;
 
@@ -616,7 +620,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // 3) Update local state and summary for UI
                 currentPublicProject = {
-                    id: projectRow?.id ?? null,
+                    // Local id corresponds to projects.project_id in the database
+                    id: projectRow?.project_id ?? null,
                     name,
                     industry,
                     type,
@@ -636,11 +641,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div><strong>End Date:</strong> ${currentPublicProject.end}</div>
                 `;
                 publicCreateSummary.style.display = '';
-
-                // Show Edit Project button next to Create button
-                if (publicEditProjectBtn) {
-                    publicEditProjectBtn.style.display = 'inline-block';
-                }
 
                 // Insert only the Project Details button (no Project Team / Lessons Learned Metadata)
                 if (!publicCreateRightCol.querySelector('#publicProjectDetailsBtn')) {
@@ -923,6 +923,108 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Load public projects into Manage Public Projects dropdown
+    async function loadPublicProjectsForDropdown() {
+        if (!publicProjectSelect || !publicProjectsStatus) return;
+
+        publicProjectSelect.innerHTML = '<option value="">Loading...</option>';
+        publicProjectSelect.disabled = true;
+        publicProjectsStatus.textContent = '';
+
+        try {
+            // 1) Get all public project types
+            const { data: typeRows, error: typeErr } = await supabase
+                .from('project_type')
+                .select('id')
+                .eq('is_public', true);
+
+            if (typeErr) {
+                console.error('Error loading public project types:', typeErr);
+                publicProjectsStatus.textContent = 'Failed to load public project types.';
+                publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                return;
+            }
+
+            if (!typeRows || typeRows.length === 0) {
+                publicProjectsStatus.textContent = 'No public project types found.';
+                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            const typeIds = typeRows
+                .map(row => row && row.id)
+                .filter(id => id !== null && id !== undefined);
+
+            if (typeIds.length === 0) {
+                publicProjectsStatus.textContent = 'No public project types found.';
+                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            // 2) Load projects that use those public project_type ids
+            //    and have organization_id = null (public projects only)
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_type_id, organization_id')
+                .in('project_type_id', typeIds)
+                .is('organization_id', null);
+
+            if (projectErr) {
+                console.error('Error loading public projects:', projectErr);
+                publicProjectsStatus.textContent = 'Failed to load public projects.';
+                publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                return;
+            }
+
+            if (!projectRows || projectRows.length === 0) {
+                publicProjectsStatus.textContent = 'No public projects found.';
+                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            publicProjectSelect.innerHTML = '<option value=\"\">Select Public Project</option>';
+            projectRows.forEach(project => {
+                if (!project || !project.project_id || !project.project_name) return;
+                const option = document.createElement('option');
+                option.value = project.project_id;
+                option.textContent = project.project_name;
+                publicProjectSelect.appendChild(option);
+            });
+
+            publicProjectSelect.disabled = false;
+            publicProjectsStatus.textContent = '';
+        } catch (err) {
+            console.error('Unexpected error loading public projects:', err);
+            publicProjectsStatus.textContent = 'An unexpected error occurred while loading public projects.';
+            publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+            publicProjectSelect.disabled = true;
+        }
+    }
+
+    // Manage Public Projects sub-module behavior
+    if (managePublicProjectsButton && publicProjectsManagePanel && publicCreateColumns) {
+        managePublicProjectsButton.addEventListener('click', () => {
+            // Hide create form and project types panel
+            publicCreateColumns.style.display = 'none';
+            if (projectTypesPanel) {
+                projectTypesPanel.style.display = 'none';
+            }
+
+            // Show Manage Public Projects panel
+            publicProjectsManagePanel.style.display = '';
+            loadPublicProjectsForDropdown();
+            publicProjectsManagePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    if (publicProjectsBackButton && publicProjectsManagePanel && publicCreateColumns) {
+        publicProjectsBackButton.addEventListener('click', () => {
+            publicProjectsManagePanel.style.display = 'none';
+            publicCreateColumns.style.display = '';
+            publicCreateColumns.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
     // Edit Public Project modal wiring
     const publicProjectEditModal = document.getElementById('publicProjectEditModal');
     const closePublicProjectEdit = document.getElementById('closePublicProjectEdit');
@@ -944,15 +1046,7 @@ document.addEventListener("DOMContentLoaded", () => {
         publicProjectEditModal.classList.add('show');
     }
 
-    if (publicEditProjectBtn && publicProjectEditModal) {
-        publicEditProjectBtn.addEventListener('click', () => {
-            if (!currentPublicProject) {
-                alert('Please create a public project first.');
-                return;
-            }
-            openPublicProjectEditModal();
-        });
-    }
+    // Note: inline Edit button has been removed from the create form.
 
     if (closePublicProjectEdit && publicProjectEditModal) {
         closePublicProjectEdit.addEventListener('click', () => {
@@ -1063,11 +1157,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!currentPublicProject.id) {
                     const { data: matches, error: lookupErr } = await supabase
                         .from('projects')
-                        .select('id')
+                        .select('project_id')
                         .eq('project_name', name)
                         .eq('project_type_id', projectTypeId)
                         .is('organization_id', null)
-                        .order('id', { ascending: false })
+                        .order('project_id', { ascending: false })
                         .limit(1);
 
                     if (lookupErr) {
@@ -1089,13 +1183,13 @@ document.addEventListener("DOMContentLoaded", () => {
                         return;
                     }
 
-                    currentPublicProject.id = matches[0].id;
+                    currentPublicProject.id = matches[0].project_id;
                 }
 
                 const { data: projectRow, error: projectErr } = await supabase
                     .from('projects')
                     .update(projectPayload)
-                    .eq('id', currentPublicProject.id)
+                    .eq('project_id', currentPublicProject.id)
                     .select()
                     .single();
 
@@ -1111,7 +1205,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // 3) Update local state and main form
                 currentPublicProject = {
-                    id: projectRow?.id ?? currentPublicProject.id ?? null,
+                    id: projectRow?.project_id ?? currentPublicProject.id ?? null,
                     name,
                     industry,
                     type,

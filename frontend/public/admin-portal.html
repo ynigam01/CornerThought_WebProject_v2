@@ -89,6 +89,24 @@
                 </form>
             </div>
 
+            <!-- Manage Public Projects sub-module -->
+            <div id="publicProjectsManagePanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Manage Public Projects</h3>
+                        <p class="subtitle">Select and manage existing public projects.</p>
+                    </div>
+                    <button type="button" id="publicProjectsBackButton" class="secondary-button">Go Back</button>
+                </div>
+                <div class="form-group">
+                    <label for="publicProjectSelect">Select Public Project</label>
+                    <select id="publicProjectSelect">
+                        <option value="">Select Public Project</option>
+                    </select>
+                </div>
+                <div id="publicProjectsStatus" class="upload-message" aria-live="polite"></div>
+            </div>
+
             <div id="publicCreateColumns" class="create-columns-wrapper">
                 <div class="left-col" id="publicCreateLeftCol">
                     <form id="publicInlineCreateProjectForm" class="project-form half-width">
@@ -127,7 +145,6 @@
                         </div>
                         <div class="form-buttons">
                             <button type="submit" class="save-project-button">Create Public Project</button>
-                            <button type="button" id="publicEditProjectBtn" class="secondary-button" style="display: none;">Edit Project</button>
                         </div>
                     </form>
                     <div id="publicCreateSummary" class="create-summary" style="display:none;"></div>
