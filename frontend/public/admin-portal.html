@@ -104,6 +104,31 @@
                         <option value="">Select Public Project</option>
                     </select>
                 </div>
+                <div class="form-buttons">
+                    <button type="button" id="openPublicProjectEditFromManage" class="secondary-button" style="display: none;">
+                        Edit Project
+                    </button>
+                    <button type="button" id="openPublicProjectDetailsFromManage" class="secondary-button" style="display: none;">
+                        Project Details
+                    </button>
+                </div>
+                <!-- Project Details: Excel upload area (shown when user clicks Project Details) -->
+                <div id="publicProjectDetailsUpload" style="display: none; margin-top: 16px;">
+                    <p>Upload an Excel file with project details. Only .xlsx and .xls formats are accepted.</p>
+                    <div class="form-group">
+                        <input
+                            type="file"
+                            id="publicProjectDetailsFileInput"
+                            accept=".xlsx,.xls"
+                        >
+                    </div>
+                    <div class="form-buttons">
+                        <button type="button" id="publicProjectDetailsValidateButton" class="secondary-button">
+                            Validate File Format
+                        </button>
+                    </div>
+                    <div id="publicProjectDetailsStatus" class="upload-message" aria-live="polite"></div>
+                </div>
                 <div id="publicProjectsStatus" class="upload-message" aria-live="polite"></div>
             </div>
 

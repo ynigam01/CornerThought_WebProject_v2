@@ -512,6 +512,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicProjectsBackButton = document.getElementById('publicProjectsBackButton');
     const publicProjectSelect = document.getElementById('publicProjectSelect');
     const publicProjectsStatus = document.getElementById('publicProjectsStatus');
+    const openPublicProjectEditFromManage = document.getElementById('openPublicProjectEditFromManage');
+    const openPublicProjectDetailsFromManage = document.getElementById('openPublicProjectDetailsFromManage');
+    const publicProjectDetailsUpload = document.getElementById('publicProjectDetailsUpload');
+    const publicProjectDetailsFileInput = document.getElementById('publicProjectDetailsFileInput');
+    const publicProjectDetailsValidateButton = document.getElementById('publicProjectDetailsValidateButton');
+    const publicProjectDetailsStatus = document.getElementById('publicProjectDetailsStatus');
 
     let currentPublicProject = null;
 
@@ -1001,6 +1007,68 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Load full details for a single public project (for editing)
+    async function loadSinglePublicProject(projectId) {
+        if (!projectId || !publicProjectsStatus) return;
+
+        publicProjectsStatus.textContent = 'Loading project details...';
+
+        try {
+            // Load project row
+            const { data: projectRow, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_type_id, project_description, asset_new_existing, start_date, end_date, organization_id')
+                .eq('project_id', projectId)
+                .is('organization_id', null)
+                .single();
+
+            if (projectErr) {
+                console.error('Error loading public project details:', projectErr);
+                publicProjectsStatus.textContent = 'Failed to load project details.';
+                return;
+            }
+
+            if (!projectRow) {
+                publicProjectsStatus.textContent = 'Project not found.';
+                return;
+            }
+
+            // Load project_type row for type + industry
+            let industry = '';
+            let type = '';
+            if (projectRow.project_type_id != null) {
+                const { data: typeRow, error: typeErr } = await supabase
+                    .from('project_type')
+                    .select('project_type, industry')
+                    .eq('id', projectRow.project_type_id)
+                    .single();
+
+                if (typeErr) {
+                    console.error('Error loading project type for public project:', typeErr);
+                } else if (typeRow) {
+                    type = typeRow.project_type || '';
+                    industry = typeRow.industry || '';
+                }
+            }
+
+            currentPublicProject = {
+                id: projectRow.project_id,
+                name: projectRow.project_name || '',
+                industry: industry,
+                type: type,
+                asset: projectRow.asset_new_existing || 'N/A',
+                desc: projectRow.project_description || 'N/A',
+                start: projectRow.start_date || 'N/A',
+                end: projectRow.end_date || 'N/A'
+            };
+
+            publicProjectsStatus.textContent = '';
+        } catch (err) {
+            console.error('Unexpected error loading public project details:', err);
+            publicProjectsStatus.textContent = 'An unexpected error occurred while loading project details.';
+        }
+    }
+
     // Manage Public Projects sub-module behavior
     if (managePublicProjectsButton && publicProjectsManagePanel && publicCreateColumns) {
         managePublicProjectsButton.addEventListener('click', () => {
@@ -1022,6 +1090,83 @@ document.addEventListener("DOMContentLoaded", () => {
             publicProjectsManagePanel.style.display = 'none';
             publicCreateColumns.style.display = '';
             publicCreateColumns.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    // When a project is selected in the dropdown, load its details and show Edit button
+    if (publicProjectSelect && openPublicProjectEditFromManage && openPublicProjectDetailsFromManage) {
+        publicProjectSelect.addEventListener('change', async () => {
+            const value = publicProjectSelect.value;
+            if (!value) {
+                openPublicProjectEditFromManage.style.display = 'none';
+                openPublicProjectDetailsFromManage.style.display = 'none';
+                if (publicProjectDetailsUpload) {
+                    publicProjectDetailsUpload.style.display = 'none';
+                }
+                currentPublicProject = null;
+                return;
+            }
+
+            await loadSinglePublicProject(value);
+            if (currentPublicProject && currentPublicProject.id) {
+                openPublicProjectEditFromManage.style.display = '';
+                openPublicProjectDetailsFromManage.style.display = '';
+            } else {
+                openPublicProjectEditFromManage.style.display = 'none';
+                openPublicProjectDetailsFromManage.style.display = 'none';
+            }
+        });
+
+        openPublicProjectEditFromManage.addEventListener('click', () => {
+            if (!currentPublicProject || !currentPublicProject.id) {
+                alert('Please select a valid public project first.');
+                return;
+            }
+            openPublicProjectEditModal();
+        });
+
+        // Show Project Details upload section when clicked
+        openPublicProjectDetailsFromManage.addEventListener('click', () => {
+            if (!currentPublicProject || !currentPublicProject.id) {
+                alert('Please select a valid public project first.');
+                return;
+            }
+            if (publicProjectDetailsUpload) {
+                publicProjectDetailsUpload.style.display = '';
+            }
+            if (publicProjectDetailsStatus) {
+                publicProjectDetailsStatus.textContent = '';
+            }
+            if (publicProjectDetailsFileInput) {
+                publicProjectDetailsFileInput.value = '';
+            }
+        });
+    }
+
+    // Simple Excel file format validation for Project Details upload
+    if (publicProjectDetailsValidateButton && publicProjectDetailsFileInput && publicProjectDetailsStatus) {
+        publicProjectDetailsValidateButton.addEventListener('click', () => {
+            const file = publicProjectDetailsFileInput.files && publicProjectDetailsFileInput.files[0];
+            if (!file) {
+                publicProjectDetailsStatus.textContent = 'Please choose a file first.';
+                publicProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
+                publicProjectDetailsStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const name = file.name || '';
+            const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
+            publicProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
+
+            if (!isExcel) {
+                publicProjectDetailsStatus.textContent = 'Only Excel files (.xlsx, .xls) are supported.';
+                publicProjectDetailsStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            // For now we only validate the extension and do not read the file contents.
+            publicProjectDetailsStatus.textContent = `File "${name}" looks like a valid Excel file.`;
+            publicProjectDetailsStatus.classList.add('upload-message--success');
         });
     }
 
