@@ -68,12 +68,37 @@
                 <button id="managePublicProjectsButton" class="public-projects-button">Manage Public Projects</button>
             </div>
 
+            <!-- Manage Project Types panel -->
+            <div id="projectTypesPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <h3>Manage Project Types</h3>
+                    <button type="button" id="projectTypesBackButton" class="secondary-button">Go Back</button>
+                </div>
+                <form id="projectTypesForm">
+                    <div class="form-group">
+                        <label for="projectTypeName">Project Type</label>
+                        <input type="text" id="projectTypeName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="projectTypeIndustry">Industry</label>
+                        <input type="text" id="projectTypeIndustry" required>
+                    </div>
+                    <div class="form-buttons">
+                        <button type="submit" class="public-projects-button">Save Project Type</button>
+                    </div>
+                </form>
+            </div>
+
             <div id="publicCreateColumns" class="create-columns-wrapper">
                 <div class="left-col" id="publicCreateLeftCol">
                     <form id="publicInlineCreateProjectForm" class="project-form half-width">
                         <div class="form-group">
                             <label for="publicProjectName">Project Name</label>
                             <input type="text" id="publicProjectName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="publicProjectIndustry">Industry</label>
+                            <input type="text" id="publicProjectIndustry">
                         </div>
                         <div class="form-group">
                             <label for="publicProjectType">Type</label>

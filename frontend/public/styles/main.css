@@ -973,6 +973,23 @@ body {
     box-sizing: border-box;
 }
 
+#public-projects-view .project-types-panel {
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    max-width: 600px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.06);
+}
+
+.project-types-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
 #public-projects-view #publicCreateColumns .left-col {
     padding-left: 0; /* align with card edge in admin portal */
 }
@@ -994,20 +1011,24 @@ body {
     color: #333;
 }
 
-.project-form .form-group {
+.project-form .form-group,
+.project-types-panel .form-group {
     display: flex;
     flex-direction: column;
     margin-bottom: 15px;
     width: 100%;
 }
 
-.project-form label {
+.project-form label,
+.project-types-panel label {
     margin-bottom: 6px;
     font-weight: 500;
 }
 
 .project-form input,
-.project-form select {
+.project-form select,
+.project-types-panel input,
+.project-types-panel select {
     padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;

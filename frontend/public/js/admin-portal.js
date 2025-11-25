@@ -501,6 +501,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicCreateSummary = document.getElementById('publicCreateSummary');
     const publicCreateRightCol = document.getElementById('publicCreateRightCol');
     const publicEditProjectBtn = document.getElementById('publicEditProjectBtn');
+    const manageProjectTypesButton = document.getElementById('manageProjectTypesButton');
+    const projectTypesPanel = document.getElementById('projectTypesPanel');
+    const projectTypesForm = document.getElementById('projectTypesForm');
+    const projectTypesBackButton = document.getElementById('projectTypesBackButton');
+    const publicCreateColumns = document.getElementById('publicCreateColumns');
 
     let currentPublicProject = null;
 
@@ -547,6 +552,71 @@ document.addEventListener("DOMContentLoaded", () => {
                 publicCreateRightCol.insertAdjacentHTML('beforeend', `
                     <button id="publicProjectDetailsBtn" class="side-button">Project Details</button>
                 `);
+            }
+        });
+    }
+
+    // Manage Project Types panel behavior
+    if (manageProjectTypesButton && projectTypesPanel && publicCreateColumns) {
+        manageProjectTypesButton.addEventListener('click', () => {
+            projectTypesPanel.style.display = '';
+            publicCreateColumns.style.display = 'none';
+            projectTypesPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    if (projectTypesBackButton && projectTypesPanel && publicCreateColumns) {
+        projectTypesBackButton.addEventListener('click', () => {
+            projectTypesPanel.style.display = 'none';
+            publicCreateColumns.style.display = '';
+            publicCreateColumns.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    if (projectTypesForm) {
+        projectTypesForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const type = document.getElementById('projectTypeName').value.trim();
+            const industry = document.getElementById('projectTypeIndustry').value.trim();
+            if (!type || !industry) {
+                alert('Please fill in both Project Type and Industry.');
+                return;
+            }
+
+            const submitBtn = projectTypesForm.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Saving...';
+            }
+
+            try {
+                const payload = {
+                    project_type: type,
+                    industry,
+                    organization_id: null,
+                    is_public: true
+                };
+
+                const { error } = await supabase
+                    .from('project_type')
+                    .insert(payload);
+
+                if (error) {
+                    console.error('Supabase project_type insert error:', error);
+                    alert('Failed to save project type. Please try again.');
+                    return;
+                }
+
+                alert(`Project Type "${type}" for Industry "${industry}" saved successfully.`);
+                projectTypesForm.reset();
+            } catch (err) {
+                console.error('Unexpected error saving project type:', err);
+                alert('An unexpected error occurred while saving the project type.');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Save Project Type';
+                }
             }
         });
     }
