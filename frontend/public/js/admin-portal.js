@@ -501,6 +501,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicCreateSummary = document.getElementById('publicCreateSummary');
     const publicCreateRightCol = document.getElementById('publicCreateRightCol');
     const publicEditProjectBtn = document.getElementById('publicEditProjectBtn');
+    const publicProjectIndustryInput = document.getElementById('publicProjectIndustry');
+    const publicProjectTypeInput = document.getElementById('publicProjectType');
     const manageProjectTypesButton = document.getElementById('manageProjectTypesButton');
     const projectTypesPanel = document.getElementById('projectTypesPanel');
     const projectTypesForm = document.getElementById('projectTypesForm');
@@ -510,49 +512,349 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPublicProject = null;
 
     if (publicInlineForm && publicCreateSummary && publicCreateRightCol) {
-        publicInlineForm.addEventListener('submit', (e) => {
+        publicInlineForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('publicProjectName').value.trim();
+            const industry = (document.getElementById('publicProjectIndustry')?.value || '').trim();
             const type = document.getElementById('publicProjectType').value.trim();
-            if (!name || !type) {
-                alert('Please fill in both Project Name and Type.');
+
+            if (!name || !type || !industry) {
+                alert('Please fill in Project Name, Industry, and Type.');
                 return;
             }
-            const asset = (document.getElementById('publicAssetType').value || '').trim() || 'N/A';
-            const desc = (document.getElementById('publicProjectDescription').value || '').trim() || 'N/A';
-            const start = (document.getElementById('publicStartDate').value || '').trim() || 'N/A';
-            const end = (document.getElementById('publicEndDate').value || '').trim() || 'N/A';
 
-            currentPublicProject = {
-                name,
-                type,
-                asset,
-                desc,
-                start,
-                end
-            };
+            const assetRaw = (document.getElementById('publicAssetType').value || '').trim();
+            const descRaw = (document.getElementById('publicProjectDescription').value || '').trim();
+            const startRaw = (document.getElementById('publicStartDate').value || '').trim();
+            const endRaw = (document.getElementById('publicEndDate').value || '').trim();
 
-            publicCreateSummary.innerHTML = `
-                <div><strong>Project Name:</strong> ${name}</div>
-                <div><strong>Type:</strong> ${type}</div>
-                <div><strong>New Asset or Existing:</strong> ${asset}</div>
-                <div><strong>Description:</strong> ${desc}</div>
-                <div><strong>Start Date:</strong> ${start}</div>
-                <div><strong>End Date:</strong> ${end}</div>
-            `;
-            publicCreateSummary.style.display = '';
+            const asset = assetRaw === 'N/A' || assetRaw === '' ? null : assetRaw;
+            const desc = descRaw || null;
+            const start = startRaw || null;
+            const end = endRaw || null;
 
-            // Show Edit Project button next to Create button
-            if (publicEditProjectBtn) {
-                publicEditProjectBtn.style.display = 'inline-block';
+            const saveBtn = publicInlineForm.querySelector('.save-project-button');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
             }
 
-            // Insert only the Project Details button (no Project Team / Lessons Learned Metadata)
-            if (!publicCreateRightCol.querySelector('#publicProjectDetailsBtn')) {
-                publicCreateRightCol.insertAdjacentHTML('beforeend', `
-                    <button id="publicProjectDetailsBtn" class="side-button">Project Details</button>
-                `);
+            try {
+                // 1) Find or create matching public project_type
+                let projectTypeId = null;
+                const { data: existingTypes, error: selectErr } = await supabase
+                    .from('project_type')
+                    .select('id, project_type, industry, is_public')
+                    .eq('is_public', true)
+                    .eq('project_type', type)
+                    .eq('industry', industry)
+                    .limit(1);
+
+                if (selectErr) {
+                    console.error('Error looking up project_type:', selectErr);
+                    alert('Failed to look up project type. Please try again.');
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Create Public Project';
+                    }
+                    return;
+                }
+
+                if (existingTypes && existingTypes.length > 0) {
+                    projectTypeId = existingTypes[0].id;
+                } else {
+                    const { data: insertedTypes, error: insertTypeErr } = await supabase
+                        .from('project_type')
+                        .insert({
+                            project_type: type,
+                            industry,
+                            organization_id: null,
+                            is_public: true
+                        })
+                        .select('id')
+                        .single();
+
+                    if (insertTypeErr) {
+                        console.error('Error inserting project_type:', insertTypeErr);
+                        alert('Failed to create project type. Please try again.');
+                        if (saveBtn) {
+                            saveBtn.disabled = false;
+                            saveBtn.textContent = 'Create Public Project';
+                        }
+                        return;
+                    }
+
+                    projectTypeId = insertedTypes.id;
+                }
+
+                // 2) Insert project into projects table
+                const projectPayload = {
+                    project_name: name,
+                    project_type_id: projectTypeId,
+                    project_description: desc,
+                    asset_new_existing: asset,
+                    start_date: start,
+                    end_date: end,
+                    organization_id: null
+                };
+
+                const { data: projectRow, error: projectErr } = await supabase
+                    .from('projects')
+                    .insert(projectPayload)
+                    .select()
+                    .single();
+
+                if (projectErr) {
+                    console.error('Error inserting project:', projectErr);
+                    alert('Failed to create public project. Please try again.');
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Create Public Project';
+                    }
+                    return;
+                }
+
+                // 3) Update local state and summary for UI
+                currentPublicProject = {
+                    id: projectRow?.id ?? null,
+                    name,
+                    industry,
+                    type,
+                    asset: asset ?? 'N/A',
+                    desc: desc ?? 'N/A',
+                    start: start ?? 'N/A',
+                    end: end ?? 'N/A'
+                };
+
+                publicCreateSummary.innerHTML = `
+                    <div><strong>Project Name:</strong> ${name}</div>
+                    <div><strong>Industry:</strong> ${industry}</div>
+                    <div><strong>Type:</strong> ${type}</div>
+                    <div><strong>New Asset or Existing:</strong> ${currentPublicProject.asset}</div>
+                    <div><strong>Description:</strong> ${currentPublicProject.desc}</div>
+                    <div><strong>Start Date:</strong> ${currentPublicProject.start}</div>
+                    <div><strong>End Date:</strong> ${currentPublicProject.end}</div>
+                `;
+                publicCreateSummary.style.display = '';
+
+                // Show Edit Project button next to Create button
+                if (publicEditProjectBtn) {
+                    publicEditProjectBtn.style.display = 'inline-block';
+                }
+
+                // Insert only the Project Details button (no Project Team / Lessons Learned Metadata)
+                if (!publicCreateRightCol.querySelector('#publicProjectDetailsBtn')) {
+                    publicCreateRightCol.insertAdjacentHTML('beforeend', `
+                        <button id="publicProjectDetailsBtn" class="side-button">Project Details</button>
+                    `);
+                }
+
+                alert('Public project created successfully.');
+            } catch (err) {
+                console.error('Unexpected error creating public project:', err);
+                alert('An unexpected error occurred while creating the public project.');
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Create Public Project';
+                }
             }
+        });
+    }
+
+    // Autocomplete for Industry field in Create Public Project form
+    if (publicProjectIndustryInput) {
+        let industryDropdown = null;
+        let lastQuery = '';
+        let debounceTimer = null;
+
+        function closeIndustryDropdown() {
+            if (industryDropdown && industryDropdown.parentNode) {
+                industryDropdown.parentNode.removeChild(industryDropdown);
+            }
+            industryDropdown = null;
+        }
+
+        function createIndustryDropdown() {
+            if (industryDropdown) return industryDropdown;
+            industryDropdown = document.createElement('div');
+            industryDropdown.className = 'autocomplete-list';
+            publicProjectIndustryInput.parentNode.appendChild(industryDropdown);
+            return industryDropdown;
+        }
+
+        async function fetchIndustrySuggestions(query) {
+            // Don't query for very short input
+            if (!query || query.length < 2) {
+                closeIndustryDropdown();
+                return;
+            }
+
+            // Avoid duplicate queries for same text
+            if (query === lastQuery) return;
+            lastQuery = query;
+
+            try {
+                const { data, error } = await supabase
+                    .from('project_type')
+                    .select('industry, is_public')
+                    .ilike('industry', `%${query}%`)
+                    .eq('is_public', true)
+                    .limit(10);
+
+                if (error) {
+                    console.error('Error fetching industry suggestions:', error);
+                    return;
+                }
+
+                const suggestions = (data || [])
+                    .map(row => row.industry)
+                    .filter(Boolean);
+
+                if (suggestions.length === 0) {
+                    closeIndustryDropdown();
+                    return;
+                }
+
+                const uniqueSuggestions = Array.from(new Set(suggestions));
+                const dropdown = createIndustryDropdown();
+                dropdown.innerHTML = '';
+
+                uniqueSuggestions.forEach(value => {
+                    const item = document.createElement('div');
+                    item.className = 'autocomplete-item';
+                    item.textContent = value;
+                    item.addEventListener('mousedown', (e) => {
+                        // Use mousedown so it fires before input blur
+                        e.preventDefault();
+                        publicProjectIndustryInput.value = value;
+                        closeIndustryDropdown();
+                    });
+                    dropdown.appendChild(item);
+                });
+            } catch (err) {
+                console.error('Unexpected error fetching industry suggestions:', err);
+            }
+        }
+
+        publicProjectIndustryInput.addEventListener('input', () => {
+            const query = publicProjectIndustryInput.value.trim();
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
+            debounceTimer = setTimeout(() => {
+                fetchIndustrySuggestions(query);
+            }, 250);
+        });
+
+        publicProjectIndustryInput.addEventListener('focus', () => {
+            const query = publicProjectIndustryInput.value.trim();
+            if (query.length >= 2) {
+                fetchIndustrySuggestions(query);
+            }
+        });
+
+        publicProjectIndustryInput.addEventListener('blur', () => {
+            // Slight delay so click on suggestion can register
+            setTimeout(() => {
+                closeIndustryDropdown();
+            }, 150);
+        });
+    }
+
+    // Autocomplete for Type field in Create Public Project form
+    if (publicProjectTypeInput) {
+        let typeDropdown = null;
+        let lastTypeQuery = '';
+        let typeDebounceTimer = null;
+
+        function closeTypeDropdown() {
+            if (typeDropdown && typeDropdown.parentNode) {
+                typeDropdown.parentNode.removeChild(typeDropdown);
+            }
+            typeDropdown = null;
+        }
+
+        function createTypeDropdown() {
+            if (typeDropdown) return typeDropdown;
+            typeDropdown = document.createElement('div');
+            typeDropdown.className = 'autocomplete-list';
+            publicProjectTypeInput.parentNode.appendChild(typeDropdown);
+            return typeDropdown;
+        }
+
+        async function fetchTypeSuggestions(query) {
+            if (!query || query.length < 2) {
+                closeTypeDropdown();
+                return;
+            }
+
+            if (query === lastTypeQuery) return;
+            lastTypeQuery = query;
+
+            try {
+                const { data, error } = await supabase
+                    .from('project_type')
+                    .select('project_type, is_public')
+                    .ilike('project_type', `%${query}%`)
+                    .eq('is_public', true)
+                    .limit(10);
+
+                if (error) {
+                    console.error('Error fetching type suggestions:', error);
+                    return;
+                }
+
+                const suggestions = (data || [])
+                    .map(row => row.project_type)
+                    .filter(Boolean);
+
+                if (suggestions.length === 0) {
+                    closeTypeDropdown();
+                    return;
+                }
+
+                const uniqueSuggestions = Array.from(new Set(suggestions));
+                const dropdown = createTypeDropdown();
+                dropdown.innerHTML = '';
+
+                uniqueSuggestions.forEach(value => {
+                    const item = document.createElement('div');
+                    item.className = 'autocomplete-item';
+                    item.textContent = value;
+                    item.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        publicProjectTypeInput.value = value;
+                        closeTypeDropdown();
+                    });
+                    dropdown.appendChild(item);
+                });
+            } catch (err) {
+                console.error('Unexpected error fetching type suggestions:', err);
+            }
+        }
+
+        publicProjectTypeInput.addEventListener('input', () => {
+            const query = publicProjectTypeInput.value.trim();
+            if (typeDebounceTimer) {
+                clearTimeout(typeDebounceTimer);
+            }
+            typeDebounceTimer = setTimeout(() => {
+                fetchTypeSuggestions(query);
+            }, 250);
+        });
+
+        publicProjectTypeInput.addEventListener('focus', () => {
+            const query = publicProjectTypeInput.value.trim();
+            if (query.length >= 2) {
+                fetchTypeSuggestions(query);
+            }
+        });
+
+        publicProjectTypeInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                closeTypeDropdown();
+            }, 150);
         });
     }
 
@@ -632,6 +934,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Populate fields
         document.getElementById('editPublicProjectName').value = currentPublicProject.name || '';
+        document.getElementById('editPublicProjectIndustry').value = currentPublicProject.industry || '';
         document.getElementById('editPublicProjectType').value = currentPublicProject.type || '';
         document.getElementById('editPublicAssetType').value = currentPublicProject.asset === 'N/A' ? '' : (currentPublicProject.asset || '');
         document.getElementById('editPublicProjectDescription').value = currentPublicProject.desc || '';
@@ -664,7 +967,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (publicProjectEditForm) {
-        publicProjectEditForm.addEventListener('submit', (e) => {
+        publicProjectEditForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             if (!currentPublicProject) {
                 publicProjectEditModal.classList.remove('show');
@@ -672,39 +975,184 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             const name = document.getElementById('editPublicProjectName').value.trim();
+            const industry = (document.getElementById('editPublicProjectIndustry')?.value || '').trim();
             const type = document.getElementById('editPublicProjectType').value.trim();
-            if (!name || !type) {
-                alert('Please fill in both Project Name and Type.');
+
+            if (!name || !type || !industry) {
+                alert('Please fill in Project Name, Industry, and Type.');
                 return;
             }
 
-            const asset = (document.getElementById('editPublicAssetType').value || '').trim() || 'N/A';
-            const desc = (document.getElementById('editPublicProjectDescription').value || '').trim() || 'N/A';
-            const start = (document.getElementById('editPublicStartDate').value || '').trim() || 'N/A';
-            const end = (document.getElementById('editPublicEndDate').value || '').trim() || 'N/A';
+            const assetRaw = (document.getElementById('editPublicAssetType').value || '').trim();
+            const descRaw = (document.getElementById('editPublicProjectDescription').value || '').trim();
+            const startRaw = (document.getElementById('editPublicStartDate').value || '').trim();
+            const endRaw = (document.getElementById('editPublicEndDate').value || '').trim();
 
-            currentPublicProject = { name, type, asset, desc, start, end };
+            const asset = assetRaw === 'N/A' || assetRaw === '' ? null : assetRaw;
+            const desc = descRaw || null;
+            const start = startRaw || null;
+            const end = endRaw || null;
 
-            // Update main form fields
-            document.getElementById('publicProjectName').value = name;
-            document.getElementById('publicProjectType').value = type;
-            document.getElementById('publicAssetType').value = asset === 'N/A' ? '' : asset;
-            document.getElementById('publicProjectDescription').value = desc === 'N/A' ? '' : desc;
-            document.getElementById('publicStartDate').value = start === 'N/A' ? '' : start;
-            document.getElementById('publicEndDate').value = end === 'N/A' ? '' : end;
+            const saveBtn = publicProjectEditForm.querySelector('button[type="submit"]');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+            }
 
-            // Update summary
-            publicCreateSummary.innerHTML = `
-                <div><strong>Project Name:</strong> ${name}</div>
-                <div><strong>Type:</strong> ${type}</div>
-                <div><strong>New Asset or Existing:</strong> ${asset}</div>
-                <div><strong>Description:</strong> ${desc}</div>
-                <div><strong>Start Date:</strong> ${start}</div>
-                <div><strong>End Date:</strong> ${end}</div>
-            `;
-            publicCreateSummary.style.display = '';
+            try {
+                // 1) Find or create matching public project_type
+                let projectTypeId = null;
+                const { data: existingTypes, error: selectErr } = await supabase
+                    .from('project_type')
+                    .select('id, project_type, industry, is_public')
+                    .eq('is_public', true)
+                    .eq('project_type', type)
+                    .eq('industry', industry)
+                    .limit(1);
 
-            publicProjectEditModal.classList.remove('show');
+                if (selectErr) {
+                    console.error('Error looking up project_type (edit):', selectErr);
+                    alert('Failed to look up project type. Please try again.');
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save Edits';
+                    }
+                    return;
+                }
+
+                if (existingTypes && existingTypes.length > 0) {
+                    projectTypeId = existingTypes[0].id;
+                } else {
+                    const { data: insertedTypes, error: insertTypeErr } = await supabase
+                        .from('project_type')
+                        .insert({
+                            project_type: type,
+                            industry,
+                            organization_id: null,
+                            is_public: true
+                        })
+                        .select('id')
+                        .single();
+
+                    if (insertTypeErr) {
+                        console.error('Error inserting project_type (edit):', insertTypeErr);
+                        alert('Failed to create project type. Please try again.');
+                        if (saveBtn) {
+                            saveBtn.disabled = false;
+                            saveBtn.textContent = 'Save Edits';
+                        }
+                        return;
+                    }
+
+                    projectTypeId = insertedTypes.id;
+                }
+
+                // 2) Ensure we know which project row to edit.
+                //    If currentPublicProject.id is missing (e.g., after a refresh),
+                //    try to look it up safely based on name + project_type_id + organization_id null.
+                const projectPayload = {
+                    project_name: name,
+                    project_type_id: projectTypeId,
+                    project_description: desc,
+                    asset_new_existing: asset,
+                    start_date: start,
+                    end_date: end,
+                    organization_id: null
+                };
+
+                if (!currentPublicProject.id) {
+                    const { data: matches, error: lookupErr } = await supabase
+                        .from('projects')
+                        .select('id')
+                        .eq('project_name', name)
+                        .eq('project_type_id', projectTypeId)
+                        .is('organization_id', null)
+                        .order('id', { ascending: false })
+                        .limit(1);
+
+                    if (lookupErr) {
+                        console.error('Error looking up existing project to edit:', lookupErr);
+                        alert('Could not find the original public project to edit. Please recreate it.');
+                        if (saveBtn) {
+                            saveBtn.disabled = false;
+                            saveBtn.textContent = 'Save Edits';
+                        }
+                        return;
+                    }
+
+                    if (!matches || matches.length === 0) {
+                        alert('Could not find the original public project to edit. Please recreate it.');
+                        if (saveBtn) {
+                            saveBtn.disabled = false;
+                            saveBtn.textContent = 'Save Edits';
+                        }
+                        return;
+                    }
+
+                    currentPublicProject.id = matches[0].id;
+                }
+
+                const { data: projectRow, error: projectErr } = await supabase
+                    .from('projects')
+                    .update(projectPayload)
+                    .eq('id', currentPublicProject.id)
+                    .select()
+                    .single();
+
+                if (projectErr) {
+                    console.error('Error updating project (edit):', projectErr);
+                    alert('Failed to save edits to public project. Please try again.');
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save Edits';
+                    }
+                    return;
+                }
+
+                // 3) Update local state and main form
+                currentPublicProject = {
+                    id: projectRow?.id ?? currentPublicProject.id ?? null,
+                    name,
+                    industry,
+                    type,
+                    asset: asset ?? 'N/A',
+                    desc: desc ?? 'N/A',
+                    start: start ?? 'N/A',
+                    end: end ?? 'N/A'
+                };
+
+                // Update main form fields
+                document.getElementById('publicProjectName').value = name;
+                document.getElementById('publicProjectIndustry').value = industry;
+                document.getElementById('publicProjectType').value = type;
+                document.getElementById('publicAssetType').value = currentPublicProject.asset === 'N/A' ? '' : currentPublicProject.asset;
+                document.getElementById('publicProjectDescription').value = currentPublicProject.desc === 'N/A' ? '' : currentPublicProject.desc;
+                document.getElementById('publicStartDate').value = currentPublicProject.start === 'N/A' ? '' : currentPublicProject.start;
+                document.getElementById('publicEndDate').value = currentPublicProject.end === 'N/A' ? '' : currentPublicProject.end;
+
+                // Update summary
+                publicCreateSummary.innerHTML = `
+                    <div><strong>Project Name:</strong> ${currentPublicProject.name}</div>
+                    <div><strong>Industry:</strong> ${currentPublicProject.industry}</div>
+                    <div><strong>Type:</strong> ${currentPublicProject.type}</div>
+                    <div><strong>New Asset or Existing:</strong> ${currentPublicProject.asset}</div>
+                    <div><strong>Description:</strong> ${currentPublicProject.desc}</div>
+                    <div><strong>Start Date:</strong> ${currentPublicProject.start}</div>
+                    <div><strong>End Date:</strong> ${currentPublicProject.end}</div>
+                `;
+                publicCreateSummary.style.display = '';
+
+                alert('Public project edits saved successfully.');
+                publicProjectEditModal.classList.remove('show');
+            } catch (err) {
+                console.error('Unexpected error editing public project:', err);
+                alert('An unexpected error occurred while saving edits to the public project.');
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Edits';
+                }
+            }
         });
     }
 
