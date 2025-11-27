@@ -541,6 +541,13 @@ body {
     gap: 15px;
 }
 
+/* In Public Database view, stack controls vertically instead of side by side */
+#public-database-view .controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
 /* Public Projects header buttons */
 #public-projects-view .controls {
     justify-content: flex-start;

@@ -435,6 +435,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (view) {
                 if (key === viewName) {
                     view.style.display = '';
+                    // When entering Public Database view, refresh dropdowns
+                    if (key === 'public-database') {
+                        loadPublicProjectsForDbDropdown();
+                        loadPublicProjectTypesForDbDropdown();
+                    }
                 } else {
                     view.style.display = 'none';
                 }
@@ -1516,6 +1521,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicDbDropzone = document.getElementById('publicDbDropzone');
     const publicDbFileInput = document.getElementById('publicDbFileInput');
     const publicDbMessage = document.getElementById('publicDbMessage');
+    const publicDbProjectSelect = document.getElementById('publicDbProjectSelect');
+    const publicDbProjectTypeSelect = document.getElementById('publicDbProjectTypeSelect');
 
     function setPublicDbMessage(text, type) {
         if (!publicDbMessage) return;
@@ -1525,6 +1532,125 @@ document.addEventListener("DOMContentLoaded", () => {
             publicDbMessage.classList.add('upload-message--success');
         } else if (type === 'error') {
             publicDbMessage.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadPublicProjectsForDbDropdown() {
+        if (!publicDbProjectSelect) return;
+
+        publicDbProjectSelect.innerHTML = '<option value=\"\">Loading...</option>';
+        publicDbProjectSelect.disabled = true;
+
+        try {
+            // 1) Get all public project types
+            const { data: typeRows, error: typeErr } = await supabase
+                .from('project_type')
+                .select('id')
+                .eq('is_public', true);
+
+            if (typeErr) {
+                console.error('Error loading public project types for Public Database:', typeErr);
+                setPublicDbMessage('Failed to load public project types.', 'error');
+                publicDbProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                return;
+            }
+
+            if (!typeRows || typeRows.length === 0) {
+                setPublicDbMessage('No public project types found.', 'error');
+                publicDbProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            const typeIds = typeRows
+                .map(row => row && row.id)
+                .filter(id => id !== null && id !== undefined);
+
+            if (typeIds.length === 0) {
+                setPublicDbMessage('No public project types found.', 'error');
+                publicDbProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            // 2) Load projects that use those public project_type ids
+            //    and have organization_id = null (public projects only)
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_type_id, organization_id')
+                .in('project_type_id', typeIds)
+                .is('organization_id', null);
+
+            if (projectErr) {
+                console.error('Error loading public projects for Public Database:', projectErr);
+                setPublicDbMessage('Failed to load public projects.', 'error');
+                publicDbProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                return;
+            }
+
+            if (!projectRows || projectRows.length === 0) {
+                setPublicDbMessage('No public projects found.', 'error');
+                publicDbProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                return;
+            }
+
+            publicDbProjectSelect.innerHTML = '<option value=\"\">Select Public Project</option>';
+            projectRows.forEach(project => {
+                if (!project || !project.project_id || !project.project_name) return;
+                const option = document.createElement('option');
+                option.value = project.project_id;
+                option.textContent = project.project_name;
+                publicDbProjectSelect.appendChild(option);
+            });
+
+            publicDbProjectSelect.disabled = false;
+        } catch (err) {
+            console.error('Unexpected error loading public projects for Public Database:', err);
+            setPublicDbMessage('An unexpected error occurred while loading public projects.', 'error');
+            publicDbProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+            publicDbProjectSelect.disabled = true;
+        }
+    }
+
+    async function loadPublicProjectTypesForDbDropdown() {
+        if (!publicDbProjectTypeSelect) return;
+
+        publicDbProjectTypeSelect.innerHTML = '<option value=\"\">Loading...</option>';
+        publicDbProjectTypeSelect.disabled = true;
+
+        try {
+            const { data, error } = await supabase
+                .from('project_type')
+                .select('id, project_type, is_public')
+                .eq('is_public', true)
+                .order('project_type', { ascending: true });
+
+            if (error) {
+                console.error('Error loading public project types for Public Database:', error);
+                setPublicDbMessage('Failed to load public project types.', 'error');
+                publicDbProjectTypeSelect.innerHTML = '<option value=\"\">Error loading project types</option>';
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                setPublicDbMessage('No public project types found.', 'error');
+                publicDbProjectTypeSelect.innerHTML = '<option value=\"\">No public project types available</option>';
+                return;
+            }
+
+            publicDbProjectTypeSelect.innerHTML = '<option value=\"\">Select Public Project Type</option>';
+            data.forEach(row => {
+                if (!row || !row.id || !row.project_type) return;
+                const option = document.createElement('option');
+                option.value = row.id;
+                option.textContent = row.project_type;
+                publicDbProjectTypeSelect.appendChild(option);
+            });
+
+            publicDbProjectTypeSelect.disabled = false;
+        } catch (err) {
+            console.error('Unexpected error loading public project types for Public Database:', err);
+            setPublicDbMessage('An unexpected error occurred while loading public project types.', 'error');
+            publicDbProjectTypeSelect.innerHTML = '<option value=\"\">Error loading project types</option>';
+            publicDbProjectTypeSelect.disabled = true;
         }
     }
 
