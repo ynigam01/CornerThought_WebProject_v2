@@ -1687,84 +1687,576 @@ document.addEventListener("DOMContentLoaded", () => {
             return null;
         }
 
-        // Find Issues/Successes sheet
-        const issuesSheetInfo = findSheetWithHeaders(['Data ID', 'Issue', 'Success']);
-        if (!issuesSheetInfo) {
-            setPublicDbMessage('Could not find a sheet with columns: Data ID, Issue, Success.', 'error');
+        const errors = [];
+
+        // Determine context from Public Project / Public Project Type dropdowns
+        let contextProjectId = null;
+        let contextProjectTypeId = null;
+
+        try {
+            const projectValue = publicDbProjectSelect ? publicDbProjectSelect.value || '' : '';
+            const projectTypeValue = publicDbProjectTypeSelect ? publicDbProjectTypeSelect.value || '' : '';
+
+            if (projectValue) {
+                const projectId = Number(projectValue);
+                if (Number.isFinite(projectId)) {
+                    contextProjectId = projectId;
+                    const { data: projectRow, error: projectErr } = await supabase
+                        .from('projects')
+                        .select('project_type_id')
+                        .eq('project_id', projectId)
+                        .single();
+                    if (projectErr) {
+                        console.error('Error loading project_type_id for selected project:', projectErr);
+                        errors.push({
+                            sheet: 'context',
+                            row: 0,
+                            message: 'Failed to load project_type_id for selected public project.'
+                        });
+                    } else if (projectRow && projectRow.project_type_id != null) {
+                        contextProjectTypeId = projectRow.project_type_id;
+                    }
+                }
+            } else if (projectTypeValue) {
+                const ptId = Number(projectTypeValue);
+                if (Number.isFinite(ptId)) {
+                    contextProjectTypeId = ptId;
+                }
+            }
+        } catch (e) {
+            console.error('Unexpected error resolving project context for Public Database import:', e);
+            errors.push({
+                sheet: 'context',
+                row: 0,
+                message: 'Unexpected error while resolving project context.'
+            });
+        }
+
+        // 1) Lessons sheet → lessons_learned
+        const lessonsSheetInfo = findSheetWithHeaders(['lesson learned id', 'description', 'issue or success']);
+        if (!lessonsSheetInfo) {
+            setPublicDbMessage('Could not find a sheet with columns: "lesson learned id", "description", "issue or success".', 'error');
             return;
         }
 
-        const causesSheetInfo = findSheetWithHeaders(['Data ID', 'Cause']);
-        // causesSheetInfo can be null; that just means no causes
+        const lessonIdKey = normalizeHeader('lesson learned id');
+        const descKey = normalizeHeader('description');
+        const categoryKey = normalizeHeader('issue or success');
+        const idxLessonId = lessonsSheetInfo.headerMap[lessonIdKey];
+        const idxDesc = lessonsSheetInfo.headerMap[descKey];
+        const idxCategory = lessonsSheetInfo.headerMap[categoryKey];
 
-        const entriesById = new Map();
+        const lessonInserts = [];
+        const lessonExternalIds = [];
 
-        const dataIdKey = normalizeHeader('Data ID');
-        const issueKey = normalizeHeader('Issue');
-        const successKey = normalizeHeader('Success');
-
-        const idxDataId = issuesSheetInfo.headerMap[dataIdKey];
-        const idxIssue = issuesSheetInfo.headerMap[issueKey];
-        const idxSuccess = issuesSheetInfo.headerMap[successKey];
-
-        for (let i = 1; i < issuesSheetInfo.rows.length; i++) {
-            const row = issuesSheetInfo.rows[i];
+        for (let i = 1; i < lessonsSheetInfo.rows.length; i++) {
+            const row = lessonsSheetInfo.rows[i];
             if (!row) continue;
-            const dataIdRaw = row[idxDataId];
-            const issueRaw = row[idxIssue];
-            const successRaw = row[idxSuccess];
 
-            const dataId = dataIdRaw != null ? String(dataIdRaw).trim() : '';
-            const issueText = issueRaw != null ? String(issueRaw).trim() : '';
-            const successText = successRaw != null ? String(successRaw).trim() : '';
+            const rawLessonId = row[idxLessonId];
+            const rawDesc = row[idxDesc];
+            const rawCategory = row[idxCategory];
 
-            if (!dataId) continue;
-            if (!issueText && !successText) continue;
+            const lessonExtId = rawLessonId != null ? String(rawLessonId).trim() : '';
+            const title = rawDesc != null ? String(rawDesc).trim() : '';
+            const categoryRaw = rawCategory != null ? String(rawCategory).trim() : '';
+            const categoryNorm = categoryRaw.toLowerCase();
 
-            const type = issueText ? 'Issue' : 'Success';
-            const text = issueText || successText;
-
-            if (!entriesById.has(dataId)) {
-                entriesById.set(dataId, {
-                    dataId,
-                    type,
-                    text,
-                    causes: []
+            if (!lessonExtId) {
+                errors.push({
+                    sheet: lessonsSheetInfo.sheetName,
+                    row: i + 1,
+                    message: 'Missing "lesson learned id"; row skipped.'
                 });
+                continue;
             }
+
+            if (!title) {
+                errors.push({
+                    sheet: lessonsSheetInfo.sheetName,
+                    row: i + 1,
+                    message: 'Missing "description"; row skipped.'
+                });
+                continue;
+            }
+
+            if (categoryNorm !== 'issue' && categoryNorm !== 'success') {
+                errors.push({
+                    sheet: lessonsSheetInfo.sheetName,
+                    row: i + 1,
+                    message: 'Category must be either "issue" or "success"; row skipped.'
+                });
+                continue;
+            }
+
+            lessonExternalIds.push(lessonExtId);
+            lessonInserts.push({
+                organization_id: null,
+                project_id: contextProjectId,
+                project_type_id: contextProjectTypeId,
+                title,
+                category: categoryNorm,
+                created_by: null
+            });
         }
 
-        // Attach causes if a causes sheet exists
+        if (lessonInserts.length === 0) {
+            setPublicDbMessage('No valid lesson rows were found in the Excel file.', 'error');
+            console.warn('Public DB import: No valid lessons to insert.', { errors });
+            return;
+        }
+
+        const counts = {
+            lessons: 0,
+            causes: 0,
+            impacts: 0,
+            fpc: 0,
+            metadata: 0
+        };
+
+        const lessonIdMap = new Map();
+
+        try {
+            const { data: insertedLessons, error: lessonErr } = await supabase
+                .from('lessons_learned')
+                .insert(lessonInserts)
+                .select('id');
+
+            if (lessonErr) {
+                console.error('Error inserting lessons_learned rows:', lessonErr);
+                setPublicDbMessage('Failed to save lessons to the database.', 'error');
+                return;
+            }
+
+            if (!insertedLessons || insertedLessons.length !== lessonInserts.length) {
+                console.warn('Mismatch between lessons inserted and prepared rows.', {
+                    prepared: lessonInserts.length,
+                    inserted: insertedLessons ? insertedLessons.length : 0
+                });
+            }
+
+            const len = Math.min(lessonExternalIds.length, insertedLessons.length);
+            for (let i = 0; i < len; i++) {
+                const extId = lessonExternalIds[i];
+                const dbId = insertedLessons[i].id;
+                if (extId && dbId != null) {
+                    lessonIdMap.set(extId, dbId);
+                }
+            }
+
+            counts.lessons = len;
+        } catch (e) {
+            console.error('Unexpected error inserting lessons_learned rows:', e);
+            setPublicDbMessage('Unexpected error while saving lessons to the database.', 'error');
+            return;
+        }
+
+        // 2) Causes sheet → lessons_learned_causes
+        const causesSheetInfo = findSheetWithHeaders(['lesson learned id', 'cause id', 'cause']);
+        const causeKeyToDbId = new Map();
+
         if (causesSheetInfo) {
-            const causeDataIdKey = normalizeHeader('Data ID');
-            const causeKey = normalizeHeader('Cause');
-            const idxCauseDataId = causesSheetInfo.headerMap[causeDataIdKey];
-            const idxCause = causesSheetInfo.headerMap[causeKey];
+            const causeLessonKey = normalizeHeader('lesson learned id');
+            const causeIdKey = normalizeHeader('cause id');
+            const causeTextKey = normalizeHeader('cause');
+
+            const idxCauseLesson = causesSheetInfo.headerMap[causeLessonKey];
+            const idxCauseId = causesSheetInfo.headerMap[causeIdKey];
+            const idxCauseText = causesSheetInfo.headerMap[causeTextKey];
+
+            const causeInserts = [];
+            const causeExternalKeys = [];
 
             for (let i = 1; i < causesSheetInfo.rows.length; i++) {
                 const row = causesSheetInfo.rows[i];
                 if (!row) continue;
-                const dataIdRaw = row[idxCauseDataId];
-                const causeRaw = row[idxCause];
-                const dataId = dataIdRaw != null ? String(dataIdRaw).trim() : '';
-                const causeText = causeRaw != null ? String(causeRaw).trim() : '';
-                if (!dataId || !causeText) continue;
 
-                const entry = entriesById.get(dataId);
-                if (entry) {
-                    entry.causes.push(causeText);
+                const rawLessonId = row[idxCauseLesson];
+                const rawCauseId = row[idxCauseId];
+                const rawCauseText = row[idxCauseText];
+
+                const lessonExtId = rawLessonId != null ? String(rawLessonId).trim() : '';
+                const causeExtId = rawCauseId != null ? String(rawCauseId).trim() : '';
+                const causeText = rawCauseText != null ? String(rawCauseText).trim() : '';
+
+                if (!lessonExtId || !causeExtId || !causeText) {
+                    errors.push({
+                        sheet: causesSheetInfo.sheetName,
+                        row: i + 1,
+                        message: 'Missing lesson id, cause id, or cause text; row skipped.'
+                    });
+                    continue;
+                }
+
+                const lessonDbId = lessonIdMap.get(lessonExtId);
+                if (!lessonDbId) {
+                    errors.push({
+                        sheet: causesSheetInfo.sheetName,
+                        row: i + 1,
+                        message: `Lesson with external id "${lessonExtId}" was not inserted; row skipped.`
+                    });
+                    continue;
+                }
+
+                causeExternalKeys.push(`${lessonExtId}||${causeExtId}`);
+                causeInserts.push({
+                    lessons_learned_id: lessonDbId,
+                    cause: causeText,
+                    created_by: null
+                });
+            }
+
+            if (causeInserts.length > 0) {
+                try {
+                    const { data: insertedCauses, error: causesErr } = await supabase
+                        .from('lessons_learned_causes')
+                        .insert(causeInserts)
+                        .select('id');
+
+                    if (causesErr) {
+                        console.error('Error inserting lessons_learned_causes rows:', causesErr);
+                        errors.push({
+                            sheet: causesSheetInfo.sheetName,
+                            row: 0,
+                            message: 'Failed to save some causes to the database.'
+                        });
+                    } else if (insertedCauses) {
+                        const len = Math.min(causeExternalKeys.length, insertedCauses.length);
+                        for (let i = 0; i < len; i++) {
+                            const key = causeExternalKeys[i];
+                            const dbId = insertedCauses[i].id;
+                            if (key && dbId != null) {
+                                causeKeyToDbId.set(key, dbId);
+                            }
+                        }
+                        counts.causes = len;
+                    }
+                } catch (e) {
+                    console.error('Unexpected error inserting lessons_learned_causes rows:', e);
+                    errors.push({
+                        sheet: causesSheetInfo.sheetName,
+                        row: 0,
+                        message: 'Unexpected error while saving causes to the database.'
+                    });
                 }
             }
         }
 
-        const entries = Array.from(entriesById.values());
-        if (entries.length === 0) {
-            setPublicDbMessage('No Issues or Successes were found in this file.', 'error');
-            return;
+        // 3) Impacts sheet → lessons_learned_impacts
+        const impactsSheetInfo = findSheetWithHeaders(['lesson learned id', 'impact id', 'impact']);
+        const impactKeyToDbId = new Map();
+
+        if (impactsSheetInfo) {
+            const impactLessonKey = normalizeHeader('lesson learned id');
+            const impactIdKey = normalizeHeader('impact id');
+            const impactTextKey = normalizeHeader('impact');
+
+            const idxImpactLesson = impactsSheetInfo.headerMap[impactLessonKey];
+            const idxImpactId = impactsSheetInfo.headerMap[impactIdKey];
+            const idxImpactText = impactsSheetInfo.headerMap[impactTextKey];
+
+            const impactInserts = [];
+            const impactExternalKeys = [];
+
+            for (let i = 1; i < impactsSheetInfo.rows.length; i++) {
+                const row = impactsSheetInfo.rows[i];
+                if (!row) continue;
+
+                const rawLessonId = row[idxImpactLesson];
+                const rawImpactId = row[idxImpactId];
+                const rawImpactText = row[idxImpactText];
+
+                const lessonExtId = rawLessonId != null ? String(rawLessonId).trim() : '';
+                const impactExtId = rawImpactId != null ? String(rawImpactId).trim() : '';
+                const impactText = rawImpactText != null ? String(rawImpactText).trim() : '';
+
+                if (!lessonExtId || !impactExtId || !impactText) {
+                    errors.push({
+                        sheet: impactsSheetInfo.sheetName,
+                        row: i + 1,
+                        message: 'Missing lesson id, impact id, or impact text; row skipped.'
+                    });
+                    continue;
+                }
+
+                const lessonDbId = lessonIdMap.get(lessonExtId);
+                if (!lessonDbId) {
+                    errors.push({
+                        sheet: impactsSheetInfo.sheetName,
+                        row: i + 1,
+                        message: `Lesson with external id "${lessonExtId}" was not inserted; row skipped.`
+                    });
+                    continue;
+                }
+
+                impactExternalKeys.push(`${lessonExtId}||${impactExtId}`);
+                impactInserts.push({
+                    lessons_learned_id: lessonDbId,
+                    impact: impactText,
+                    created_by: null
+                });
+            }
+
+            if (impactInserts.length > 0) {
+                try {
+                    const { data: insertedImpacts, error: impactsErr } = await supabase
+                        .from('lessons_learned_impacts')
+                        .insert(impactInserts)
+                        .select('id');
+
+                    if (impactsErr) {
+                        console.error('Error inserting lessons_learned_impacts rows:', impactsErr);
+                        errors.push({
+                            sheet: impactsSheetInfo.sheetName,
+                            row: 0,
+                            message: 'Failed to save some impacts to the database.'
+                        });
+                    } else if (insertedImpacts) {
+                        const len = Math.min(impactExternalKeys.length, insertedImpacts.length);
+                        for (let i = 0; i < len; i++) {
+                            const key = impactExternalKeys[i];
+                            const dbId = insertedImpacts[i].id;
+                            if (key && dbId != null) {
+                                impactKeyToDbId.set(key, dbId);
+                            }
+                        }
+                        counts.impacts = len;
+                    }
+                } catch (e) {
+                    console.error('Unexpected error inserting lessons_learned_impacts rows:', e);
+                    errors.push({
+                        sheet: impactsSheetInfo.sheetName,
+                        row: 0,
+                        message: 'Unexpected error while saving impacts to the database.'
+                    });
+                }
+            }
         }
 
-        setPublicDbMessage(`Loaded ${entries.length} Issue/Success entries from the Excel file.`, 'success');
-        openPublicDbPreview(entries);
+        // 4) Future Projects Consideration sheet → future_project_considerations
+        const fpcSheetInfo = findSheetWithHeaders(['lesson learned id', 'future projects consideration']);
+
+        if (fpcSheetInfo) {
+            const fpcLessonKey = normalizeHeader('lesson learned id');
+            const fpcTextKey = normalizeHeader('future projects consideration');
+            const fpcCauseIdKey = normalizeHeader('cause id');
+            const fpcImpactIdKey = normalizeHeader('impact id');
+
+            const idxFpcLesson = fpcSheetInfo.headerMap[fpcLessonKey];
+            const idxFpcText = fpcSheetInfo.headerMap[fpcTextKey];
+            const idxFpcCauseId = fpcSheetInfo.headerMap[fpcCauseIdKey];
+            const idxFpcImpactId = fpcSheetInfo.headerMap[fpcImpactIdKey];
+
+            const fpcInserts = [];
+
+            for (let i = 1; i < fpcSheetInfo.rows.length; i++) {
+                const row = fpcSheetInfo.rows[i];
+                if (!row) continue;
+
+                const rawLessonId = row[idxFpcLesson];
+                const rawText = row[idxFpcText];
+                const rawCauseId = idxFpcCauseId !== undefined ? row[idxFpcCauseId] : null;
+                const rawImpactId = idxFpcImpactId !== undefined ? row[idxFpcImpactId] : null;
+
+                const lessonExtId = rawLessonId != null ? String(rawLessonId).trim() : '';
+                const fpcText = rawText != null ? String(rawText).trim() : '';
+                const causeExtId = rawCauseId != null ? String(rawCauseId).trim() : '';
+                const impactExtId = rawImpactId != null ? String(rawImpactId).trim() : '';
+
+                if (!lessonExtId || !fpcText) {
+                    errors.push({
+                        sheet: fpcSheetInfo.sheetName,
+                        row: i + 1,
+                        message: 'Missing lesson id or Future Projects Consideration text; row skipped.'
+                    });
+                    continue;
+                }
+
+                const lessonDbId = lessonIdMap.get(lessonExtId);
+                if (!lessonDbId) {
+                    errors.push({
+                        sheet: fpcSheetInfo.sheetName,
+                        row: i + 1,
+                        message: `Lesson with external id "${lessonExtId}" was not inserted; row skipped.`
+                    });
+                    continue;
+                }
+
+                const hasCause = !!causeExtId;
+                const hasImpact = !!impactExtId;
+
+                if ((hasCause && hasImpact) || (!hasCause && !hasImpact)) {
+                    errors.push({
+                        sheet: fpcSheetInfo.sheetName,
+                        row: i + 1,
+                        message: 'Each Future Projects Consideration must reference exactly one cause OR one impact.'
+                    });
+                    continue;
+                }
+
+                let causeDbId = null;
+                let impactDbId = null;
+
+                if (hasCause) {
+                    const key = `${lessonExtId}||${causeExtId}`;
+                    causeDbId = causeKeyToDbId.get(key) || null;
+                    if (!causeDbId) {
+                        errors.push({
+                            sheet: fpcSheetInfo.sheetName,
+                            row: i + 1,
+                            message: `Could not find cause with id "${causeExtId}" for lesson "${lessonExtId}".`
+                        });
+                        continue;
+                    }
+                } else if (hasImpact) {
+                    const key = `${lessonExtId}||${impactExtId}`;
+                    impactDbId = impactKeyToDbId.get(key) || null;
+                    if (!impactDbId) {
+                        errors.push({
+                            sheet: fpcSheetInfo.sheetName,
+                            row: i + 1,
+                            message: `Could not find impact with id "${impactExtId}" for lesson "${lessonExtId}".`
+                        });
+                        continue;
+                    }
+                }
+
+                fpcInserts.push({
+                    lessons_learned_id: lessonDbId,
+                    fpc: fpcText,
+                    created_by: null,
+                    lessons_learned_cause_id: causeDbId,
+                    lessons_learned_impact_id: impactDbId
+                });
+            }
+
+            if (fpcInserts.length > 0) {
+                try {
+                    const { data: insertedFpc, error: fpcErr } = await supabase
+                        .from('future_project_considerations')
+                        .insert(fpcInserts)
+                        .select('id');
+
+                    if (fpcErr) {
+                        console.error('Error inserting future_project_considerations rows:', fpcErr);
+                        errors.push({
+                            sheet: fpcSheetInfo.sheetName,
+                            row: 0,
+                            message: 'Failed to save some future project considerations to the database.'
+                        });
+                    } else if (insertedFpc) {
+                        counts.fpc = insertedFpc.length;
+                    }
+                } catch (e) {
+                    console.error('Unexpected error inserting future_project_considerations rows:', e);
+                    errors.push({
+                        sheet: fpcSheetInfo.sheetName,
+                        row: 0,
+                        message: 'Unexpected error while saving future project considerations.'
+                    });
+                }
+            }
+        }
+
+        // 5) Metadata sheet → lessons_learned_metadata
+        const metadataSheetInfo = findSheetWithHeaders(['lesson learned id', 'metadata']);
+
+        if (metadataSheetInfo) {
+            const metadataLessonKey = normalizeHeader('lesson learned id');
+            const metadataTextKey = normalizeHeader('metadata');
+
+            const idxMetadataLesson = metadataSheetInfo.headerMap[metadataLessonKey];
+            const idxMetadataText = metadataSheetInfo.headerMap[metadataTextKey];
+
+            const metadataInserts = [];
+
+            for (let i = 1; i < metadataSheetInfo.rows.length; i++) {
+                const row = metadataSheetInfo.rows[i];
+                if (!row) continue;
+
+                const rawLessonId = row[idxMetadataLesson];
+                const rawMeta = row[idxMetadataText];
+
+                const lessonExtId = rawLessonId != null ? String(rawLessonId).trim() : '';
+                const metadataText = rawMeta != null ? String(rawMeta).trim() : '';
+
+                if (!lessonExtId || !metadataText) {
+                    errors.push({
+                        sheet: metadataSheetInfo.sheetName,
+                        row: i + 1,
+                        message: 'Missing lesson id or metadata text; row skipped.'
+                    });
+                    continue;
+                }
+
+                const lessonDbId = lessonIdMap.get(lessonExtId);
+                if (!lessonDbId) {
+                    errors.push({
+                        sheet: metadataSheetInfo.sheetName,
+                        row: i + 1,
+                        message: `Lesson with external id "${lessonExtId}" was not inserted; row skipped.`
+                    });
+                    continue;
+                }
+
+                metadataInserts.push({
+                    lessons_learned_id: lessonDbId,
+                    metadata: metadataText,
+                    metadata_type: 'miscellaneous',
+                    created_by: null,
+                    organization_id: null,
+                    project_id: contextProjectId,
+                    project_type_id: contextProjectTypeId
+                });
+            }
+
+            if (metadataInserts.length > 0) {
+                try {
+                    const { data: insertedMetadata, error: metadataErr } = await supabase
+                        .from('lessons_learned_metadata')
+                        .insert(metadataInserts)
+                        .select('id');
+
+                    if (metadataErr) {
+                        console.error('Error inserting lessons_learned_metadata rows:', metadataErr);
+                        errors.push({
+                            sheet: metadataSheetInfo.sheetName,
+                            row: 0,
+                            message: 'Failed to save some metadata rows to the database.'
+                        });
+                    } else if (insertedMetadata) {
+                        counts.metadata = insertedMetadata.length;
+                    }
+                } catch (e) {
+                    console.error('Unexpected error inserting lessons_learned_metadata rows:', e);
+                    errors.push({
+                        sheet: metadataSheetInfo.sheetName,
+                        row: 0,
+                        message: 'Unexpected error while saving metadata rows.'
+                    });
+                }
+            }
+        }
+
+        // Final feedback
+        const summary =
+            `Imported ${counts.lessons} lesson(s), ${counts.causes} cause(s), ` +
+            `${counts.impacts} impact(s), ${counts.fpc} future project consideration(s), ` +
+            `${counts.metadata} metadata row(s) into the public database.`;
+
+        if (errors.length > 0) {
+            setPublicDbMessage(
+                `${summary} Some rows were skipped. Check the browser console for details.`,
+                'success'
+            );
+            console.group('Public Database import warnings');
+            errors.forEach(err => {
+                console.warn(`[${err.sheet}] row ${err.row}: ${err.message}`);
+            });
+            console.groupEnd();
+        } else {
+            setPublicDbMessage(summary, 'success');
+        }
     }
 
     function handlePublicDbFiles(fileList) {
