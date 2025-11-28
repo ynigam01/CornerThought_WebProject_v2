@@ -1771,6 +1771,42 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!fileList || fileList.length === 0) {
             return;
         }
+
+        // --- Public Database selection rules before upload ---
+        // 1) If BOTH a Public Project and Public Project Type are selected, block upload.
+        // 2) If NEITHER is selected, ask if user wants to upload general data not
+        //    attached to a project or project type. Only proceed if they confirm.
+        // 3) If exactly ONE of them is selected, allow upload.
+        if (publicDbProjectSelect && publicDbProjectTypeSelect) {
+            const projectValue = publicDbProjectSelect.value || '';
+            const projectTypeValue = publicDbProjectTypeSelect.value || '';
+            const hasProject = projectValue !== '';
+            const hasProjectType = projectTypeValue !== '';
+
+            // Case: both selected -> block upload
+            if (hasProject && hasProjectType) {
+                setPublicDbMessage('Please select either a Public Project or a Public Project Type, not both.', 'error');
+                alert('Please select either a Public Project or a Public Project Type, not both.');
+                return;
+            }
+
+            // Case: neither selected -> ask if they want general (unattached) data
+            if (!hasProject && !hasProjectType) {
+                const proceedAsGeneral = confirm(
+                    'You have not selected a Public Project or a Public Project Type.\n\n' +
+                    'Do you want to upload general data that is NOT attached to any project or project type?'
+                );
+                if (!proceedAsGeneral) {
+                    setPublicDbMessage(
+                        'Upload cancelled. Please select a Public Project or a Public Project Type, or confirm general upload.',
+                        'error'
+                    );
+                    return;
+                }
+                // If they confirm, continue with the upload as general data.
+            }
+        }
+
         const file = fileList[0];
         const name = file.name || '';
         const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
