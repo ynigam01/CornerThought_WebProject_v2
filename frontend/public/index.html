@@ -23,8 +23,29 @@
 <main class="content-area">
     <h1>Welcome to CornerThought</h1>
     <p>Your lessons learned platform.</p>
+
+    <section class="public-search">
+        <h2>Search Public Lessons Learned</h2>
+        <p class="public-search-hint">
+            Search by keywords that appear in lesson metadata tags (for example, <em>climate</em>, <em>stakeholder</em>, or <em>supply chain</em>).
+        </p>
+        <form id="lessonsSearchForm" class="lessons-search-form">
+            <input
+                type="text"
+                id="lessonsSearchInput"
+                class="search-input"
+                placeholder="Search lessons by keyword…"
+                aria-label="Search lessons learned"
+                autocomplete="off"
+            >
+            <button type="submit" class="search-button">Search</button>
+        </form>
+        <p id="lessonsSearchStatus" class="search-status" aria-live="polite"></p>
+        <div id="lessonsResultsContainer" class="lessons-results"></div>
+    </section>
 </main>
 
 <script src="js/main.js"></script>
+<script type="module" src="js/index-search.js"></script>
 </body>
 </html>
