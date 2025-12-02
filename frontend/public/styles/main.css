@@ -633,6 +633,14 @@ body {
     background-color: #2980b9;
 }
 
+.secondary-search-button {
+    background-color: #6c757d;
+}
+
+.secondary-search-button:hover {
+    background-color: #5a6268;
+}
+
 .search-status {
     text-align: center;
     font-size: 14px;
