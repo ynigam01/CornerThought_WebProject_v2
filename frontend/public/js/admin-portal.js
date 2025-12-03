@@ -525,6 +525,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const publicProjectDetailsStatus = document.getElementById('publicProjectDetailsStatus');
 
     let currentPublicProject = null;
+    let publicProjectChoices = null;
 
     if (publicInlineForm && publicCreateSummary && publicCreateRightCol) {
         publicInlineForm.addEventListener('submit', async (e) => {
@@ -938,9 +939,7 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadPublicProjectsForDropdown() {
         if (!publicProjectSelect || !publicProjectsStatus) return;
 
-        publicProjectSelect.innerHTML = '<option value="">Loading...</option>';
-        publicProjectSelect.disabled = true;
-        publicProjectsStatus.textContent = '';
+        publicProjectsStatus.textContent = 'Loading public projects...';
 
         try {
             // 1) Get all public project types
@@ -958,7 +957,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!typeRows || typeRows.length === 0) {
                 publicProjectsStatus.textContent = 'No public project types found.';
-                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                if (publicProjectChoices) {
+                    publicProjectChoices.clearChoices();
+                } else {
+                    publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                }
                 return;
             }
 
@@ -968,7 +971,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (typeIds.length === 0) {
                 publicProjectsStatus.textContent = 'No public project types found.';
-                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                if (publicProjectChoices) {
+                    publicProjectChoices.clearChoices();
+                } else {
+                    publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                }
                 return;
             }
 
@@ -983,32 +990,65 @@ document.addEventListener("DOMContentLoaded", () => {
             if (projectErr) {
                 console.error('Error loading public projects:', projectErr);
                 publicProjectsStatus.textContent = 'Failed to load public projects.';
-                publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                if (publicProjectChoices) {
+                    publicProjectChoices.clearChoices();
+                } else {
+                    publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+                }
                 return;
             }
 
             if (!projectRows || projectRows.length === 0) {
                 publicProjectsStatus.textContent = 'No public projects found.';
-                publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                if (publicProjectChoices) {
+                    publicProjectChoices.clearChoices();
+                } else {
+                    publicProjectSelect.innerHTML = '<option value=\"\">No public projects available</option>';
+                }
                 return;
             }
 
-            publicProjectSelect.innerHTML = '<option value=\"\">Select Public Project</option>';
-            projectRows.forEach(project => {
-                if (!project || !project.project_id || !project.project_name) return;
-                const option = document.createElement('option');
-                option.value = project.project_id;
-                option.textContent = project.project_name;
-                publicProjectSelect.appendChild(option);
-            });
+            const choicesData = (projectRows || []).map(project => ({
+                value: project.project_id,
+                label: project.project_name
+            }));
 
-            publicProjectSelect.disabled = false;
+            // Initialize Choices once
+            if (!publicProjectChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select.');
+                    publicProjectSelect.innerHTML = '<option value=\"\">Select Public Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        publicProjectSelect.appendChild(option);
+                    });
+                    publicProjectsStatus.textContent = '';
+                    return;
+                }
+
+                publicProjectChoices = new Choices(publicProjectSelect, {
+                    searchEnabled: true,
+                    shouldSort: false,
+                    placeholder: true,
+                    placeholderValue: 'Select Public Project',
+                    searchPlaceholderValue: 'Type to search...'
+                });
+            }
+
+            // Replace existing choices with new ones
+            publicProjectChoices.setChoices(choicesData, 'value', 'label', true);
+
             publicProjectsStatus.textContent = '';
         } catch (err) {
             console.error('Unexpected error loading public projects:', err);
             publicProjectsStatus.textContent = 'An unexpected error occurred while loading public projects.';
-            publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
-            publicProjectSelect.disabled = true;
+            if (publicProjectChoices) {
+                publicProjectChoices.clearChoices();
+            } else if (publicProjectSelect) {
+                publicProjectSelect.innerHTML = '<option value=\"\">Error loading projects</option>';
+            }
         }
     }
 

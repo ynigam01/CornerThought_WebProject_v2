@@ -260,6 +260,35 @@ body {
     text-decoration: underline;
 }
 
+/* === Manage Public Projects searchable dropdown (Choices.js) === */
+.project-types-panel .choices {
+    width: 100%;
+}
+
+.project-types-panel .choices__inner {
+    box-sizing: border-box;
+    min-height: 32px !important;    /* overall control height */
+    padding: 2px 8px !important;    /* vertical padding adjusts thickness */
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    font-size: 0.95rem;
+}
+
+.project-types-panel .choices__list--single {
+    padding: 0 !important;
+}
+
+.project-types-panel .choices__list--single .choices__item {
+    padding: 2px 0 !important;
+    line-height: 1.2 !important;
+}
+
+.project-types-panel .choices__input {
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: 0 !important;
+}
+
 .login-status-message {
     margin-top: 20px;
     color: #e74c3c; /* Example for error messages */
