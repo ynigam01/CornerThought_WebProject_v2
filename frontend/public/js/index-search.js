@@ -44,6 +44,7 @@ const SEARCH_VIEW = 'public_lessons_search';
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('lessonsSearchForm');
   const input = document.getElementById('lessonsSearchInput');
+  const projectsButton = document.getElementById('searchProjectsButton');
 
   if (!form || !input) {
     // If elements aren't present, quietly exit.
@@ -72,6 +73,30 @@ document.addEventListener('DOMContentLoaded', () => {
       clearResults();
     }
   });
+
+  if (projectsButton) {
+    projectsButton.addEventListener('click', async () => {
+      const rawTerm = input.value || '';
+      const term = rawTerm.trim();
+
+      if (!term) {
+        clearResults();
+        setStatus('Please enter a keyword to search projects.');
+        return;
+      }
+
+      setStatus('Searching projects…');
+      try {
+        const results = await searchProjects(term);
+        renderProjectResults(results, term);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Error searching projects:', error);
+        setStatus('Something went wrong while searching projects. Please try again.');
+        clearResults();
+      }
+    });
+  }
 });
 
 /**
@@ -107,6 +132,27 @@ async function searchLessons(term) {
 }
 
 /**
+ * Calls backend /api/search-projects to perform semantic project search.
+ */
+async function searchProjects(term) {
+  const response = await fetch('/api/search-projects', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ queryText: term }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Project search failed with ${response.status}: ${text}`);
+  }
+
+  const payload = await response.json();
+  return Array.isArray(payload.results) ? payload.results : [];
+}
+
+/**
  * Normalizes a raw row from Supabase into the shape needed for the UI.
  */
 function normalizeResultRow(row) {
@@ -129,6 +175,34 @@ function normalizeResultRow(row) {
     projectType: row.project_type || null,
     industry: row.industry || null,
   };
+}
+
+/**
+ * Renders project search results as "<Project Name>: <Project Description>" lines.
+ */
+function renderProjectResults(results, term) {
+  const container = document.getElementById('lessonsResultsContainer');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (!results.length) {
+    setStatus(`No projects found for “${term}”.`);
+    return;
+  }
+
+  setStatus(`Showing ${results.length} project result${results.length === 1 ? '' : 's'} for “${term}”.`);
+
+  results.forEach((item) => {
+    const div = document.createElement('div');
+    div.className = 'project-result-line';
+
+    const name = item.project_name || '(Unnamed Project)';
+    const desc = item.project_description || '';
+
+    div.textContent = `${name}: ${desc}`;
+    container.appendChild(div);
+  });
 }
 
 /**
@@ -224,6 +298,7 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
 
 
 
