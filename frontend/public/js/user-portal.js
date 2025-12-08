@@ -1,5 +1,6 @@
 // js/user-portal.js
 import { supabase } from './supabase-client.js';
+import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -28,12 +29,23 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     } catch (_) {}
 
-    // Organization id for the logged-in user (used for project-type lookups)
+    // Organization id for the logged-in user (used for project-type lookups and org projects)
     const organizationId = ctUser && ctUser.organizationid ? ctUser.organizationid : null;
 
     // Cache of organization-specific project types for use in create project forms
     let orgProjectTypes = [];
     let orgProjectTypesLoaded = false;
+
+    // State for organization project details sub-module (Create view)
+    let orgProjectDetailsPanel = null;
+    let orgProjectDetailsProjectSelect = null;
+    let orgProjectDetailsFileInput = null;
+    let orgProjectDetailsValidateButton = null;
+    let orgProjectDetailsStatus = null;
+    let orgProjectDetailsBackButton = null;
+    let orgProjectDetailsChoices = null;
+    let currentOrgProject = null;
+    let orgProjectsById = new Map();
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -64,6 +76,108 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!value) return false;
         const target = String(value).trim().toLowerCase();
         return orgProjectTypes.some(name => String(name).trim().toLowerCase() === target);
+    }
+
+    // Load organization projects for the Project Details dropdown in Create view
+    async function loadOrgProjectsForDropdown() {
+        if (!organizationId || !orgProjectDetailsProjectSelect || !orgProjectDetailsStatus) return;
+
+        orgProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
+        orgProjectDetailsStatus.textContent = 'Loading projects...';
+
+        try {
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (projectErr) {
+                console.error('Error loading organization projects for details dropdown:', projectErr);
+                orgProjectDetailsStatus.textContent = 'Failed to load projects.';
+                orgProjectDetailsStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = projectRows || [];
+            if (rows.length === 0) {
+                orgProjectDetailsStatus.textContent = 'No projects found for your organization.';
+                orgProjectDetailsStatus.classList.add('upload-message--error');
+                if (orgProjectDetailsChoices) {
+                    orgProjectDetailsChoices.clearChoices();
+                } else {
+                    orgProjectDetailsProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
+                }
+                currentOrgProject = null;
+                orgProjectsById = new Map();
+                return;
+            }
+
+            orgProjectsById = new Map();
+            const choicesData = rows.map(row => {
+                const idStr = String(row.project_id);
+                const name = row.project_name || `Project ${idStr}`;
+                orgProjectsById.set(idStr, name);
+                return {
+                    value: idStr,
+                    label: name
+                };
+            });
+
+            function updateCurrentOrgProjectFromSelect() {
+                const value = orgProjectDetailsProjectSelect.value;
+                if (!value) {
+                    currentOrgProject = null;
+                    return;
+                }
+                const name = orgProjectsById.get(value) || '';
+                const numericId = Number.isNaN(Number(value)) ? value : Number(value);
+                currentOrgProject = { id: numericId, name };
+            }
+
+            // Initialize Choices once
+            if (!orgProjectDetailsChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for org projects dropdown.');
+                    orgProjectDetailsProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        orgProjectDetailsProjectSelect.appendChild(option);
+                    });
+                    orgProjectDetailsProjectSelect.addEventListener('change', updateCurrentOrgProjectFromSelect);
+                } else {
+                    orgProjectDetailsChoices = new Choices(orgProjectDetailsProjectSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select Project',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                    orgProjectDetailsProjectSelect.addEventListener('change', updateCurrentOrgProjectFromSelect);
+                }
+            }
+
+            if (orgProjectDetailsChoices) {
+                orgProjectDetailsChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                orgProjectDetailsProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    orgProjectDetailsProjectSelect.appendChild(option);
+                });
+            }
+
+            orgProjectDetailsStatus.textContent = '';
+            orgProjectDetailsStatus.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for details dropdown:', err);
+            orgProjectDetailsStatus.textContent = 'An unexpected error occurred while loading projects.';
+            orgProjectDetailsStatus.classList.add('upload-message--error');
+        }
     }
 
     // Insert a new organization project into Supabase `projects` table.
@@ -130,6 +244,192 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error('Unexpected error creating organization project:', err);
             alert('An unexpected error occurred while creating the project.');
             return { success: false };
+        }
+    }
+
+    // Ensure the organization Project Details panel exists in the Create view
+    function ensureOrgProjectDetailsPanel() {
+        if (orgProjectDetailsPanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="orgProjectDetailsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Project Details</h3>
+                        <p class="subtitle">Select a project from your organization and upload an Excel file of project parameters.</p>
+                    </div>
+                    <button type="button" id="orgProjectDetailsBackButton" class="secondary-button">Back to Create Project</button>
+                </div>
+                <div class="form-group">
+                    <label for="orgProjectDetailsProjectSelect">Select Project</label>
+                    <select id="orgProjectDetailsProjectSelect">
+                        <option value=\"\">Select Project</option>
+                    </select>
+                </div>
+                <div class="form-group" id="orgProjectDetailsUpload">
+                    <p>Upload an Excel file with project details. Only .xlsx and .xls formats are accepted.</p>
+                    <input
+                        type="file"
+                        id="orgProjectDetailsFileInput"
+                        accept=".xlsx,.xls"
+                    >
+                </div>
+                <div class="form-buttons">
+                    <button type="button" id="orgProjectDetailsValidateButton" class="secondary-button">
+                        Upload Project Details
+                    </button>
+                </div>
+                <div id="orgProjectDetailsStatus" class="upload-message" aria-live="polite"></div>
+            </section>
+        `);
+
+        orgProjectDetailsPanel = document.getElementById('orgProjectDetailsPanel');
+        orgProjectDetailsProjectSelect = document.getElementById('orgProjectDetailsProjectSelect');
+        orgProjectDetailsFileInput = document.getElementById('orgProjectDetailsFileInput');
+        orgProjectDetailsValidateButton = document.getElementById('orgProjectDetailsValidateButton');
+        orgProjectDetailsStatus = document.getElementById('orgProjectDetailsStatus');
+        orgProjectDetailsBackButton = document.getElementById('orgProjectDetailsBackButton');
+
+        if (orgProjectDetailsBackButton) {
+            orgProjectDetailsBackButton.addEventListener('click', () => {
+                hideOrgProjectDetailsPanel();
+            });
+        }
+
+        // Wire Excel upload behavior
+        if (orgProjectDetailsValidateButton && orgProjectDetailsFileInput && orgProjectDetailsStatus) {
+            orgProjectDetailsValidateButton.addEventListener('click', async () => {
+                orgProjectDetailsStatus.classList.remove('upload-message--success', 'upload-message--error');
+
+                if (!currentOrgProject || !currentOrgProject.id) {
+                    orgProjectDetailsStatus.textContent = 'Please select a project before uploading details.';
+                    orgProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const file = orgProjectDetailsFileInput.files && orgProjectDetailsFileInput.files[0];
+                if (!file) {
+                    orgProjectDetailsStatus.textContent = 'Please choose a file first.';
+                    orgProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const name = file.name || '';
+                const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
+                if (!isExcel) {
+                    orgProjectDetailsStatus.textContent = 'Only Excel files (.xlsx, .xls) are supported.';
+                    orgProjectDetailsStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                try {
+                    orgProjectDetailsStatus.textContent = `Reading \"${name}\"...`;
+
+                    const arrayBuffer = await file.arrayBuffer();
+                    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+                    const firstSheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[firstSheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+                    if (!rows || rows.length === 0) {
+                        orgProjectDetailsStatus.textContent = 'The Excel file is empty.';
+                        orgProjectDetailsStatus.classList.add('upload-message--error');
+                        return;
+                    }
+
+                    const headerRow = rows[0];
+                    const normalize = (v) => String(v || '').trim().toLowerCase();
+
+                    let idxParamName = -1;
+                    let idxParamEntry = -1;
+                    headerRow.forEach((cell, idx) => {
+                        const key = normalize(cell);
+                        if (key === 'parameter name') idxParamName = idx;
+                        if (key === 'parameter entry') idxParamEntry = idx;
+                    });
+
+                    if (idxParamName === -1 || idxParamEntry === -1) {
+                        orgProjectDetailsStatus.textContent = 'Could not find required headers \"Parameter Name\" and \"Parameter Entry\".';
+                        orgProjectDetailsStatus.classList.add('upload-message--error');
+                        return;
+                    }
+
+                    const projectId = currentOrgProject.id;
+                    const inserts = [];
+
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row) continue;
+                        const rawName = row[idxParamName];
+                        const rawEntry = row[idxParamEntry];
+                        const paramName = rawName != null ? String(rawName).trim() : '';
+                        const paramEntry = rawEntry != null ? String(rawEntry).trim() : '';
+                        if (!paramName && !paramEntry) continue;
+
+                        inserts.push({
+                            project_id: projectId,
+                            organization_id: organizationId,
+                            parameter_name: paramName,
+                            parameter_entry: paramEntry
+                        });
+                    }
+
+                    if (inserts.length === 0) {
+                        orgProjectDetailsStatus.textContent = 'No parameter rows found under the required headers.';
+                        orgProjectDetailsStatus.classList.add('upload-message--error');
+                        return;
+                    }
+
+                    const { error } = await supabase
+                        .from('project_details')
+                        .insert(inserts);
+
+                    if (error) {
+                        console.error('Error inserting organization project_details rows:', error);
+                        orgProjectDetailsStatus.textContent = 'Failed to save project details to the database.';
+                        orgProjectDetailsStatus.classList.add('upload-message--error');
+                        return;
+                    }
+
+                    orgProjectDetailsStatus.textContent = `Saved ${inserts.length} project detail entries for this project.`;
+                    orgProjectDetailsStatus.classList.add('upload-message--success');
+                    if (orgProjectDetailsFileInput) {
+                        orgProjectDetailsFileInput.value = '';
+                    }
+                } catch (err) {
+                    console.error('Unexpected error processing organization project details Excel:', err);
+                    orgProjectDetailsStatus.textContent = 'An unexpected error occurred while processing the Excel file.';
+                    orgProjectDetailsStatus.classList.add('upload-message--error');
+                }
+            });
+        }
+    }
+
+    function showOrgProjectDetailsPanel() {
+        ensureOrgProjectDetailsPanel();
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+        if (orgProjectDetailsPanel) {
+            orgProjectDetailsPanel.style.display = '';
+            orgProjectDetailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        // Load projects into the dropdown when panel is shown
+        loadOrgProjectsForDropdown();
+    }
+
+    function hideOrgProjectDetailsPanel() {
+        if (orgProjectDetailsPanel) {
+            orgProjectDetailsPanel.style.display = 'none';
+        }
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = '';
         }
     }
 
@@ -991,6 +1291,8 @@ const projectFormHTML = `
         show('#createView');
         hide('#addDataView');
         hide('#projectsView');
+        // When entering Create view, default to showing the Create Project form (hide Project Details panel)
+        hideOrgProjectDetailsPanel();
         // Ensure two-column container exists
         const createView = document.querySelector('#createView');
         if (createView && !createView.querySelector('#createColumns')) {
@@ -1011,6 +1313,25 @@ const projectFormHTML = `
                 <button id="projectTeamBtn" class="side-button">Project Team</button>
                 <button id="lessonsMetadataBtn" class="side-button">Lessons Learned Metadata</button>
             `);
+
+            const projectDetailsBtn = document.getElementById('projectDetailsBtn');
+            if (projectDetailsBtn && !projectDetailsBtn.dataset.wired) {
+                projectDetailsBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showOrgProjectDetailsPanel();
+                });
+                projectDetailsBtn.dataset.wired = 'true';
+            }
+        } else if (rightCol) {
+            // Ensure click handler is wired even if buttons already exist
+            const projectDetailsBtn = document.getElementById('projectDetailsBtn');
+            if (projectDetailsBtn && !projectDetailsBtn.dataset.wired) {
+                projectDetailsBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showOrgProjectDetailsPanel();
+                });
+                projectDetailsBtn.dataset.wired = 'true';
+            }
         }
 
         if (leftCol && !document.getElementById('inlineCreateProjectForm')) {

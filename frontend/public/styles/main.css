@@ -1119,7 +1119,8 @@ body {
     box-sizing: border-box;
 }
 
-#public-projects-view .project-types-panel {
+#public-projects-view .project-types-panel,
+#createView .project-types-panel {
     background: #ffffff;
     border: 1px solid #ddd;
     border-radius: 8px;
