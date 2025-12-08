@@ -28,6 +28,181 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     } catch (_) {}
 
+    // Organization id for the logged-in user (used for project-type lookups)
+    const organizationId = ctUser && ctUser.organizationid ? ctUser.organizationid : null;
+
+    // Cache of organization-specific project types for use in create project forms
+    let orgProjectTypes = [];
+    let orgProjectTypesLoaded = false;
+
+    async function loadOrgProjectTypes() {
+        if (!organizationId || orgProjectTypesLoaded) return;
+        try {
+            const { data, error } = await supabase
+                .from('project_type')
+                .select('project_type')
+                .eq('organization_id', organizationId)
+                .order('project_type', { ascending: true });
+
+            if (error) {
+                console.error('Error loading organization project types for Create Project:', error);
+                return;
+            }
+
+            const names = (data || [])
+                .map(row => row && row.project_type)
+                .filter(Boolean);
+
+            orgProjectTypes = Array.from(new Set(names));
+            orgProjectTypesLoaded = true;
+        } catch (err) {
+            console.error('Unexpected error loading organization project types for Create Project:', err);
+        }
+    }
+
+    function isValidOrgProjectType(value) {
+        if (!value) return false;
+        const target = String(value).trim().toLowerCase();
+        return orgProjectTypes.some(name => String(name).trim().toLowerCase() === target);
+    }
+
+    // Insert a new organization project into Supabase `projects` table.
+    // Expects `type` to already be validated as a valid organization project type.
+    async function createOrganizationProject({ name, type, assetRaw, descRaw, startRaw, endRaw }) {
+        if (!organizationId) {
+            alert('Could not determine your organization. Please log out and log back in, or contact your administrator.');
+            return { success: false };
+        }
+
+        // Normalize optional fields
+        const asset = assetRaw === 'N/A' || assetRaw === '' ? null : (assetRaw || null);
+        const desc = descRaw || null;
+        const start = startRaw || null;
+        const end = endRaw || null;
+
+        try {
+            // Look up the project_type id for this organization and type name
+            const { data: typeRows, error: typeErr } = await supabase
+                .from('project_type')
+                .select('id')
+                .eq('organization_id', organizationId)
+                .eq('project_type', type)
+                .limit(1);
+
+            if (typeErr) {
+                console.error('Error looking up organization project_type:', typeErr);
+                alert('Failed to look up project type. Please try again.');
+                return { success: false };
+            }
+
+            if (!typeRows || typeRows.length === 0) {
+                alert('The selected Project Type could not be found for your organization. Please refresh and try again.');
+                return { success: false };
+            }
+
+            const projectTypeId = typeRows[0].id;
+
+            const projectPayload = {
+                project_name: name,
+                project_type_id: projectTypeId,
+                project_description: desc,
+                asset_new_existing: asset,
+                start_date: start,
+                end_date: end,
+                organization_id: organizationId,
+                search_embedding: null
+            };
+
+            const { data: projectRow, error: projectErr } = await supabase
+                .from('projects')
+                .insert(projectPayload)
+                .select()
+                .single();
+
+            if (projectErr) {
+                console.error('Error inserting organization project:', projectErr);
+                alert('Failed to create project. Please try again.');
+                return { success: false };
+            }
+
+            return { success: true, project: projectRow };
+        } catch (err) {
+            console.error('Unexpected error creating organization project:', err);
+            alert('An unexpected error occurred while creating the project.');
+            return { success: false };
+        }
+    }
+
+    // Attach a simple searchable dropdown of organization project types to a text input.
+    // Users can only select from existing types; free-form values will be rejected on submit.
+    function attachOrgProjectTypeDropdown(inputEl) {
+        if (!inputEl) return;
+
+        let dropdown = null;
+
+        function closeDropdown() {
+            if (dropdown && dropdown.parentNode) {
+                dropdown.parentNode.removeChild(dropdown);
+            }
+            dropdown = null;
+        }
+
+        function createDropdown() {
+            if (dropdown) return dropdown;
+            if (!inputEl.parentNode) return null;
+            dropdown = document.createElement('div');
+            dropdown.className = 'autocomplete-list';
+            inputEl.parentNode.appendChild(dropdown);
+            return dropdown;
+        }
+
+        function renderOptions(options) {
+            if (!options || options.length === 0) {
+                closeDropdown();
+                return;
+            }
+            const list = createDropdown();
+            if (!list) return;
+            list.innerHTML = '';
+
+            options.forEach(name => {
+                const item = document.createElement('div');
+                item.className = 'autocomplete-item';
+                item.textContent = name;
+                item.addEventListener('mousedown', (e) => {
+                    // Use mousedown so it fires before input blur
+                    e.preventDefault();
+                    inputEl.value = name;
+                    closeDropdown();
+                });
+                list.appendChild(item);
+            });
+        }
+
+        inputEl.addEventListener('focus', async () => {
+            await loadOrgProjectTypes();
+            renderOptions(orgProjectTypes);
+        });
+
+        inputEl.addEventListener('input', () => {
+            const query = inputEl.value.trim().toLowerCase();
+            if (!query) {
+                renderOptions(orgProjectTypes);
+                return;
+            }
+            const filtered = orgProjectTypes.filter(name =>
+                String(name).toLowerCase().includes(query)
+            );
+            renderOptions(filtered);
+        });
+
+        inputEl.addEventListener('blur', () => {
+            setTimeout(() => {
+                closeDropdown();
+            }, 150);
+        });
+    }
+
     // Hide Create New Project button if user doesn't have permission
     const createProjectButton = document.querySelector(".create-project-button");
     if (createProjectButton && !canCreateProjects) {
@@ -73,7 +248,7 @@ const projectFormHTML = `
                 </div>
                 <div class="input-group">
                     <label for="projectType">Type</label>
-                    <input type="text" id="projectType">
+                    <input type="text" id="projectType" required>
                 </div>
                 <div class="input-group">
                     <label for="assetType">New Asset or Existing</label>
@@ -198,6 +373,10 @@ const projectFormHTML = `
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
 
+    // Attach searchable org project-type dropdown to the modal Create Project form
+    const modalProjectTypeInput = document.getElementById('projectType');
+    attachOrgProjectTypeDropdown(modalProjectTypeInput);
+
     if (createProjectButton) {
         createProjectButton.onclick = () => {
             // Check permissions before allowing navigation
@@ -302,10 +481,49 @@ const projectFormHTML = `
         document.getElementById("addUserForm").reset();
     };
 
-    document.getElementById("createProjectForm").onsubmit = (e) => {
+    document.getElementById("createProjectForm").onsubmit = async (e) => {
         e.preventDefault();
+        const name = document.getElementById('projectName').value.trim();
+        const type = document.getElementById('projectType').value.trim();
+        if (!name || !type) {
+            alert('Please fill in both Project Name and Type.');
+            return;
+        }
+        if (!isValidOrgProjectType(type)) {
+            alert('Please choose a valid Project Type from the list for your organization.');
+            return;
+        }
+
+        const assetRaw = (document.getElementById('assetType').value || '').trim();
+        const descRaw = (document.getElementById('projectDescription').value || '').trim();
+        const startRaw = (document.getElementById('startDate').value || '').trim();
+        const endRaw = (document.getElementById('endDate').value || '').trim();
+
+        const saveBtn = e.target.querySelector('.save-project-button');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+        }
+
+        const result = await createOrganizationProject({
+            name,
+            type,
+            assetRaw,
+            descRaw,
+            startRaw,
+            endRaw
+        });
+
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Create Project';
+        }
+
+        if (!result.success) return;
+
         alert("Project created successfully!");
-        createProjectModal.style.display = "none";
+        createProjectModal.classList.remove("show");
+        e.target.reset();
     };
 
     // Handle Issue button click
@@ -784,6 +1002,17 @@ const projectFormHTML = `
             `);
         }
         const leftCol = document.getElementById('createLeftCol');
+        const rightCol = document.getElementById('createRightCol');
+
+        // Always show the side buttons in the Create view, whether or not a project has been created yet
+        if (rightCol && !rightCol.querySelector('#projectDetailsBtn')) {
+            rightCol.insertAdjacentHTML('beforeend', `
+                <button id="projectDetailsBtn" class="side-button">Project Details</button>
+                <button id="projectTeamBtn" class="side-button">Project Team</button>
+                <button id="lessonsMetadataBtn" class="side-button">Lessons Learned Metadata</button>
+            `);
+        }
+
         if (leftCol && !document.getElementById('inlineCreateProjectForm')) {
             leftCol.insertAdjacentHTML('beforeend', `
                 <form id="inlineCreateProjectForm" class="project-form half-width">
@@ -822,7 +1051,12 @@ const projectFormHTML = `
             `);
 
             const inlineForm = document.getElementById('inlineCreateProjectForm');
-            inlineForm.addEventListener('submit', (e) => {
+
+            // Attach searchable org project-type dropdown to the inline Create Project form
+            const inlineProjectTypeInput = document.getElementById('inlineProjectType');
+            attachOrgProjectTypeDropdown(inlineProjectTypeInput);
+
+            inlineForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const name = document.getElementById('inlineProjectName').value.trim();
                 const type = document.getElementById('inlineProjectType').value.trim();
@@ -830,10 +1064,41 @@ const projectFormHTML = `
                     alert('Please fill in both Project Name and Type.');
                     return;
                 }
-                const asset = document.getElementById('inlineAssetType').value.trim() || 'N/A';
-                const desc = document.getElementById('inlineProjectDescription').value.trim() || 'N/A';
-                const start = document.getElementById('inlineStartDate').value.trim() || 'N/A';
-                const end = document.getElementById('inlineEndDate').value.trim() || 'N/A';
+                if (!isValidOrgProjectType(type)) {
+                    alert('Please choose a valid Project Type from the list for your organization.');
+                    return;
+                }
+                const assetRaw = (document.getElementById('inlineAssetType').value || '').trim();
+                const descRaw = (document.getElementById('inlineProjectDescription').value || '').trim();
+                const startRaw = (document.getElementById('inlineStartDate').value || '').trim();
+                const endRaw = (document.getElementById('inlineEndDate').value || '').trim();
+
+                const saveBtn = inlineForm.querySelector('.save-project-button');
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving...';
+                }
+
+                const result = await createOrganizationProject({
+                    name,
+                    type,
+                    assetRaw,
+                    descRaw,
+                    startRaw,
+                    endRaw
+                });
+
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Create Project';
+                }
+
+                if (!result.success) return;
+
+                const asset = assetRaw || 'N/A';
+                const desc = descRaw || 'N/A';
+                const start = startRaw || 'N/A';
+                const end = endRaw || 'N/A';
 
                 const summary = document.getElementById('createSummary');
                 summary.innerHTML = `
@@ -845,15 +1110,6 @@ const projectFormHTML = `
                     <div><strong>End Date:</strong> ${end}</div>
                 `;
                 summary.style.display = '';
-
-                const rightCol = document.getElementById('createRightCol');
-                if (rightCol && !rightCol.querySelector('#projectDetailsBtn')) {
-                    rightCol.insertAdjacentHTML('beforeend', `
-                        <button id="projectDetailsBtn" class="side-button">Project Details</button>
-                        <button id="projectTeamBtn" class="side-button">Project Team</button>
-                        <button id="lessonsMetadataBtn" class="side-button">Lessons Learned Metadata</button>
-                    `);
-                }
             });
         }
     }
