@@ -1129,6 +1129,21 @@ body {
     box-shadow: 0 4px 8px rgba(0,0,0,0.06);
 }
 
+/* Narrower Project Type input for Organization Settings > Manage Projects */
+#orgProjectsPanel .form-group {
+    max-width: 650px; /* roughly match the red guideline width from mockup */
+    position: relative; /* anchor for absolute-positioned autocomplete list */
+}
+
+/* Make org project type autocomplete dropdown overlay below input without pushing layout */
+#orgProjectsPanel .autocomplete-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 20;
+}
+
 .project-types-panel-header {
     display: flex;
     justify-content: space-between;

@@ -880,8 +880,198 @@ const projectFormHTML = `
             const tpl = document.getElementById('orgSettingsTemplate');
             if (tpl) {
                 document.querySelector('.main-content').appendChild(tpl.content.cloneNode(true));
+
+                // Wire up "Add New User" button to open the Add User modal
                 const addBtn = document.getElementById('addNewUserButton');
                 if (addBtn) addBtn.onclick = () => addUserModal.classList.add('show');
+
+                // Manage Projects module within Organization Settings
+                const manageProjectsBtn = document.getElementById('manageProjectsButton');
+                const orgMainSummary = document.getElementById('orgMainSummary');
+                const orgProjectsPanel = document.getElementById('orgProjectsPanel');
+                const orgProjectsBackButton = document.getElementById('orgProjectsBackButton');
+                const orgProjectTypesForm = document.getElementById('orgProjectTypesForm');
+                const orgProjectTypeInput = document.getElementById('orgProjectTypeName');
+
+                // Look up organization id once for this view
+                let organizationId = null;
+                try {
+                    const stored = JSON.parse(sessionStorage.getItem('ct_user'));
+                    if (stored && stored.organizationid) {
+                        organizationId = stored.organizationid;
+                    }
+                } catch (_) {}
+
+                // Simple in-place autocomplete dropdown for org project types
+                let orgTypeDropdown = null;
+                let orgTypeOptions = [];
+
+                function closeOrgTypeDropdown() {
+                    if (orgTypeDropdown && orgTypeDropdown.parentNode) {
+                        orgTypeDropdown.parentNode.removeChild(orgTypeDropdown);
+                    }
+                    orgTypeDropdown = null;
+                }
+
+                function createOrgTypeDropdown() {
+                    if (orgTypeDropdown) return orgTypeDropdown;
+                    if (!orgProjectTypeInput || !orgProjectTypeInput.parentNode) return null;
+                    orgTypeDropdown = document.createElement('div');
+                    orgTypeDropdown.className = 'autocomplete-list';
+                    orgProjectTypeInput.parentNode.appendChild(orgTypeDropdown);
+                    return orgTypeDropdown;
+                }
+
+                function renderOrgTypeDropdown(options) {
+                    if (!options || options.length === 0) {
+                        closeOrgTypeDropdown();
+                        return;
+                    }
+                    const dropdown = createOrgTypeDropdown();
+                    if (!dropdown) return;
+                    dropdown.innerHTML = '';
+
+                    options.forEach(value => {
+                        const item = document.createElement('div');
+                        item.className = 'autocomplete-item';
+                        item.textContent = value;
+                        item.addEventListener('mousedown', (e) => {
+                            // Use mousedown so it fires before input blur
+                            e.preventDefault();
+                            if (orgProjectTypeInput) {
+                                orgProjectTypeInput.value = value;
+                            }
+                            closeOrgTypeDropdown();
+                        });
+                        dropdown.appendChild(item);
+                    });
+                }
+
+                async function loadOrgProjectTypes() {
+                    // Only load once and only if we know the organization id
+                    if (!organizationId || orgTypeOptions.length > 0) return;
+
+                    try {
+                        const { data, error } = await supabase
+                            .from('project_type')
+                            .select('project_type')
+                            .eq('organization_id', organizationId)
+                            .order('project_type', { ascending: true });
+
+                        if (error) {
+                            console.error('Error loading organization project types:', error);
+                            return;
+                        }
+
+                        const names = (data || [])
+                            .map(row => row && row.project_type)
+                            .filter(Boolean);
+
+                        // Remove duplicates and store locally
+                        orgTypeOptions = Array.from(new Set(names));
+                    } catch (err) {
+                        console.error('Unexpected error loading organization project types:', err);
+                    }
+                }
+
+                // Attach autocomplete behaviour to the Project Type input
+                if (orgProjectTypeInput) {
+                    orgProjectTypeInput.addEventListener('focus', async () => {
+                        await loadOrgProjectTypes();
+                        renderOrgTypeDropdown(orgTypeOptions);
+                    });
+
+                    orgProjectTypeInput.addEventListener('input', () => {
+                        const query = orgProjectTypeInput.value.trim().toLowerCase();
+                        if (!query) {
+                            renderOrgTypeDropdown(orgTypeOptions);
+                            return;
+                        }
+                        const filtered = orgTypeOptions.filter(name =>
+                            String(name).toLowerCase().includes(query)
+                        );
+                        renderOrgTypeDropdown(filtered);
+                    });
+
+                    orgProjectTypeInput.addEventListener('blur', () => {
+                        // Slight delay so mousedown on dropdown items still works
+                        setTimeout(() => {
+                            closeOrgTypeDropdown();
+                        }, 150);
+                    });
+                }
+
+                // Show the Manage Projects & Project Types module
+                if (manageProjectsBtn && orgMainSummary && orgProjectsPanel) {
+                    manageProjectsBtn.onclick = () => {
+                        orgMainSummary.style.display = 'none';
+                        orgProjectsPanel.style.display = '';
+                    };
+                }
+
+                // Go Back button returns to the main Organization Settings summary
+                if (orgProjectsBackButton && orgMainSummary && orgProjectsPanel) {
+                    orgProjectsBackButton.onclick = () => {
+                        orgProjectsPanel.style.display = 'none';
+                        orgMainSummary.style.display = '';
+                    };
+                }
+
+                // Handle "Create Project Type" form submission for this organization
+                if (orgProjectTypesForm) {
+                    orgProjectTypesForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+
+                        const typeInput = document.getElementById('orgProjectTypeName');
+                        const type = typeInput ? typeInput.value.trim() : '';
+
+                        if (!type) {
+                            alert('Please enter a Project Type.');
+                            return;
+                        }
+
+                        if (!organizationId) {
+                            alert('Could not determine your organization. Please log out and log back in, or contact your administrator.');
+                            return;
+                        }
+
+                        const submitBtn = orgProjectTypesForm.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.textContent = 'Saving...';
+                        }
+
+                        try {
+                            const payload = {
+                                project_type: type,
+                                industry: null,          // No Industry field in this module
+                                organization_id: organizationId,
+                                is_public: false         // Organization-specific project type
+                            };
+
+                            const { error } = await supabase
+                                .from('project_type')
+                                .insert(payload);
+
+                            if (error) {
+                                console.error('Supabase project_type insert error (org portal):', error);
+                                alert('Failed to save project type. Please try again.');
+                                return;
+                            }
+
+                            alert(`Project Type "${type}" saved successfully for your organization.`);
+                            orgProjectTypesForm.reset();
+                        } catch (err) {
+                            console.error('Unexpected error saving project type (org portal):', err);
+                            alert('An unexpected error occurred while saving the project type.');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = 'Save Project Type';
+                            }
+                        }
+                    });
+                }
             }
         }
     }

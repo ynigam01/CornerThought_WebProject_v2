@@ -81,15 +81,38 @@
 
             <template id="orgSettingsTemplate">
                 <section id="orgView" class="view">
-                    <h2>Number of Users: <span id="userCount">0</span></h2>
-                    <h3>Manage Users</h3>
-                    <div class="org-users-actions">
-                        <button id="addNewUserButton">Add New User</button>
-                        <button id="manageUsersButton">Manage Users</button>
+                    <!-- Default Organization Settings summary -->
+                    <div id="orgMainSummary">
+                        <h2>Number of Users: <span id="userCount">0</span></h2>
+                        <h3>Manage Users</h3>
+                        <div class="org-users-actions">
+                            <button id="addNewUserButton">Add New User</button>
+                            <button id="manageUsersButton">Manage Users</button>
+                        </div>
+                        <h3>Manage Projects</h3>
+                        <div class="org-projects-actions">
+                            <button id="manageProjectsButton">Manage Projects</button>
+                        </div>
                     </div>
-                    <h3>Manage Projects</h3>
-                    <div class="org-projects-actions">
-                        <button id="manageProjectsButton">Manage Projects</button>
+
+                    <!-- Manage Projects & Project Types module (shown when user clicks Manage Projects) -->
+                    <div id="orgProjectsPanel" class="project-types-panel" style="display: none;">
+                        <div class="project-types-panel-header">
+                            <div>
+                                <h3>Manage Projects &amp; Project Types</h3>
+                                <p class="subtitle">Create new project types that are specific to your organization.</p>
+                            </div>
+                            <button type="button" id="orgProjectsBackButton" class="secondary-button">Go Back</button>
+                        </div>
+                        <form id="orgProjectTypesForm">
+                            <div class="form-group">
+                                <label for="orgProjectTypeName">Project Type</label>
+                                <input type="text" id="orgProjectTypeName" required>
+                            </div>
+                            <div class="form-buttons">
+                                <button type="submit" class="public-projects-button">Save Project Type</button>
+                            </div>
+                        </form>
                     </div>
                 </section>
             </template>
