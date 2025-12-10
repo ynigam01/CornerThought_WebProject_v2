@@ -1469,6 +1469,10 @@ const projectFormHTML = `
                 const orgProjectsBackButton = document.getElementById('orgProjectsBackButton');
                 const orgProjectTypesForm = document.getElementById('orgProjectTypesForm');
                 const orgProjectTypeInput = document.getElementById('orgProjectTypeName');
+                const orgProjectsSubtitle = document.getElementById('orgProjectsSubtitle');
+                const orgManageProjectsSubmodule = document.getElementById('orgManageProjectsSubmodule');
+                const orgProjectsSelect = document.getElementById('orgProjectsSelect');
+                const orgProjectDetailsSelect = document.getElementById('orgProjectDetailsSelect');
 
                 // Look up organization id once for this view
                 let organizationId = null;
@@ -1482,6 +1486,7 @@ const projectFormHTML = `
                 // Simple in-place autocomplete dropdown for org project types
                 let orgTypeDropdown = null;
                 let orgTypeOptions = [];
+                let orgProjectsLoaded = false;
 
                 function closeOrgTypeDropdown() {
                     if (orgTypeDropdown && orgTypeDropdown.parentNode) {
@@ -1551,6 +1556,116 @@ const projectFormHTML = `
                     }
                 }
 
+                // Load organization projects into the Manage Projects sub-module dropdown
+                async function loadOrgProjectsForManagePanel() {
+                    if (!organizationId || !orgProjectsSelect) return;
+
+                    // Basic guard against reloading on every click; we still handle empty state.
+                    if (orgProjectsLoaded && orgProjectsSelect.options.length > 1) return;
+
+                    orgProjectsSelect.innerHTML = '<option value=\"\">Select Project</option>';
+
+                    try {
+                        const { data, error } = await supabase
+                            .from('projects')
+                            .select('project_id, project_name')
+                            .eq('organization_id', organizationId)
+                            .order('project_name', { ascending: true });
+
+                        if (error) {
+                            console.error('Error loading organization projects for Manage Projects dropdown:', error);
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'Failed to load projects';
+                            opt.disabled = true;
+                            orgProjectsSelect.appendChild(opt);
+                            return;
+                        }
+
+                        const rows = data || [];
+                        if (rows.length === 0) {
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'No projects found for your organization';
+                            opt.disabled = true;
+                            orgProjectsSelect.appendChild(opt);
+                            return;
+                        }
+
+                        rows.forEach(row => {
+                            const idStr = String(row.project_id);
+                            const name = row.project_name || `Project ${idStr}`;
+                            const opt = document.createElement('option');
+                            opt.value = idStr;
+                            opt.textContent = name;
+                            orgProjectsSelect.appendChild(opt);
+                        });
+
+                        orgProjectsLoaded = true;
+                    } catch (err) {
+                        console.error('Unexpected error loading organization projects for Manage Projects dropdown:', err);
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'Unexpected error loading projects';
+                        opt.disabled = true;
+                        orgProjectsSelect.appendChild(opt);
+                    }
+                }
+
+                // Load project details for selected project into the Project Details dropdown
+                async function loadOrgProjectDetailsForManagePanel(projectId) {
+                    if (!organizationId || !orgProjectDetailsSelect) return;
+
+                    orgProjectDetailsSelect.innerHTML = '<option value=\"\">Loading project details...</option>';
+                    orgProjectDetailsSelect.disabled = true;
+
+                    if (!projectId) {
+                        orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
+                        return;
+                    }
+
+                    try {
+                        const { data, error } = await supabase
+                            .from('project_details')
+                            .select('id, parameter_name, parameter_entry')
+                            .eq('organization_id', organizationId)
+                            .eq('project_id', projectId)
+                            .order('parameter_name', { ascending: true });
+
+                        if (error) {
+                            console.error('Error loading project_details for Manage Projects dropdown:', error);
+                            orgProjectDetailsSelect.innerHTML = '<option value=\"\">Failed to load project details</option>';
+                            return;
+                        }
+
+                        const rows = data || [];
+                        if (rows.length === 0) {
+                            orgProjectDetailsSelect.innerHTML = '<option value=\"\">No project details found</option>';
+                            return;
+                        }
+
+                        orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select Project Detail</option>';
+                        rows.forEach(row => {
+                            const name = row.parameter_name != null ? String(row.parameter_name).trim() : '';
+                            const entry = row.parameter_entry != null ? String(row.parameter_entry).trim() : '';
+                            const parts = [];
+                            if (name) parts.push(name);
+                            if (entry) parts.push(entry);
+                            const label = parts.length ? parts.join(': ') : '(no name / entry)';
+
+                            const opt = document.createElement('option');
+                            opt.value = String(row.id);
+                            opt.textContent = label;
+                            orgProjectDetailsSelect.appendChild(opt);
+                        });
+
+                        orgProjectDetailsSelect.disabled = false;
+                    } catch (err) {
+                        console.error('Unexpected error loading project_details for Manage Projects dropdown:', err);
+                        orgProjectDetailsSelect.innerHTML = '<option value=\"\">Unexpected error loading project details</option>';
+                    }
+                }
+
                 // Attach autocomplete behaviour to the Project Type input
                 if (orgProjectTypeInput) {
                     orgProjectTypeInput.addEventListener('focus', async () => {
@@ -1586,11 +1701,72 @@ const projectFormHTML = `
                     };
                 }
 
+                // "Manage Projects" button inside the Manage Projects panel
+                const orgManageProjectsButton = document.getElementById('orgManageProjectsButton');
+                if (orgManageProjectsButton && orgProjectTypesForm && orgManageProjectsSubmodule) {
+                    orgManageProjectsButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+
+                        // Hide project-type specific UI
+                        orgProjectTypesForm.style.display = 'none';
+                        if (orgProjectsSubtitle) {
+                            orgProjectsSubtitle.style.display = 'none';
+                        }
+
+                        // Show Manage Projects sub-module
+                        orgManageProjectsSubmodule.style.display = '';
+
+                        // Reset dropdowns to a clean state
+                        if (orgProjectsSelect) {
+                            orgProjectsSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                        }
+                        if (orgProjectDetailsSelect) {
+                            orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
+                            orgProjectDetailsSelect.disabled = true;
+                        }
+
+                        // Load projects for this organization
+                        await loadOrgProjectsForManagePanel();
+                    });
+                }
+
+                // When a project is chosen, load its project details
+                if (orgProjectsSelect && orgProjectDetailsSelect) {
+                    orgProjectsSelect.addEventListener('change', (e) => {
+                        const projectIdRaw = e.target.value;
+                        if (!projectIdRaw) {
+                            orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
+                            orgProjectDetailsSelect.disabled = true;
+                            return;
+                        }
+                        const numericId = Number.isNaN(Number(projectIdRaw)) ? projectIdRaw : Number(projectIdRaw);
+                        loadOrgProjectDetailsForManagePanel(numericId);
+                    });
+                }
+
                 // Go Back button returns to the main Organization Settings summary
                 if (orgProjectsBackButton && orgMainSummary && orgProjectsPanel) {
                     orgProjectsBackButton.onclick = () => {
                         orgProjectsPanel.style.display = 'none';
                         orgMainSummary.style.display = '';
+
+                        // Restore original Manage Projects & Project Types view state
+                        if (orgProjectTypesForm) {
+                            orgProjectTypesForm.style.display = '';
+                        }
+                        if (orgManageProjectsSubmodule) {
+                            orgManageProjectsSubmodule.style.display = 'none';
+                        }
+                        if (orgProjectsSubtitle) {
+                            orgProjectsSubtitle.style.display = '';
+                        }
+                        if (orgProjectsSelect) {
+                            orgProjectsSelect.selectedIndex = 0;
+                        }
+                        if (orgProjectDetailsSelect) {
+                            orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
+                            orgProjectDetailsSelect.disabled = true;
+                        }
                     };
                 }
 

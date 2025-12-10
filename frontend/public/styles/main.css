@@ -1136,6 +1136,21 @@ body {
     position: relative; /* anchor for absolute-positioned autocomplete list */
 }
 
+/* Stack buttons vertically in Organization Settings > Manage Projects panel */
+#orgProjectsPanel .form-buttons {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* Manage Projects sub-module layout */
+#orgManageProjectsSubmodule {
+    margin-top: 10px;
+}
+
+#orgManageProjectsSubmodule select {
+    max-width: 100%;
+}
+
 /* Make org project type autocomplete dropdown overlay below input without pushing layout */
 #orgProjectsPanel .autocomplete-list {
     position: absolute;

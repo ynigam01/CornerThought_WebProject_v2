@@ -101,7 +101,7 @@
                         <div class="project-types-panel-header">
                             <div>
                                 <h3>Manage Projects &amp; Project Types</h3>
-                                <p class="subtitle">Create new project types that are specific to your organization.</p>
+                                <p class="subtitle" id="orgProjectsSubtitle">Create new project types that are specific to your organization.</p>
                             </div>
                             <button type="button" id="orgProjectsBackButton" class="secondary-button">Go Back</button>
                         </div>
@@ -112,8 +112,28 @@
                             </div>
                             <div class="form-buttons">
                                 <button type="submit" class="public-projects-button">Save Project Type</button>
+                                <!-- New Manage Projects button inside the Manage Projects sub-module -->
+                                <button type="button" id="orgManageProjectsButton" class="secondary-button">
+                                    Manage Projects
+                                </button>
                             </div>
                         </form>
+
+                        <!-- Manage Projects sub-module: Projects and Project Details dropdowns -->
+                        <div id="orgManageProjectsSubmodule" style="display: none; margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="orgProjectsSelect">Projects</label>
+                                <select id="orgProjectsSelect">
+                                    <option value="">Select Project</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="orgProjectDetailsSelect">Project Details</label>
+                                <select id="orgProjectDetailsSelect" disabled>
+                                    <option value="">Select a project to see its details</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </template>
