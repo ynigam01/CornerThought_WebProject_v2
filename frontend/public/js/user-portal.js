@@ -1,6 +1,7 @@
 // js/user-portal.js
 import { supabase } from './supabase-client.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
+import { parseMsProjectTxt } from './ms-project-txt-parser.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -46,6 +47,18 @@ document.addEventListener("DOMContentLoaded", () => {
     let orgProjectDetailsChoices = null;
     let currentOrgProject = null;
     let orgProjectsById = new Map();
+
+    // State for Lessons Learned Metadata sub-module (Create view)
+    let lessonsMetadataPanel = null;
+    let lessonsMetadataProjectSelect = null;
+    let lessonsMetadataStatus = null;
+    let lessonsMetadataBackButton = null;
+    let lessonsMetadataChoices = null;
+    let lessonsMetadataFileTypeGroup = null;
+    let lessonsMetadataFileTypeSelect = null;
+    let lessonsMetadataUploadGroup = null;
+    let lessonsMetadataFileInput = null;
+    let lessonsMetadataUploadButton = null;
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -177,6 +190,91 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error('Unexpected error loading organization projects for details dropdown:', err);
             orgProjectDetailsStatus.textContent = 'An unexpected error occurred while loading projects.';
             orgProjectDetailsStatus.classList.add('upload-message--error');
+        }
+    }
+
+    // Load organization projects for the Lessons Learned Metadata dropdown in Create view
+    async function loadOrgProjectsForLessonsDropdown() {
+        if (!organizationId || !lessonsMetadataProjectSelect || !lessonsMetadataStatus) return;
+
+        lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+        lessonsMetadataStatus.textContent = 'Loading projects...';
+
+        try {
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (projectErr) {
+                console.error('Error loading organization projects for lessons metadata dropdown:', projectErr);
+                lessonsMetadataStatus.textContent = 'Failed to load projects.';
+                lessonsMetadataStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = projectRows || [];
+            if (rows.length === 0) {
+                lessonsMetadataStatus.textContent = 'No projects found for your organization.';
+                lessonsMetadataStatus.classList.add('upload-message--error');
+                if (lessonsMetadataChoices) {
+                    lessonsMetadataChoices.clearChoices();
+                } else {
+                    lessonsMetadataProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
+                }
+                return;
+            }
+
+            const choicesData = rows.map(row => {
+                const idStr = String(row.project_id);
+                const name = row.project_name || `Project ${idStr}`;
+                return {
+                    value: idStr,
+                    label: name
+                };
+            });
+
+            // Initialize Choices once
+            if (!lessonsMetadataChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for lessons metadata dropdown.');
+                    lessonsMetadataProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        lessonsMetadataProjectSelect.appendChild(option);
+                    });
+                } else {
+                    lessonsMetadataChoices = new Choices(lessonsMetadataProjectSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select Project',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                }
+            }
+
+            if (lessonsMetadataChoices) {
+                lessonsMetadataChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                lessonsMetadataProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    lessonsMetadataProjectSelect.appendChild(option);
+                });
+            }
+
+            lessonsMetadataStatus.textContent = '';
+            lessonsMetadataStatus.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for lessons metadata dropdown:', err);
+            lessonsMetadataStatus.textContent = 'An unexpected error occurred while loading projects.';
+            lessonsMetadataStatus.classList.add('upload-message--error');
         }
     }
 
@@ -409,6 +507,204 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Ensure the Lessons Learned Metadata panel exists in the Create view
+    function ensureLessonsMetadataPanel() {
+        if (lessonsMetadataPanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="lessonsMetadataPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Lessons Learned Metadata</h3>
+                        <p class="subtitle">Select a project from your organization to work with its lessons learned metadata.</p>
+                    </div>
+                    <button type="button" id="lessonsMetadataBackButton" class="secondary-button">Back to Create Project</button>
+                </div>
+                <div class="form-group">
+                    <label for="lessonsMetadataProjectSelect">Project</label>
+                    <select id="lessonsMetadataProjectSelect">
+                        <option value=\"\">Select Project</option>
+                    </select>
+                </div>
+                <div class="form-group" id="lessonsMetadataFileTypeGroup" style="display: none;">
+                    <label for="lessonsMetadataFileTypeSelect">Select Input Data File Type</label>
+                    <select id="lessonsMetadataFileTypeSelect">
+                        <option value="">Select File Type</option>
+                        <option value="ms_project_xml">MS Project XML</option>
+                    </select>
+                </div>
+                <div class="form-group" id="lessonsMetadataUploadGroup" style="display: none;">
+                    <label for="lessonsMetadataFileInput">Upload TXT File</label>
+                    <input type="file" id="lessonsMetadataFileInput" accept=".txt">
+                    <div class="form-buttons">
+                        <button type="button" id="lessonsMetadataUploadButton" class="secondary-button">
+                            Upload File
+                        </button>
+                    </div>
+                </div>
+                <div id="lessonsMetadataStatus" class="upload-message" aria-live="polite"></div>
+            </section>
+        `);
+
+        lessonsMetadataPanel = document.getElementById('lessonsMetadataPanel');
+        lessonsMetadataProjectSelect = document.getElementById('lessonsMetadataProjectSelect');
+        lessonsMetadataStatus = document.getElementById('lessonsMetadataStatus');
+        lessonsMetadataBackButton = document.getElementById('lessonsMetadataBackButton');
+        lessonsMetadataFileTypeGroup = document.getElementById('lessonsMetadataFileTypeGroup');
+        lessonsMetadataFileTypeSelect = document.getElementById('lessonsMetadataFileTypeSelect');
+        lessonsMetadataUploadGroup = document.getElementById('lessonsMetadataUploadGroup');
+        lessonsMetadataFileInput = document.getElementById('lessonsMetadataFileInput');
+        lessonsMetadataUploadButton = document.getElementById('lessonsMetadataUploadButton');
+
+        if (lessonsMetadataBackButton) {
+            lessonsMetadataBackButton.addEventListener('click', () => {
+                hideLessonsMetadataPanel();
+            });
+        }
+
+        // Show/hide file type dropdown based on project selection
+        if (lessonsMetadataProjectSelect && lessonsMetadataFileTypeGroup) {
+            lessonsMetadataProjectSelect.addEventListener('change', () => {
+                const value = lessonsMetadataProjectSelect.value;
+                if (value) {
+                    lessonsMetadataFileTypeGroup.style.display = '';
+                    // Reset any previous file-type or upload state when a new project is chosen
+                    if (lessonsMetadataFileTypeSelect) {
+                        lessonsMetadataFileTypeSelect.value = '';
+                    }
+                    if (lessonsMetadataUploadGroup) {
+                        lessonsMetadataUploadGroup.style.display = 'none';
+                    }
+                    if (lessonsMetadataFileInput) {
+                        lessonsMetadataFileInput.value = '';
+                    }
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = '';
+                        lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    }
+                } else {
+                    lessonsMetadataFileTypeGroup.style.display = 'none';
+                    if (lessonsMetadataUploadGroup) {
+                        lessonsMetadataUploadGroup.style.display = 'none';
+                    }
+                    if (lessonsMetadataFileTypeSelect) {
+                        lessonsMetadataFileTypeSelect.value = '';
+                    }
+                    if (lessonsMetadataFileInput) {
+                        lessonsMetadataFileInput.value = '';
+                    }
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = '';
+                        lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    }
+                }
+            });
+        }
+
+        // Show/hide TXT upload controls based on selected file type
+        if (lessonsMetadataFileTypeSelect && lessonsMetadataUploadGroup) {
+            lessonsMetadataFileTypeSelect.addEventListener('change', () => {
+                const value = lessonsMetadataFileTypeSelect.value;
+                if (value === 'ms_project_xml') {
+                    lessonsMetadataUploadGroup.style.display = '';
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = 'Please upload a .txt file exported from MS Project.';
+                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+                    }
+                } else {
+                    lessonsMetadataUploadGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) {
+                        lessonsMetadataFileInput.value = '';
+                    }
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = '';
+                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+                    }
+                }
+            });
+        }
+
+        // Validate TXT file upload for MS Project XML
+        if (lessonsMetadataUploadButton && lessonsMetadataFileInput && lessonsMetadataStatus) {
+            lessonsMetadataUploadButton.addEventListener('click', async () => {
+                lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+
+                // Ensure a project is selected
+                if (!lessonsMetadataProjectSelect || !lessonsMetadataProjectSelect.value) {
+                    lessonsMetadataStatus.textContent = 'Please select a project first.';
+                    lessonsMetadataStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                // Ensure MS Project XML file type is selected
+                if (!lessonsMetadataFileTypeSelect || lessonsMetadataFileTypeSelect.value !== 'ms_project_xml') {
+                    lessonsMetadataStatus.textContent = 'Please select "MS Project XML" as the input data file type.';
+                    lessonsMetadataStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const file = lessonsMetadataFileInput.files && lessonsMetadataFileInput.files[0];
+                if (!file) {
+                    lessonsMetadataStatus.textContent = 'Please choose a TXT file to upload.';
+                    lessonsMetadataStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                const name = file.name || '';
+                const isTxt = /\.txt$/i.test(name);
+
+                if (!isTxt) {
+                    lessonsMetadataStatus.textContent = 'Invalid file type. Please upload a file with a .txt extension.';
+                    lessonsMetadataStatus.classList.add('upload-message--error');
+                    return;
+                }
+
+                // Basic MIME type check (not all browsers set this reliably, so it is secondary)
+                if (file.type && file.type !== 'text/plain') {
+                    console.warn('File MIME type is not text/plain:', file.type);
+                }
+
+                try {
+                    // Delegate actual parsing to the ms-project-txt-parser module.
+                    lessonsMetadataStatus.textContent = `Reading "${name}"...`;
+                    const parsed = await parseMsProjectTxt(file);
+
+                    console.log('[Lessons Metadata] Parsed MS Project TXT result:', parsed);
+
+                    // Build a user-friendly summary of which sections are present.
+                    const count = parsed && typeof parsed.presentCount === 'number'
+                        ? parsed.presentCount
+                        : (parsed && Array.isArray(parsed.presentSections) ? parsed.presentSections.length : 0);
+                    const sectionsList = parsed && Array.isArray(parsed.presentSections)
+                        ? parsed.presentSections.join(', ')
+                        : '';
+
+                    let summaryMessage = '';
+                    if (count === 0) {
+                        summaryMessage = 'This TXT file does not contain Resources, Tasks, or Assignments sections.';
+                    } else if (count === 1) {
+                        summaryMessage = `This TXT file contains 1 of 3 expected sections: ${sectionsList}.`;
+                    } else {
+                        summaryMessage = `This TXT file contains ${count} of 3 expected sections: ${sectionsList}.`;
+                    }
+
+                    lessonsMetadataStatus.textContent =
+                        `File "${name}" uploaded successfully. ${summaryMessage}`;
+                    lessonsMetadataStatus.classList.add('upload-message--success');
+                } catch (err) {
+                    console.error('Error processing MS Project TXT file:', err);
+                    lessonsMetadataStatus.textContent = err && err.message
+                        ? err.message
+                        : 'Failed to process TXT file.';
+                    lessonsMetadataStatus.classList.add('upload-message--error');
+                }
+            });
+        }
+    }
+
     function showOrgProjectDetailsPanel() {
         ensureOrgProjectDetailsPanel();
         const createColumns = document.getElementById('createColumns');
@@ -426,6 +722,30 @@ document.addEventListener("DOMContentLoaded", () => {
     function hideOrgProjectDetailsPanel() {
         if (orgProjectDetailsPanel) {
             orgProjectDetailsPanel.style.display = 'none';
+        }
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = '';
+        }
+    }
+
+    function showLessonsMetadataPanel() {
+        ensureLessonsMetadataPanel();
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+        if (lessonsMetadataPanel) {
+            lessonsMetadataPanel.style.display = '';
+            lessonsMetadataPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        // Load projects into the dropdown when panel is shown
+        loadOrgProjectsForLessonsDropdown();
+    }
+
+    function hideLessonsMetadataPanel() {
+        if (lessonsMetadataPanel) {
+            lessonsMetadataPanel.style.display = 'none';
         }
         const createColumns = document.getElementById('createColumns');
         if (createColumns) {
@@ -1291,8 +1611,9 @@ const projectFormHTML = `
         show('#createView');
         hide('#addDataView');
         hide('#projectsView');
-        // When entering Create view, default to showing the Create Project form (hide Project Details panel)
+        // When entering Create view, default to showing the Create Project form (hide sub-modules)
         hideOrgProjectDetailsPanel();
+        hideLessonsMetadataPanel();
         // Ensure two-column container exists
         const createView = document.querySelector('#createView');
         if (createView && !createView.querySelector('#createColumns')) {
@@ -1322,6 +1643,15 @@ const projectFormHTML = `
                 });
                 projectDetailsBtn.dataset.wired = 'true';
             }
+
+            const lessonsMetadataBtn = document.getElementById('lessonsMetadataBtn');
+            if (lessonsMetadataBtn && !lessonsMetadataBtn.dataset.wired) {
+                lessonsMetadataBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showLessonsMetadataPanel();
+                });
+                lessonsMetadataBtn.dataset.wired = 'true';
+            }
         } else if (rightCol) {
             // Ensure click handler is wired even if buttons already exist
             const projectDetailsBtn = document.getElementById('projectDetailsBtn');
@@ -1331,6 +1661,15 @@ const projectFormHTML = `
                     showOrgProjectDetailsPanel();
                 });
                 projectDetailsBtn.dataset.wired = 'true';
+            }
+
+            const lessonsMetadataBtn = document.getElementById('lessonsMetadataBtn');
+            if (lessonsMetadataBtn && !lessonsMetadataBtn.dataset.wired) {
+                lessonsMetadataBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showLessonsMetadataPanel();
+                });
+                lessonsMetadataBtn.dataset.wired = 'true';
             }
         }
 

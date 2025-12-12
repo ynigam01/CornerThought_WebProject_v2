@@ -1038,6 +1038,23 @@ body {
     background-color: #2980b9;
 }
 
+/* Manage Organizational Teams button style (match Manage Projects) */
+#manageOrgTeamsButton {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-top: 10px;
+}
+
+#manageOrgTeamsButton:hover {
+    background-color: #2980b9;
+}
+
 
 .modal h3 {
     margin-top: 0;
