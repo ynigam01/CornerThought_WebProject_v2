@@ -1,7 +1,7 @@
 // js/user-portal.js
 import { supabase } from './supabase-client.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
-import { parseMsProjectTxt } from './ms-project-txt-parser.js';
+import { parseMsProjectTxt, importMsProjectTxtToSupabase } from './ms-project-txt-parser.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -59,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataUploadGroup = null;
     let lessonsMetadataFileInput = null;
     let lessonsMetadataUploadButton = null;
+    let lessonsProjectsById = new Map(); // project_id -> { name, project_type_id }
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -101,7 +102,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const { data: projectRows, error: projectErr } = await supabase
                 .from('projects')
-                .select('project_id, project_name')
+                .select('project_id, project_name, project_type_id')
                 .eq('organization_id', organizationId)
                 .order('project_name', { ascending: true });
 
@@ -223,12 +224,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     lessonsMetadataProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
                 }
+                lessonsProjectsById = new Map();
                 return;
             }
 
+            lessonsProjectsById = new Map();
             const choicesData = rows.map(row => {
                 const idStr = String(row.project_id);
                 const name = row.project_name || `Project ${idStr}`;
+                const typeId = row.project_type_id != null ? String(row.project_type_id) : null;
+                lessonsProjectsById.set(idStr, { name, project_type_id: typeId });
                 return {
                     value: idStr,
                     label: name
@@ -668,18 +673,53 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 try {
-                    // Delegate actual parsing to the ms-project-txt-parser module.
-                    lessonsMetadataStatus.textContent = `Reading "${name}"...`;
-                    const parsed = await parseMsProjectTxt(file);
+                    lessonsMetadataUploadButton.disabled = true;
+                    lessonsMetadataUploadButton.textContent = 'Uploading...';
 
-                    console.log('[Lessons Metadata] Parsed MS Project TXT result:', parsed);
+                    const projectIdStr = lessonsMetadataProjectSelect.value;
+                    const createdBy = ctUser && ctUser.id != null ? Number(ctUser.id) : null;
+                    if (!createdBy || Number.isNaN(createdBy)) {
+                        throw new Error('Could not determine the uploader user id. Please log out and log back in.');
+                    }
+
+                    const projectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+
+                    // Always fetch project_type_id live to avoid stale cache/nulls
+                    const { data: projectRow, error: projectErr } = await supabase
+                        .from('projects')
+                        .select('project_type_id')
+                        .eq('project_id', projectId)
+                        .maybeSingle();
+
+                    if (projectErr || !projectRow || projectRow.project_type_id == null) {
+                        throw new Error('Could not determine the selected project type. Please refresh and try again.');
+                    }
+
+                    const projectTypeId = projectRow.project_type_id;
+
+                    // Delegate parse + persistence to the importer.
+                    const result = await importMsProjectTxtToSupabase({
+                        supabase,
+                        file,
+                        context: {
+                            organization_id: organizationId,
+                            created_by: createdBy,
+                            project_id: projectId,
+                            project_type_id: projectTypeId
+                        },
+                        chunkSize: 250,
+                        onProgress: (msg) => {
+                            lessonsMetadataStatus.textContent = msg;
+                            lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                        }
+                    });
 
                     // Build a user-friendly summary of which sections are present.
-                    const count = parsed && typeof parsed.presentCount === 'number'
-                        ? parsed.presentCount
-                        : (parsed && Array.isArray(parsed.presentSections) ? parsed.presentSections.length : 0);
-                    const sectionsList = parsed && Array.isArray(parsed.presentSections)
-                        ? parsed.presentSections.join(', ')
+                    const count = result && typeof result.presentCount === 'number'
+                        ? result.presentCount
+                        : (result && Array.isArray(result.presentSections) ? result.presentSections.length : 0);
+                    const sectionsList = result && Array.isArray(result.presentSections)
+                        ? result.presentSections.join(', ')
                         : '';
 
                     let summaryMessage = '';
@@ -691,8 +731,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         summaryMessage = `This TXT file contains ${count} of 3 expected sections: ${sectionsList}.`;
                     }
 
+                    const inserted = result && result.inserted ? result.inserted : {};
+                    const insertedTasks = inserted.msproject_task_details || 0;
+                    const insertedPred = inserted.msproject_task_predecessors || 0;
+
                     lessonsMetadataStatus.textContent =
-                        `File "${name}" uploaded successfully. ${summaryMessage}`;
+                        `Imported "${name}". ${summaryMessage} Inserted ${insertedTasks} tasks and ${insertedPred} predecessor links.`;
                     lessonsMetadataStatus.classList.add('upload-message--success');
                 } catch (err) {
                     console.error('Error processing MS Project TXT file:', err);
@@ -700,6 +744,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         ? err.message
                         : 'Failed to process TXT file.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
+                } finally {
+                    if (lessonsMetadataUploadButton) {
+                        lessonsMetadataUploadButton.disabled = false;
+                        lessonsMetadataUploadButton.textContent = 'Upload File';
+                    }
                 }
             });
         }
