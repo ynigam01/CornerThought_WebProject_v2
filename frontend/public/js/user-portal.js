@@ -59,6 +59,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataUploadGroup = null;
     let lessonsMetadataFileInput = null;
     let lessonsMetadataUploadButton = null;
+    let lessonsMetadataUpdateActionsGroup = null;
+    let lessonsMetadataDeleteExistingXmlButton = null;
     let lessonsProjectsById = new Map(); // project_id -> { name, project_type_id }
 
     async function loadOrgProjectTypes() {
@@ -538,7 +540,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     <label for="lessonsMetadataFileTypeSelect">Select Input Data File Type</label>
                     <select id="lessonsMetadataFileTypeSelect">
                         <option value="">Select File Type</option>
-                        <option value="ms_project_xml">MS Project XML</option>
+                        <option value="ms_project_xml">MS Project XML - New</option>
+                        <option value="ms_project_xml_update">MS Project XML - Update</option>
                     </select>
                 </div>
                 <div class="form-group" id="lessonsMetadataUploadGroup" style="display: none;">
@@ -547,6 +550,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="form-buttons">
                         <button type="button" id="lessonsMetadataUploadButton" class="secondary-button">
                             Upload File
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group" id="lessonsMetadataUpdateActionsGroup" style="display: none;">
+                    <div class="form-buttons">
+                        <button type="button" id="lessonsMetadataDeleteExistingXmlButton" class="secondary-button">
+                            Delete Existing XML
                         </button>
                     </div>
                 </div>
@@ -563,6 +573,8 @@ document.addEventListener("DOMContentLoaded", () => {
         lessonsMetadataUploadGroup = document.getElementById('lessonsMetadataUploadGroup');
         lessonsMetadataFileInput = document.getElementById('lessonsMetadataFileInput');
         lessonsMetadataUploadButton = document.getElementById('lessonsMetadataUploadButton');
+        lessonsMetadataUpdateActionsGroup = document.getElementById('lessonsMetadataUpdateActionsGroup');
+        lessonsMetadataDeleteExistingXmlButton = document.getElementById('lessonsMetadataDeleteExistingXmlButton');
 
         if (lessonsMetadataBackButton) {
             lessonsMetadataBackButton.addEventListener('click', () => {
@@ -615,8 +627,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 const value = lessonsMetadataFileTypeSelect.value;
                 if (value === 'ms_project_xml') {
                     lessonsMetadataUploadGroup.style.display = '';
+                    if (lessonsMetadataUpdateActionsGroup) {
+                        lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    }
                     if (lessonsMetadataStatus) {
                         lessonsMetadataStatus.textContent = 'Please upload a .txt file exported from MS Project.';
+                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+                    }
+                } else if (value === 'ms_project_xml_update') {
+                    lessonsMetadataUploadGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) {
+                        lessonsMetadataFileInput.value = '';
+                    }
+                    if (lessonsMetadataUpdateActionsGroup) {
+                        lessonsMetadataUpdateActionsGroup.style.display = '';
+                    }
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = '';
                         lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
                     }
                 } else {
@@ -624,10 +651,128 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (lessonsMetadataFileInput) {
                         lessonsMetadataFileInput.value = '';
                     }
+                    if (lessonsMetadataUpdateActionsGroup) {
+                        lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    }
                     if (lessonsMetadataStatus) {
                         lessonsMetadataStatus.textContent = '';
                         lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
                     }
+                }
+            });
+        }
+
+        // Placeholder: Delete Existing XML (no-op for now)
+        if (lessonsMetadataDeleteExistingXmlButton) {
+            lessonsMetadataDeleteExistingXmlButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+
+                if (!lessonsMetadataProjectSelect || !lessonsMetadataProjectSelect.value) {
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = 'Please select a project first.';
+                        lessonsMetadataStatus.classList.add('upload-message--error');
+                    }
+                    return;
+                }
+
+                const confirmed = confirm(
+                    'Are you sure you want to delete the existing MS Project schedule data for this project? This cannot be undone.'
+                );
+                if (!confirmed) return;
+
+                const projectIdStr = lessonsMetadataProjectSelect.value;
+                const projectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+
+                const chunkArray = (arr, size) => {
+                    const n = Math.max(1, Number(size) || 1);
+                    const out = [];
+                    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+                    return out;
+                };
+
+                const chunkSize = 250;
+                const setStatus = (msg, type) => {
+                    if (!lessonsMetadataStatus) return;
+                    lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    lessonsMetadataStatus.textContent = msg;
+                    if (type === 'success') lessonsMetadataStatus.classList.add('upload-message--success');
+                    if (type === 'error') lessonsMetadataStatus.classList.add('upload-message--error');
+                };
+
+                try {
+                    lessonsMetadataDeleteExistingXmlButton.disabled = true;
+                    lessonsMetadataDeleteExistingXmlButton.textContent = 'Deleting...';
+                    setStatus('Finding existing MS Project schedule entries...', null);
+
+                    const { data: metaRows, error: metaErr } = await supabase
+                        .from('lessons_learned_metadata_list')
+                        .select('id')
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .eq('metadata_source', 'ms project')
+                        .eq('metadata_type', 'task');
+
+                    if (metaErr) {
+                        throw new Error(metaErr.message || 'Failed to look up existing MS Project entries.');
+                    }
+
+                    const ids = (metaRows || []).map(r => r && r.id).filter(Boolean);
+                    if (ids.length === 0) {
+                        setStatus('No existing MS Project schedule entries were found for this project.', 'success');
+                        return;
+                    }
+
+                    const idChunks = chunkArray(ids, chunkSize);
+                    let deletedPred = 0;
+                    let deletedDetails = 0;
+                    let deletedMeta = 0;
+
+                    // 1) Delete predecessors
+                    for (let i = 0; i < idChunks.length; i++) {
+                        setStatus(`Deleting predecessor links (${i + 1}/${idChunks.length})...`, null);
+                        const { data, error } = await supabase
+                            .from('msproject_task_predecessors')
+                            .delete()
+                            .in('lessons_learned_metadata_list_id', idChunks[i])
+                            .select('id');
+                        if (error) throw new Error(error.message || 'Failed deleting predecessor links.');
+                        deletedPred += (data || []).length;
+                    }
+
+                    // 2) Delete task details
+                    for (let i = 0; i < idChunks.length; i++) {
+                        setStatus(`Deleting task details (${i + 1}/${idChunks.length})...`, null);
+                        const { data, error } = await supabase
+                            .from('msproject_task_details')
+                            .delete()
+                            .in('lessons_learned_metadata_list_id', idChunks[i])
+                            .select('id');
+                        if (error) throw new Error(error.message || 'Failed deleting task details.');
+                        deletedDetails += (data || []).length;
+                    }
+
+                    // 3) Delete metadata rows
+                    for (let i = 0; i < idChunks.length; i++) {
+                        setStatus(`Deleting task metadata (${i + 1}/${idChunks.length})...`, null);
+                        const { data, error } = await supabase
+                            .from('lessons_learned_metadata_list')
+                            .delete()
+                            .in('id', idChunks[i])
+                            .select('id');
+                        if (error) throw new Error(error.message || 'Failed deleting task metadata.');
+                        deletedMeta += (data || []).length;
+                    }
+
+                    setStatus(
+                        `Deleted MS Project schedule data for this project: ${deletedMeta} metadata rows, ${deletedDetails} task detail rows, ${deletedPred} predecessor rows.`,
+                        'success'
+                    );
+                } catch (err) {
+                    console.error('Delete Existing XML failed:', err);
+                    setStatus(err && err.message ? err.message : 'Failed to delete existing MS Project data.', 'error');
+                } finally {
+                    lessonsMetadataDeleteExistingXmlButton.disabled = false;
+                    lessonsMetadataDeleteExistingXmlButton.textContent = 'Delete Existing XML';
                 }
             });
         }
@@ -646,7 +791,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Ensure MS Project XML file type is selected
                 if (!lessonsMetadataFileTypeSelect || lessonsMetadataFileTypeSelect.value !== 'ms_project_xml') {
-                    lessonsMetadataStatus.textContent = 'Please select "MS Project XML" as the input data file type.';
+                    lessonsMetadataStatus.textContent = 'Please select "MS Project XML - New" as the input data file type.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                     return;
                 }
