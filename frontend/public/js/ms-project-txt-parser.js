@@ -145,15 +145,65 @@ function parseTaskXml(taskXml) {
     };
 }
 
+function parseResourceXml(resourceXml) {
+    const wrapped = `<root>${resourceXml}</root>`;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(wrapped, 'text/xml');
+    if (doc.getElementsByTagName('parsererror').length) {
+        return null;
+    }
+    const el = doc.getElementsByTagName('Resource')[0];
+    if (!el) return null;
+
+    const uid = toNullIfEmpty(getFirstText(el, 'UID'));
+    const rowId = toNullIfEmpty(getFirstText(el, 'ID'));
+    const name = toNullIfEmpty(getFirstText(el, 'Name'));
+    const type = toNullIfEmpty(getFirstText(el, 'Type'));
+    const maxUnits = parseIntOrNull(getFirstText(el, 'MaxUnits'));
+    const standardRate = parseFloatOrNull(getFirstText(el, 'StandardRate'));
+
+    return {
+        uid,
+        row_id: rowId,
+        resource_name: name,
+        type,
+        max_units: maxUnits,
+        standard_rate: standardRate
+    };
+}
+
+function parseAssignmentXml(assignmentXml) {
+    const wrapped = `<root>${assignmentXml}</root>`;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(wrapped, 'text/xml');
+    if (doc.getElementsByTagName('parsererror').length) {
+        return null;
+    }
+    const el = doc.getElementsByTagName('Assignment')[0];
+    if (!el) return null;
+
+    const uid = toNullIfEmpty(getFirstText(el, 'UID'));
+    const taskUid = toNullIfEmpty(getFirstText(el, 'TaskUID'));
+    const resourceUid = toNullIfEmpty(getFirstText(el, 'ResourceUID'));
+
+    if (!uid && !taskUid && !resourceUid) return null;
+
+    return {
+        uid,
+        task_uid: taskUid,
+        resource_uid: resourceUid
+    };
+}
+
 /**
  * Parse a TXT file that was exported from MS Project.
  *
  * Responsibilities:
  * - Detect which major sections exist (<Resources>, <Tasks>, <Assignments>)
- * - Extract <Task> entries and normalize them into JS objects
+ * - Extract <Task>, <Resource>, and <Assignment> entries and normalize them into JS objects
  *
  * @param {File} file - The TXT file selected by the user.
- * @returns {Promise<object>} Summary info including which sections are present and parsed tasks.
+ * @returns {Promise<object>} Summary info including which sections are present and parsed entities.
  */
 export async function parseMsProjectTxt(file) {
     if (!file) {
@@ -185,6 +235,28 @@ export async function parseMsProjectTxt(file) {
 
     const predecessorLinkCount = tasks.reduce((sum, t) => sum + (t.predecessor_links ? t.predecessor_links.length : 0), 0);
 
+    const resourcesSection = hasResources ? extractSection(text, 'Resources') : null;
+    const resources = [];
+    if (resourcesSection) {
+        const re = /<Resource\b[^>]*>[\s\S]*?<\/Resource>/gi;
+        const matches = resourcesSection.match(re) || [];
+        for (const xml of matches) {
+            const parsed = parseResourceXml(xml);
+            if (parsed) resources.push(parsed);
+        }
+    }
+
+    const assignmentsSection = hasAssignments ? extractSection(text, 'Assignments') : null;
+    const assignments = [];
+    if (assignmentsSection) {
+        const re = /<Assignment\b[^>]*>[\s\S]*?<\/Assignment>/gi;
+        const matches = assignmentsSection.match(re) || [];
+        for (const xml of matches) {
+            const parsed = parseAssignmentXml(xml);
+            if (parsed) assignments.push(parsed);
+        }
+    }
+
     console.log('[ms-project-txt-parser] Parse summary:', {
         fileName: file.name,
         hasResources,
@@ -192,7 +264,9 @@ export async function parseMsProjectTxt(file) {
         hasAssignments,
         presentSections,
         taskCount: tasks.length,
-        predecessorLinkCount
+        predecessorLinkCount,
+        resourceCount: resources.length,
+        assignmentCount: assignments.length
     });
 
     return {
@@ -205,7 +279,11 @@ export async function parseMsProjectTxt(file) {
         presentCount: presentSections.length,
         tasks,
         taskCount: tasks.length,
-        predecessorLinkCount
+        predecessorLinkCount,
+        resources,
+        resourceCount: resources.length,
+        assignments,
+        assignmentCount: assignments.length
     };
 }
 
@@ -295,13 +373,15 @@ export async function importMsProjectTxtToSupabase({
 
     const parsed = await parseMsProjectTxt(file);
     const tasks = parsed.tasks || [];
+    const resources = parsed.resources || [];
+    const assignments = parsed.assignments || [];
 
     if (!tasks.length) {
         throw new Error('No <Task> entries were found in the <Tasks> section.');
     }
 
-    // 1) Insert lessons_learned_metadata_list rows (one per task)
-    const metadataRows = tasks.map(t => ({
+    // 1) Insert lessons_learned_metadata_list rows for TASKS (one per task)
+    const taskMetadataRows = tasks.map(t => ({
         metadata_source: 'ms project',
         metadata: t.task_name || null,
         metadata_type: 'task',
@@ -314,22 +394,22 @@ export async function importMsProjectTxtToSupabase({
     const insertedMetadata = await insertChunked({
         supabase,
         table: 'lessons_learned_metadata_list',
-        rows: metadataRows,
+        rows: taskMetadataRows,
         select: 'id',
         chunkSize,
         onProgress,
         label: 'Saving task metadata'
     });
 
-    if (insertedMetadata.length !== metadataRows.length) {
+    if (insertedMetadata.length !== taskMetadataRows.length) {
         throw new Error('Unexpected mismatch inserting lessons_learned_metadata_list rows.');
     }
 
-    const lessonsIds = insertedMetadata.map(r => r.id);
+    const taskLessonsIds = insertedMetadata.map(r => r.id);
 
     // 2) Insert msproject_task_details rows (one per task)
     const taskDetailRows = tasks.map((t, idx) => ({
-        lessons_learned_metadata_list_id: lessonsIds[idx],
+        lessons_learned_metadata_list_id: taskLessonsIds[idx],
         organization_id,
         project_id,
         project_type_id,
@@ -376,7 +456,7 @@ export async function importMsProjectTxtToSupabase({
     // 3) Insert predecessor links
     const predecessorRows = [];
     tasks.forEach((t, idx) => {
-        const lessonsId = lessonsIds[idx];
+        const lessonsId = taskLessonsIds[idx];
         const taskDetailsId = taskDetailsIdByLessonsId.get(String(lessonsId));
         const links = t.predecessor_links || [];
         links.forEach(link => {
@@ -407,12 +487,98 @@ export async function importMsProjectTxtToSupabase({
         onProgress('No predecessor links found. Skipping predecessor import.');
     }
 
+    // 4) Insert lessons_learned_metadata_list rows for RESOURCES (one per resource)
+    let insertedResourceMetadata = [];
+    let insertedResourceDetails = [];
+    if (resources.length) {
+        const resourceMetadataRows = resources.map(r => ({
+            metadata_source: 'ms project',
+            metadata: r.resource_name || null,
+            metadata_type: 'resource',
+            created_by,
+            organization_id,
+            project_id,
+            project_type_id
+        }));
+
+        insertedResourceMetadata = await insertChunked({
+            supabase,
+            table: 'lessons_learned_metadata_list',
+            rows: resourceMetadataRows,
+            select: 'id',
+            chunkSize,
+            onProgress,
+            label: 'Saving resource metadata'
+        });
+
+        if (insertedResourceMetadata.length !== resourceMetadataRows.length) {
+            throw new Error('Unexpected mismatch inserting resource metadata rows.');
+        }
+
+        const resourceLessonsIds = insertedResourceMetadata.map(r => r.id);
+
+        // 5) Insert msproject_resource_details (one per resource; linked via resource metadata id)
+        const resourceDetailRows = resources.map((r, idx) => ({
+            lessons_learned_metadata_list_id: resourceLessonsIds[idx],
+            organization_id,
+            project_id,
+            project_type_id,
+            created_by,
+            resource_name: r.resource_name || null,
+            uid: r.uid || null,
+            row_id: r.row_id || null,
+            type: r.type || null,
+            max_units: r.max_units,
+            standard_rate: r.standard_rate
+        }));
+
+        insertedResourceDetails = await insertChunked({
+            supabase,
+            table: 'msproject_resource_details',
+            rows: resourceDetailRows,
+            select: 'id',
+            chunkSize,
+            onProgress,
+            label: 'Saving resource details'
+        });
+    } else if (typeof onProgress === 'function') {
+        onProgress('No resources found. Skipping resource import.');
+    }
+
+    // 6) Insert msproject_assignments (link rows only)
+    let insertedAssignments = [];
+    if (assignments.length) {
+        const assignmentRows = assignments.map(a => ({
+            organization_id,
+            project_id,
+            project_type_id,
+            created_by,
+            uid: a.uid || null,
+            task_uid: a.task_uid || null,
+            resource_uid: a.resource_uid || null
+        }));
+
+        insertedAssignments = await insertChunked({
+            supabase,
+            table: 'msproject_assignments',
+            rows: assignmentRows,
+            select: 'id',
+            chunkSize,
+            onProgress,
+            label: 'Saving assignments'
+        });
+    } else if (typeof onProgress === 'function') {
+        onProgress('No assignments found. Skipping assignment import.');
+    }
+
     return {
         ...parsed,
         inserted: {
-            lessons_learned_metadata_list: insertedMetadata.length,
+            lessons_learned_metadata_list: insertedMetadata.length + insertedResourceMetadata.length,
             msproject_task_details: insertedTaskDetails.length,
-            msproject_task_predecessors: insertedPredecessors.length
+            msproject_task_predecessors: insertedPredecessors.length,
+            msproject_resource_details: insertedResourceDetails.length,
+            msproject_assignments: insertedAssignments.length
         }
     };
 }

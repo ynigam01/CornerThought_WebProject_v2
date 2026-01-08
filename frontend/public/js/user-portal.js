@@ -676,7 +676,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 const confirmed = confirm(
-                    'Are you sure you want to delete the existing MS Project schedule data for this project? This cannot be undone.'
+                    'Are you sure you want to delete the existing MS Project data for this project (tasks, resources, and assignments)? This cannot be undone.'
                 );
                 if (!confirmed) return;
 
@@ -702,7 +702,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 try {
                     lessonsMetadataDeleteExistingXmlButton.disabled = true;
                     lessonsMetadataDeleteExistingXmlButton.textContent = 'Deleting...';
-                    setStatus('Finding existing MS Project schedule entries...', null);
+
+                    // 0) Delete assignment link rows (no metadata rows for assignments)
+                    setStatus('Deleting assignments...', null);
+                    const { data: assignmentRows, error: assignmentErr } = await supabase
+                        .from('msproject_assignments')
+                        .delete()
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .select('id');
+
+                    if (assignmentErr) {
+                        throw new Error(assignmentErr.message || 'Failed deleting assignments.');
+                    }
+
+                    let deletedAssignments = (assignmentRows || []).length;
+
+                    setStatus('Finding existing MS Project task entries...', null);
 
                     const { data: metaRows, error: metaErr } = await supabase
                         .from('lessons_learned_metadata_list')
@@ -716,55 +732,108 @@ document.addEventListener("DOMContentLoaded", () => {
                         throw new Error(metaErr.message || 'Failed to look up existing MS Project entries.');
                     }
 
-                    const ids = (metaRows || []).map(r => r && r.id).filter(Boolean);
-                    if (ids.length === 0) {
-                        setStatus('No existing MS Project schedule entries were found for this project.', 'success');
+                    const taskIds = (metaRows || []).map(r => r && r.id).filter(Boolean);
+
+                    setStatus('Finding existing MS Project resource entries...', null);
+                    const { data: resourceMetaRows, error: resourceMetaErr } = await supabase
+                        .from('lessons_learned_metadata_list')
+                        .select('id')
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .eq('metadata_source', 'ms project')
+                        .eq('metadata_type', 'resource');
+
+                    if (resourceMetaErr) {
+                        throw new Error(resourceMetaErr.message || 'Failed to look up existing MS Project resource entries.');
+                    }
+
+                    const resourceIds = (resourceMetaRows || []).map(r => r && r.id).filter(Boolean);
+
+                    if (taskIds.length === 0 && resourceIds.length === 0 && deletedAssignments === 0) {
+                        setStatus('No existing MS Project entries were found for this project.', 'success');
                         return;
                     }
 
-                    const idChunks = chunkArray(ids, chunkSize);
+                    const taskIdChunks = chunkArray(taskIds, chunkSize);
+                    const resourceIdChunks = chunkArray(resourceIds, chunkSize);
                     let deletedPred = 0;
                     let deletedDetails = 0;
-                    let deletedMeta = 0;
+                    let deletedTaskMeta = 0;
+                    let deletedResourceDetails = 0;
+                    let deletedResourceMeta = 0;
 
                     // 1) Delete predecessors
-                    for (let i = 0; i < idChunks.length; i++) {
-                        setStatus(`Deleting predecessor links (${i + 1}/${idChunks.length})...`, null);
-                        const { data, error } = await supabase
-                            .from('msproject_task_predecessors')
-                            .delete()
-                            .in('lessons_learned_metadata_list_id', idChunks[i])
-                            .select('id');
-                        if (error) throw new Error(error.message || 'Failed deleting predecessor links.');
-                        deletedPred += (data || []).length;
+                    if (taskIdChunks.length) {
+                        for (let i = 0; i < taskIdChunks.length; i++) {
+                            setStatus(`Deleting predecessor links (${i + 1}/${taskIdChunks.length})...`, null);
+                            const { data, error } = await supabase
+                                .from('msproject_task_predecessors')
+                                .delete()
+                                .in('lessons_learned_metadata_list_id', taskIdChunks[i])
+                                .select('id');
+                            if (error) throw new Error(error.message || 'Failed deleting predecessor links.');
+                            deletedPred += (data || []).length;
+                        }
                     }
 
                     // 2) Delete task details
-                    for (let i = 0; i < idChunks.length; i++) {
-                        setStatus(`Deleting task details (${i + 1}/${idChunks.length})...`, null);
-                        const { data, error } = await supabase
-                            .from('msproject_task_details')
-                            .delete()
-                            .in('lessons_learned_metadata_list_id', idChunks[i])
-                            .select('id');
-                        if (error) throw new Error(error.message || 'Failed deleting task details.');
-                        deletedDetails += (data || []).length;
+                    if (taskIdChunks.length) {
+                        for (let i = 0; i < taskIdChunks.length; i++) {
+                            setStatus(`Deleting task details (${i + 1}/${taskIdChunks.length})...`, null);
+                            const { data, error } = await supabase
+                                .from('msproject_task_details')
+                                .delete()
+                                .in('lessons_learned_metadata_list_id', taskIdChunks[i])
+                                .select('id');
+                            if (error) throw new Error(error.message || 'Failed deleting task details.');
+                            deletedDetails += (data || []).length;
+                        }
                     }
 
-                    // 3) Delete metadata rows
-                    for (let i = 0; i < idChunks.length; i++) {
-                        setStatus(`Deleting task metadata (${i + 1}/${idChunks.length})...`, null);
-                        const { data, error } = await supabase
-                            .from('lessons_learned_metadata_list')
-                            .delete()
-                            .in('id', idChunks[i])
-                            .select('id');
-                        if (error) throw new Error(error.message || 'Failed deleting task metadata.');
-                        deletedMeta += (data || []).length;
+                    // 3) Delete task metadata rows
+                    if (taskIdChunks.length) {
+                        for (let i = 0; i < taskIdChunks.length; i++) {
+                            setStatus(`Deleting task metadata (${i + 1}/${taskIdChunks.length})...`, null);
+                            const { data, error } = await supabase
+                                .from('lessons_learned_metadata_list')
+                                .delete()
+                                .in('id', taskIdChunks[i])
+                                .select('id');
+                            if (error) throw new Error(error.message || 'Failed deleting task metadata.');
+                            deletedTaskMeta += (data || []).length;
+                        }
+                    }
+
+                    // 4) Delete resource details rows
+                    if (resourceIdChunks.length) {
+                        for (let i = 0; i < resourceIdChunks.length; i++) {
+                            setStatus(`Deleting resource details (${i + 1}/${resourceIdChunks.length})...`, null);
+                            const { data, error } = await supabase
+                                .from('msproject_resource_details')
+                                .delete()
+                                .in('lessons_learned_metadata_list_id', resourceIdChunks[i])
+                                .select('id');
+                            if (error) throw new Error(error.message || 'Failed deleting resource details.');
+                            deletedResourceDetails += (data || []).length;
+                        }
+                    }
+
+                    // 5) Delete resource metadata rows
+                    if (resourceIdChunks.length) {
+                        for (let i = 0; i < resourceIdChunks.length; i++) {
+                            setStatus(`Deleting resource metadata (${i + 1}/${resourceIdChunks.length})...`, null);
+                            const { data, error } = await supabase
+                                .from('lessons_learned_metadata_list')
+                                .delete()
+                                .in('id', resourceIdChunks[i])
+                                .select('id');
+                            if (error) throw new Error(error.message || 'Failed deleting resource metadata.');
+                            deletedResourceMeta += (data || []).length;
+                        }
                     }
 
                     setStatus(
-                        `Deleted MS Project schedule data for this project: ${deletedMeta} metadata rows, ${deletedDetails} task detail rows, ${deletedPred} predecessor rows.`,
+                        `Deleted MS Project data for this project: ${deletedAssignments} assignments, ${deletedTaskMeta} task metadata rows, ${deletedDetails} task detail rows, ${deletedPred} predecessor rows, ${deletedResourceMeta} resource metadata rows, ${deletedResourceDetails} resource detail rows.`,
                         'success'
                     );
                 } catch (err) {
