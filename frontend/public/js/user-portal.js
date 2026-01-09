@@ -62,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataUploadButton = null;
     let lessonsMetadataUpdateActionsGroup = null;
     let lessonsMetadataDeleteExistingXmlButton = null;
+    let lessonsMetadataDeleteExistingTeamListButton = null;
     let lessonsProjectsById = new Map(); // project_id -> { name, project_type_id }
 
     async function loadOrgProjectTypes() {
@@ -544,6 +545,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <option value="ms_project_xml">MS Project XML - New</option>
                         <option value="ms_project_xml_update">MS Project XML - Update</option>
                         <option value="excel_project_team_list_new">Excel Project Team List - New</option>
+                        <option value="excel_project_team_list_update">Excel Project Team List - Update</option>
                     </select>
                 </div>
                 <div class="form-group" id="lessonsMetadataUploadGroup" style="display: none;">
@@ -559,6 +561,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="form-buttons">
                         <button type="button" id="lessonsMetadataDeleteExistingXmlButton" class="secondary-button">
                             Delete Existing XML
+                        </button>
+                        <button type="button" id="lessonsMetadataDeleteExistingTeamListButton" class="secondary-button" style="display: none;">
+                            Delete Existing Team List
                         </button>
                     </div>
                 </div>
@@ -577,6 +582,7 @@ document.addEventListener("DOMContentLoaded", () => {
         lessonsMetadataUploadButton = document.getElementById('lessonsMetadataUploadButton');
         lessonsMetadataUpdateActionsGroup = document.getElementById('lessonsMetadataUpdateActionsGroup');
         lessonsMetadataDeleteExistingXmlButton = document.getElementById('lessonsMetadataDeleteExistingXmlButton');
+        lessonsMetadataDeleteExistingTeamListButton = document.getElementById('lessonsMetadataDeleteExistingTeamListButton');
 
         if (lessonsMetadataBackButton) {
             lessonsMetadataBackButton.addEventListener('click', () => {
@@ -649,6 +655,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.txt';
                     if (fileLabel) fileLabel.textContent = 'Upload TXT File';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
                     setHint('Please upload a .txt file exported from MS Project.');
                 } else if (value === 'excel_project_team_list_new') {
                     lessonsMetadataUploadGroup.style.display = '';
@@ -656,16 +664,29 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.xlsx,.xls';
                     if (fileLabel) fileLabel.textContent = 'Upload Excel File';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
                     setHint('Please upload an Excel file with headers: Team, Description, Team ID, Parent Team ID.');
                 } else if (value === 'ms_project_xml_update') {
                     lessonsMetadataUploadGroup.style.display = 'none';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = '';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
+                    resetStatus();
+                } else if (value === 'excel_project_team_list_update') {
+                    lessonsMetadataUploadGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = '';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = 'none';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = '';
                     resetStatus();
                 } else {
                     lessonsMetadataUploadGroup.style.display = 'none';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
                     resetStatus();
                 }
             });
@@ -851,6 +872,84 @@ document.addEventListener("DOMContentLoaded", () => {
                 } finally {
                     lessonsMetadataDeleteExistingXmlButton.disabled = false;
                     lessonsMetadataDeleteExistingXmlButton.textContent = 'Delete Existing XML';
+                }
+            });
+        }
+
+        // Delete Existing Team List (Excel Project Team List - Update)
+        if (lessonsMetadataDeleteExistingTeamListButton) {
+            lessonsMetadataDeleteExistingTeamListButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+
+                if (!lessonsMetadataProjectSelect || !lessonsMetadataProjectSelect.value) {
+                    if (lessonsMetadataStatus) {
+                        lessonsMetadataStatus.textContent = 'Please select a project first.';
+                        lessonsMetadataStatus.classList.add('upload-message--error');
+                    }
+                    return;
+                }
+
+                const confirmed = confirm(
+                    'Are you sure you want to delete the existing Excel Project Team List data for this project? This cannot be undone.'
+                );
+                if (!confirmed) return;
+
+                const setStatus = (msg, type) => {
+                    if (!lessonsMetadataStatus) return;
+                    lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    lessonsMetadataStatus.textContent = msg;
+                    if (type === 'success') lessonsMetadataStatus.classList.add('upload-message--success');
+                    if (type === 'error') lessonsMetadataStatus.classList.add('upload-message--error');
+                };
+
+                const projectIdStr = lessonsMetadataProjectSelect.value;
+                const projectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+
+                try {
+                    lessonsMetadataDeleteExistingTeamListButton.disabled = true;
+                    lessonsMetadataDeleteExistingTeamListButton.textContent = 'Deleting...';
+
+                    // 1) Delete team list rows first (avoids FK issues if present)
+                    setStatus('Deleting existing project team list rows...', null);
+                    const { data: deletedTeamRows, error: teamErr } = await supabase
+                        .from('project_teams_excel')
+                        .delete()
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .select('id');
+
+                    if (teamErr) {
+                        throw new Error(teamErr.message || 'Failed deleting project team list rows.');
+                    }
+
+                    const deletedTeams = (deletedTeamRows || []).length;
+
+                    // 2) Delete related metadata list rows (source: excel project team list)
+                    setStatus('Deleting related lessons learned metadata rows...', null);
+                    const { data: deletedMetaRows, error: metaErr } = await supabase
+                        .from('lessons_learned_metadata_list')
+                        .delete()
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .eq('metadata_source', 'excel project team list')
+                        .select('id');
+
+                    if (metaErr) {
+                        throw new Error(metaErr.message || 'Failed deleting lessons learned metadata rows.');
+                    }
+
+                    const deletedMeta = (deletedMetaRows || []).length;
+
+                    setStatus(
+                        `Deleted Excel Project Team List data for this project: ${deletedTeams} team rows and ${deletedMeta} metadata rows.`,
+                        'success'
+                    );
+                } catch (err) {
+                    console.error('Delete Existing Team List failed:', err);
+                    setStatus(err && err.message ? err.message : 'Failed to delete existing team list data.', 'error');
+                } finally {
+                    lessonsMetadataDeleteExistingTeamListButton.disabled = false;
+                    lessonsMetadataDeleteExistingTeamListButton.textContent = 'Delete Existing Team List';
                 }
             });
         }
