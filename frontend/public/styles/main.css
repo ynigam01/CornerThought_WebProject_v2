@@ -759,6 +759,14 @@ body {
     background-color: #f5f5f5;
 }
 
+.organizations-table tbody tr.row-selected {
+    background-color: #e7f6ec;
+}
+
+.organizations-table tbody tr.row-selected:hover {
+    background-color: #dff1e5;
+}
+
 .organizations-table .edit-button,
 .organizations-table .delete-button {
     padding: 8px 12px;

@@ -51,6 +51,34 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentOrgProject = null;
     let orgProjectsById = new Map();
 
+    // State for Project Team sub-module (Create view)
+    let projectTeamPanel = null;
+    let projectTeamProjectSelect = null;
+    let projectTeamUserSelect = null;
+    let projectTeamBackButton = null;
+    let projectTeamAddButton = null;
+    let projectTeamAssignmentsButton = null;
+    let projectTeamStatus = null;
+    let projectTeamChoices = null;
+    let projectTeamUsersById = new Map(); // user_id -> { name, email, usertype }
+    let projectTeamProjectChoices = null;
+    let projectTeamProjectsById = new Map(); // project_id -> { name }
+
+    // State for Project Team Assignments panel (Create view)
+    let projectTeamAssignmentsPanel = null;
+    let projectTeamAssignmentsBackButton = null;
+    let projectTeamAssignmentsRefreshButton = null;
+    let projectTeamAssignmentsSaveButton = null;
+    let projectTeamAssignmentsTypeSelect = null;
+    let projectTeamAssignmentsSearchInput = null;
+    let projectTeamAssignmentsStatus = null;
+    let projectTeamAssignmentsTableWrap = null;
+    let projectTeamAssignmentsRowsCache = [];
+    let projectTeamAssignmentsSelectedIds = new Set();
+    let projectTeamAssignmentsSavedIds = new Set();
+    let projectTeamAssignmentsUserId = null;
+    let projectTeamAssignmentsProjectId = null;
+
     // State for Manage Project Details panel (Create view)
     let orgProjectDetailsManagePanel = null;
     let orgProjectDetailsManageProjectSelect = null;
@@ -1210,6 +1238,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (createColumns) {
             createColumns.style.display = 'none';
         }
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
+        }
         if (orgProjectDetailsPanel) {
             orgProjectDetailsPanel.style.display = '';
             orgProjectDetailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1228,6 +1262,914 @@ document.addEventListener("DOMContentLoaded", () => {
         const createColumns = document.getElementById('createColumns');
         if (createColumns) {
             createColumns.style.display = '';
+        }
+    }
+
+    function ensureProjectTeamPanel() {
+        if (projectTeamPanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="projectTeamPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Project Team</h3>
+                        <p class="subtitle">Select a user from your organization.</p>
+                    </div>
+                    <button type="button" id="projectTeamBackButton" class="secondary-button">Back to Create Project</button>
+                </div>
+                <div class="form-group">
+                    <label for="projectTeamProjectSelect">Project</label>
+                    <select id="projectTeamProjectSelect">
+                        <option value=\"\">Select Project</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="projectTeamUserSelect">User</label>
+                    <select id="projectTeamUserSelect">
+                        <option value=\"\">Select User</option>
+                    </select>
+                </div>
+                <div class="form-buttons">
+                    <button type="button" id="projectTeamAddButton" class="secondary-button">Add Team Member</button>
+                    <button type="button" id="projectTeamAssignmentsButton" class="secondary-button" style="display:none;">Team Member Assignments</button>
+                </div>
+                <div id="projectTeamStatus" class="upload-message" aria-live="polite"></div>
+            </section>
+        `);
+
+        projectTeamPanel = document.getElementById('projectTeamPanel');
+        projectTeamProjectSelect = document.getElementById('projectTeamProjectSelect');
+        projectTeamUserSelect = document.getElementById('projectTeamUserSelect');
+        projectTeamBackButton = document.getElementById('projectTeamBackButton');
+        projectTeamAddButton = document.getElementById('projectTeamAddButton');
+        projectTeamAssignmentsButton = document.getElementById('projectTeamAssignmentsButton');
+        projectTeamStatus = document.getElementById('projectTeamStatus');
+
+        if (projectTeamBackButton) {
+            projectTeamBackButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideProjectTeamPanel();
+            });
+        }
+
+        if (projectTeamProjectSelect) {
+            projectTeamProjectSelect.addEventListener('change', () => {
+                updateProjectTeamAssignmentsButtonVisibility();
+            });
+        }
+
+        if (projectTeamUserSelect) {
+            projectTeamUserSelect.addEventListener('change', () => {
+                updateProjectTeamAssignmentsButtonVisibility();
+            });
+        }
+
+        if (projectTeamAddButton) {
+            projectTeamAddButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                addSelectedProjectTeamMember();
+            });
+        }
+
+        if (projectTeamAssignmentsButton) {
+            projectTeamAssignmentsButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                showProjectTeamAssignmentsPanel();
+            });
+        }
+    }
+
+    function showProjectTeamPanel() {
+        ensureProjectTeamPanel();
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+        if (orgProjectDetailsPanel) orgProjectDetailsPanel.style.display = 'none';
+        if (orgProjectDetailsManagePanel) orgProjectDetailsManagePanel.style.display = 'none';
+        if (lessonsMetadataPanel) lessonsMetadataPanel.style.display = 'none';
+        if (lessonsMetadataManagePanel) lessonsMetadataManagePanel.style.display = 'none';
+        if (projectTeamAssignmentsPanel) projectTeamAssignmentsPanel.style.display = 'none';
+
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = '';
+            projectTeamPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        loadOrgProjectsForProjectTeamDropdown();
+        loadOrgUsersForProjectTeamDropdown();
+    }
+
+    function hideProjectTeamPanel() {
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = '';
+        }
+    }
+
+    function ensureProjectTeamAssignmentsPanel() {
+        if (projectTeamAssignmentsPanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="projectTeamAssignmentsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="projectTeamAssignmentsTitle">Team Member Assignments</h3>
+                        <p class="subtitle">View lessons learned metadata for the selected project.</p>
+                    </div>
+                    <button type="button" id="projectTeamAssignmentsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div class="form-group">
+                    <label for="projectTeamAssignmentsTypeSelect">Type (filter)</label>
+                    <select id="projectTeamAssignmentsTypeSelect">
+                        <option value=\"\">All Types</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="projectTeamAssignmentsSearchInput">Search (metadata)</label>
+                    <input
+                        type="text"
+                        id="projectTeamAssignmentsSearchInput"
+                        placeholder="Type to filter metadata..."
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="form-buttons">
+                    <button type="button" id="projectTeamAssignmentsRefreshButton" class="secondary-button">Refresh List</button>
+                    <button type="button" id="projectTeamAssignmentsSaveButton" class="secondary-button">Save Selected Assignments</button>
+                </div>
+                <div id="projectTeamAssignmentsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="projectTeamAssignmentsTableWrap" style="margin-top: 12px;"></div>
+            </section>
+        `);
+
+        projectTeamAssignmentsPanel = document.getElementById('projectTeamAssignmentsPanel');
+        projectTeamAssignmentsBackButton = document.getElementById('projectTeamAssignmentsBackButton');
+        projectTeamAssignmentsRefreshButton = document.getElementById('projectTeamAssignmentsRefreshButton');
+        projectTeamAssignmentsSaveButton = document.getElementById('projectTeamAssignmentsSaveButton');
+        projectTeamAssignmentsTypeSelect = document.getElementById('projectTeamAssignmentsTypeSelect');
+        projectTeamAssignmentsSearchInput = document.getElementById('projectTeamAssignmentsSearchInput');
+        projectTeamAssignmentsStatus = document.getElementById('projectTeamAssignmentsStatus');
+        projectTeamAssignmentsTableWrap = document.getElementById('projectTeamAssignmentsTableWrap');
+
+        if (projectTeamAssignmentsBackButton) {
+            projectTeamAssignmentsBackButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideProjectTeamAssignmentsPanel();
+            });
+        }
+
+        if (projectTeamAssignmentsRefreshButton) {
+            projectTeamAssignmentsRefreshButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                refreshProjectTeamAssignmentsList();
+            });
+        }
+
+        if (projectTeamAssignmentsSaveButton) {
+            projectTeamAssignmentsSaveButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                saveProjectTeamAssignments();
+            });
+        }
+
+        if (projectTeamAssignmentsTypeSelect) {
+            projectTeamAssignmentsTypeSelect.addEventListener('change', () => {
+                renderProjectTeamAssignmentsTable();
+            });
+        }
+
+        if (projectTeamAssignmentsSearchInput) {
+            projectTeamAssignmentsSearchInput.addEventListener('input', () => {
+                renderProjectTeamAssignmentsTable();
+            });
+        }
+    }
+
+    async function showProjectTeamAssignmentsPanel() {
+        ensureProjectTeamAssignmentsPanel();
+
+        // Ensure we have a selected project (scope is fixed to Project Team selection)
+        const projectIdStr = projectTeamProjectSelect ? projectTeamProjectSelect.value : '';
+        const userIdStr = projectTeamUserSelect ? projectTeamUserSelect.value : '';
+        if (!projectIdStr) {
+            if (projectTeamStatus) {
+                projectTeamStatus.classList.remove('upload-message--success');
+                projectTeamStatus.classList.add('upload-message--error');
+                projectTeamStatus.textContent = 'Please select a project first.';
+            }
+            return;
+        }
+        if (!userIdStr) {
+            if (projectTeamStatus) {
+                projectTeamStatus.classList.remove('upload-message--success');
+                projectTeamStatus.classList.add('upload-message--error');
+                projectTeamStatus.textContent = 'Please select a user first.';
+            }
+            return;
+        }
+
+        // Update title: Team Member Assignments for <Name>
+        const titleEl = projectTeamAssignmentsPanel
+            ? projectTeamAssignmentsPanel.querySelector('#projectTeamAssignmentsTitle')
+            : null;
+        if (titleEl) {
+            const userInfo = projectTeamUsersById ? projectTeamUsersById.get(String(userIdStr)) : null;
+            const name = userInfo && userInfo.name ? userInfo.name : 'Selected User';
+            titleEl.textContent = `Team Member Assignments for ${name}`;
+        }
+
+        // Establish scope for bulk save + preload
+        projectTeamAssignmentsProjectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        projectTeamAssignmentsUserId = Number.isNaN(Number(userIdStr)) ? userIdStr : Number(userIdStr);
+        projectTeamAssignmentsSavedIds = new Set();
+        projectTeamAssignmentsSelectedIds = new Set();
+
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        if (orgProjectDetailsPanel) orgProjectDetailsPanel.style.display = 'none';
+        if (orgProjectDetailsManagePanel) orgProjectDetailsManagePanel.style.display = 'none';
+        if (lessonsMetadataPanel) lessonsMetadataPanel.style.display = 'none';
+        if (lessonsMetadataManagePanel) lessonsMetadataManagePanel.style.display = 'none';
+
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = '';
+            projectTeamAssignmentsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        await preloadProjectTeamAssignmentsSavedIds();
+        await refreshProjectTeamAssignmentsList();
+    }
+
+    function hideProjectTeamAssignmentsPanel() {
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
+        }
+        // Return to Project Team submodule
+        showProjectTeamPanel();
+    }
+
+    function updateProjectTeamAssignmentsTypeOptions(rows) {
+        if (!projectTeamAssignmentsTypeSelect) return;
+
+        const previous = projectTeamAssignmentsTypeSelect.value || '';
+        const types = Array.from(
+            new Set((rows || []).map(r => r && r.metadata_type).filter(Boolean))
+        ).sort((a, b) => String(a).localeCompare(String(b)));
+
+        projectTeamAssignmentsTypeSelect.innerHTML = '';
+
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All Types';
+        projectTeamAssignmentsTypeSelect.appendChild(allOpt);
+
+        types.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            projectTeamAssignmentsTypeSelect.appendChild(opt);
+        });
+
+        projectTeamAssignmentsTypeSelect.value = types.includes(previous) ? previous : '';
+    }
+
+    async function preloadProjectTeamAssignmentsSavedIds() {
+        if (!organizationId || projectTeamAssignmentsProjectId == null || projectTeamAssignmentsUserId == null) return;
+
+        if (projectTeamAssignmentsStatus) {
+            projectTeamAssignmentsStatus.classList.remove('upload-message--success', 'upload-message--error');
+            projectTeamAssignmentsStatus.textContent = 'Loading saved assignments...';
+        }
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('project_team_member_assignments')
+                .select('lessons_learned_metadata_list_id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectTeamAssignmentsProjectId)
+                .eq('user_id', projectTeamAssignmentsUserId)
+                .limit(5000);
+
+            if (error) {
+                console.error('Error preloading project team member assignments:', error);
+                if (projectTeamAssignmentsStatus) {
+                    projectTeamAssignmentsStatus.textContent = 'Failed to load saved assignments.';
+                    projectTeamAssignmentsStatus.classList.add('upload-message--error');
+                }
+                projectTeamAssignmentsSavedIds = new Set();
+                projectTeamAssignmentsSelectedIds = new Set();
+                return;
+            }
+
+            const ids = (rows || [])
+                .map(r => r && r.lessons_learned_metadata_list_id)
+                .filter(v => v != null)
+                .map(v => String(v));
+
+            projectTeamAssignmentsSavedIds = new Set(ids);
+            // Start selection equal to saved state (pre-highlight)
+            projectTeamAssignmentsSelectedIds = new Set(ids);
+        } catch (err) {
+            console.error('Unexpected error preloading project team member assignments:', err);
+            if (projectTeamAssignmentsStatus) {
+                projectTeamAssignmentsStatus.textContent = 'An unexpected error occurred while loading saved assignments.';
+                projectTeamAssignmentsStatus.classList.add('upload-message--error');
+            }
+            projectTeamAssignmentsSavedIds = new Set();
+            projectTeamAssignmentsSelectedIds = new Set();
+        }
+    }
+
+    function renderProjectTeamAssignmentsTable() {
+        if (!projectTeamAssignmentsTableWrap) return;
+
+        const selectedType = projectTeamAssignmentsTypeSelect ? projectTeamAssignmentsTypeSelect.value : '';
+        const rows = Array.isArray(projectTeamAssignmentsRowsCache) ? projectTeamAssignmentsRowsCache : [];
+
+        const searchRaw = projectTeamAssignmentsSearchInput ? projectTeamAssignmentsSearchInput.value : '';
+        const search = String(searchRaw || '').trim().toLowerCase();
+
+        let filtered = rows;
+        if (selectedType) {
+            filtered = filtered.filter(r => r && r.metadata_type === selectedType);
+        }
+        if (search) {
+            filtered = filtered.filter(r => String((r && r.metadata) || '').toLowerCase().includes(search));
+        }
+
+        projectTeamAssignmentsTableWrap.innerHTML = '';
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            const searchDisplay = String(searchRaw || '').trim();
+            empty.textContent =
+                selectedType && searchDisplay
+                    ? `No metadata entries match type "${selectedType}" and "${searchDisplay}".`
+                    : searchDisplay
+                        ? `No metadata entries match "${searchDisplay}".`
+                        : selectedType
+                            ? `No metadata entries found for type "${selectedType}".`
+                            : 'No metadata has been imported for this project yet.';
+            projectTeamAssignmentsTableWrap.appendChild(empty);
+
+            if (projectTeamAssignmentsStatus) {
+                projectTeamAssignmentsStatus.classList.remove('upload-message--success', 'upload-message--error');
+                if (selectedType || search) {
+                    projectTeamAssignmentsStatus.textContent = selectedType
+                        ? `Showing 0 ${search ? 'matching ' : ''}"${selectedType}" entries (of ${rows.length} total).`
+                        : `Showing 0 matching entries (of ${rows.length} total).`;
+                } else {
+                    projectTeamAssignmentsStatus.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                }
+                if (rows.length > 0) projectTeamAssignmentsStatus.classList.add('upload-message--success');
+            }
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'organizations-table';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Type', 'Metadata'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        filtered.forEach(row => {
+            const tr = document.createElement('tr');
+            const lessonsIdStr = String(row.id);
+            tr.style.cursor = 'pointer';
+            if (projectTeamAssignmentsSelectedIds && projectTeamAssignmentsSelectedIds.has(lessonsIdStr)) {
+                tr.classList.add('row-selected');
+            }
+            tr.addEventListener('click', () => {
+                if (!projectTeamAssignmentsSelectedIds) {
+                    projectTeamAssignmentsSelectedIds = new Set();
+                }
+                if (projectTeamAssignmentsSelectedIds.has(lessonsIdStr)) {
+                    projectTeamAssignmentsSelectedIds.delete(lessonsIdStr);
+                    tr.classList.remove('row-selected');
+                } else {
+                    projectTeamAssignmentsSelectedIds.add(lessonsIdStr);
+                    tr.classList.add('row-selected');
+                }
+            });
+
+            const tdType = document.createElement('td');
+            tdType.textContent = row.metadata_type || '';
+            tr.appendChild(tdType);
+
+            const tdMetadata = document.createElement('td');
+            tdMetadata.textContent = row.metadata || '';
+            tr.appendChild(tdMetadata);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        projectTeamAssignmentsTableWrap.appendChild(table);
+
+        if (projectTeamAssignmentsStatus) {
+            projectTeamAssignmentsStatus.classList.remove('upload-message--success', 'upload-message--error');
+            if (selectedType || search) {
+                const typePart = selectedType ? `"${selectedType}" ` : '';
+                const matchPart = search ? 'matching ' : '';
+                projectTeamAssignmentsStatus.textContent =
+                    `Showing ${filtered.length} ${matchPart}${typePart}entr${filtered.length === 1 ? 'y' : 'ies'} (of ${rows.length} total).`;
+            } else {
+                projectTeamAssignmentsStatus.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            }
+            projectTeamAssignmentsStatus.classList.add('upload-message--success');
+        }
+    }
+
+    async function refreshProjectTeamAssignmentsList() {
+        if (!organizationId || !projectTeamAssignmentsStatus || !projectTeamAssignmentsTableWrap) return;
+        if (!projectTeamProjectSelect) return;
+
+        const projectIdStr = projectTeamProjectSelect.value;
+        if (!projectIdStr) {
+            projectTeamAssignmentsTableWrap.innerHTML = '';
+            projectTeamAssignmentsStatus.textContent = 'Please select a project first.';
+            projectTeamAssignmentsStatus.classList.remove('upload-message--success');
+            projectTeamAssignmentsStatus.classList.add('upload-message--error');
+            projectTeamAssignmentsRowsCache = [];
+            if (projectTeamAssignmentsTypeSelect) projectTeamAssignmentsTypeSelect.value = '';
+            if (projectTeamAssignmentsSearchInput) projectTeamAssignmentsSearchInput.value = '';
+            return;
+        }
+
+        const project_id = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        projectTeamAssignmentsStatus.classList.remove('upload-message--success', 'upload-message--error');
+        projectTeamAssignmentsStatus.textContent = 'Loading metadata...';
+        projectTeamAssignmentsTableWrap.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('lessons_learned_metadata_list')
+                .select('id, metadata_type, metadata')
+                .eq('organization_id', organizationId)
+                .eq('project_id', project_id)
+                .order('id', { ascending: true })
+                .limit(5000);
+
+            if (error) {
+                console.error('Error loading lessons learned metadata for project team assignments:', error);
+                projectTeamAssignmentsStatus.textContent = 'Failed to load metadata.';
+                projectTeamAssignmentsStatus.classList.add('upload-message--error');
+                projectTeamAssignmentsRowsCache = [];
+                return;
+            }
+
+            const data = rows || [];
+            projectTeamAssignmentsRowsCache = data;
+            updateProjectTeamAssignmentsTypeOptions(data);
+            renderProjectTeamAssignmentsTable();
+        } catch (err) {
+            console.error('Unexpected error loading lessons learned metadata for project team assignments:', err);
+            projectTeamAssignmentsStatus.textContent = 'An unexpected error occurred while loading metadata.';
+            projectTeamAssignmentsStatus.classList.add('upload-message--error');
+            projectTeamAssignmentsRowsCache = [];
+        }
+    }
+
+    async function saveProjectTeamAssignments() {
+        if (!organizationId || !projectTeamAssignmentsStatus) return;
+
+        if (projectTeamAssignmentsProjectId == null || projectTeamAssignmentsUserId == null) {
+            projectTeamAssignmentsStatus.classList.remove('upload-message--success');
+            projectTeamAssignmentsStatus.classList.add('upload-message--error');
+            projectTeamAssignmentsStatus.textContent = 'Missing project or user selection.';
+            return;
+        }
+
+        const selected = projectTeamAssignmentsSelectedIds instanceof Set ? projectTeamAssignmentsSelectedIds : new Set();
+        const saved = projectTeamAssignmentsSavedIds instanceof Set ? projectTeamAssignmentsSavedIds : new Set();
+
+        const selectedIds = Array.from(selected);
+        const savedIds = Array.from(saved);
+
+        const selectedSet = new Set(selectedIds);
+        const savedSet = new Set(savedIds);
+
+        const toInsert = selectedIds.filter(id => !savedSet.has(id));
+        const toDelete = savedIds.filter(id => !selectedSet.has(id));
+
+        const coerceId = (idStr) => {
+            const n = Number(idStr);
+            return Number.isNaN(n) ? idStr : n;
+        };
+
+        const chunkArray = (arr, size) => {
+            const n = Math.max(1, Number(size) || 1);
+            const out = [];
+            for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+            return out;
+        };
+
+        // Build lookup from lessons id -> row for assignment fields
+        const rowById = new Map();
+        (projectTeamAssignmentsRowsCache || []).forEach(r => {
+            if (r && r.id != null) rowById.set(String(r.id), r);
+        });
+
+        // Resolve user name
+        const userInfo = projectTeamUsersById ? projectTeamUsersById.get(String(projectTeamAssignmentsUserId)) : null;
+        const name = userInfo && userInfo.name ? userInfo.name : null;
+
+        projectTeamAssignmentsStatus.classList.remove('upload-message--success', 'upload-message--error');
+        projectTeamAssignmentsStatus.textContent = 'Saving assignments...';
+
+        if (projectTeamAssignmentsSaveButton) {
+            projectTeamAssignmentsSaveButton.disabled = true;
+            projectTeamAssignmentsSaveButton.textContent = 'Saving...';
+        }
+
+        try {
+            // 1) Insert new selections
+            let insertedCount = 0;
+            if (toInsert.length > 0) {
+                const payload = [];
+                toInsert.forEach(idStr => {
+                    const row = rowById.get(String(idStr));
+                    if (!row) return;
+                    payload.push({
+                        organization_id: organizationId,
+                        project_id: projectTeamAssignmentsProjectId,
+                        user_id: projectTeamAssignmentsUserId,
+                        name,
+                        lessons_learned_metadata_list_id: coerceId(idStr),
+                        assignment: row.metadata || null,
+                        assignment_type: row.metadata_type || null
+                    });
+                });
+
+                const chunks = chunkArray(payload, 250);
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    if (chunk.length === 0) continue;
+                    const { error } = await supabase
+                        .from('project_team_member_assignments')
+                        .insert(chunk);
+                    if (error) throw error;
+                    insertedCount += chunk.length;
+                }
+            }
+
+            // 2) Delete removed selections
+            let deletedCount = 0;
+            if (toDelete.length > 0) {
+                const idsToDelete = toDelete.map(coerceId);
+                const chunks = chunkArray(idsToDelete, 250);
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    if (chunk.length === 0) continue;
+                    const { data, error } = await supabase
+                        .from('project_team_member_assignments')
+                        .delete()
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectTeamAssignmentsProjectId)
+                        .eq('user_id', projectTeamAssignmentsUserId)
+                        .in('lessons_learned_metadata_list_id', chunk)
+                        .select('id');
+                    if (error) throw error;
+                    deletedCount += (data || []).length;
+                }
+            }
+
+            // Update saved set to match selected set
+            projectTeamAssignmentsSavedIds = new Set(Array.from(selectedSet));
+
+            projectTeamAssignmentsStatus.classList.remove('upload-message--error');
+            projectTeamAssignmentsStatus.classList.add('upload-message--success');
+            projectTeamAssignmentsStatus.textContent =
+                `Saved assignments. Added ${toInsert.length} and removed ${toDelete.length}.`;
+        } catch (err) {
+            console.error('Failed saving project team member assignments:', err);
+            projectTeamAssignmentsStatus.classList.remove('upload-message--success');
+            projectTeamAssignmentsStatus.classList.add('upload-message--error');
+            projectTeamAssignmentsStatus.textContent = 'Failed to save selected assignments.';
+        } finally {
+            if (projectTeamAssignmentsSaveButton) {
+                projectTeamAssignmentsSaveButton.disabled = false;
+                projectTeamAssignmentsSaveButton.textContent = 'Save Selected Assignments';
+            }
+        }
+    }
+
+    async function loadOrgUsersForProjectTeamDropdown() {
+        if (!organizationId || !projectTeamUserSelect || !projectTeamStatus) return;
+
+        projectTeamStatus.classList.remove('upload-message--success', 'upload-message--error');
+        projectTeamStatus.textContent = 'Loading users...';
+
+        try {
+            const { data: userRows, error: userErr } = await supabase
+                .from('users')
+                .select('id, name, email, usertype, organizationid')
+                .eq('organizationid', organizationId)
+                .order('name', { ascending: true })
+                .limit(5000);
+
+            if (userErr) {
+                console.error('Error loading organization users for project team dropdown:', userErr);
+                projectTeamStatus.textContent = 'Failed to load users.';
+                projectTeamStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = userRows || [];
+            if (rows.length === 0) {
+                projectTeamStatus.textContent = 'No users found for your organization.';
+                projectTeamStatus.classList.add('upload-message--error');
+                if (projectTeamChoices) {
+                    projectTeamChoices.clearChoices();
+                } else {
+                    projectTeamUserSelect.innerHTML = '<option value=\"\">No users available</option>';
+                }
+                projectTeamUsersById = new Map();
+                return;
+            }
+
+            projectTeamUsersById = new Map();
+            const choicesData = rows.map(row => {
+                const idStr = String(row.id);
+                const name = row.name || `User ${idStr}`;
+                const email = row.email || '';
+                const usertype = row.usertype || '';
+                projectTeamUsersById.set(idStr, { name, email, usertype });
+                const label = email ? `${name} (${email})` : name;
+                return { value: idStr, label };
+            });
+
+            if (!projectTeamChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for project team users dropdown.');
+                    projectTeamUserSelect.innerHTML = '<option value=\"\">Select User</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        projectTeamUserSelect.appendChild(option);
+                    });
+                } else {
+                    projectTeamChoices = new Choices(projectTeamUserSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select User',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                }
+            }
+
+            if (projectTeamChoices) {
+                projectTeamChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                projectTeamUserSelect.innerHTML = '<option value=\"\">Select User</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    projectTeamUserSelect.appendChild(option);
+                });
+            }
+
+            projectTeamStatus.textContent = '';
+            projectTeamStatus.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading organization users for project team dropdown:', err);
+            projectTeamStatus.textContent = 'An unexpected error occurred while loading users.';
+            projectTeamStatus.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadOrgProjectsForProjectTeamDropdown() {
+        if (!organizationId || !projectTeamProjectSelect || !projectTeamStatus) return;
+
+        projectTeamStatus.classList.remove('upload-message--success', 'upload-message--error');
+        projectTeamStatus.textContent = 'Loading projects...';
+
+        try {
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (projectErr) {
+                console.error('Error loading organization projects for project team dropdown:', projectErr);
+                projectTeamStatus.textContent = 'Failed to load projects.';
+                projectTeamStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = projectRows || [];
+            if (rows.length === 0) {
+                projectTeamStatus.textContent = 'No projects found for your organization.';
+                projectTeamStatus.classList.add('upload-message--error');
+                if (projectTeamProjectChoices) {
+                    projectTeamProjectChoices.clearChoices();
+                } else {
+                    projectTeamProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
+                }
+                projectTeamProjectsById = new Map();
+                return;
+            }
+
+            projectTeamProjectsById = new Map();
+            const choicesData = rows.map(row => {
+                const idStr = String(row.project_id);
+                const name = row.project_name || `Project ${idStr}`;
+                projectTeamProjectsById.set(idStr, { name });
+                return { value: idStr, label: name };
+            });
+
+            if (!projectTeamProjectChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for project team projects dropdown.');
+                    projectTeamProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        projectTeamProjectSelect.appendChild(option);
+                    });
+                } else {
+                    projectTeamProjectChoices = new Choices(projectTeamProjectSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select Project',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                }
+            }
+
+            if (projectTeamProjectChoices) {
+                projectTeamProjectChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                projectTeamProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    projectTeamProjectSelect.appendChild(option);
+                });
+            }
+
+            // Don't clear status entirely if users are still loading; but keep it non-error
+            if (projectTeamStatus.classList.contains('upload-message--error')) {
+                projectTeamStatus.classList.remove('upload-message--error');
+            }
+            if (projectTeamStatus.textContent === 'Loading projects...') {
+                projectTeamStatus.textContent = '';
+            }
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for project team dropdown:', err);
+            projectTeamStatus.textContent = 'An unexpected error occurred while loading projects.';
+            projectTeamStatus.classList.add('upload-message--error');
+        }
+    }
+
+    async function updateProjectTeamAssignmentsButtonVisibility() {
+        if (!projectTeamAssignmentsButton) return;
+        if (!organizationId || !projectTeamProjectSelect || !projectTeamUserSelect) {
+            projectTeamAssignmentsButton.style.display = 'none';
+            return;
+        }
+
+        const projectIdStr = projectTeamProjectSelect.value;
+        const userIdStr = projectTeamUserSelect.value;
+        if (!projectIdStr || !userIdStr) {
+            projectTeamAssignmentsButton.style.display = 'none';
+            return;
+        }
+
+        const project_id = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        const user_id = Number.isNaN(Number(userIdStr)) ? userIdStr : Number(userIdStr);
+
+        try {
+            const { data: existing, error } = await supabase
+                .from('project_team_members')
+                .select('id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', project_id)
+                .eq('user_id', user_id)
+                .limit(1);
+
+            if (error) {
+                console.warn('Failed checking project team membership for assignments button visibility:', error);
+                projectTeamAssignmentsButton.style.display = 'none';
+                return;
+            }
+
+            projectTeamAssignmentsButton.style.display = (existing && existing.length > 0) ? '' : 'none';
+        } catch (err) {
+            console.warn('Unexpected error checking project team membership for assignments button visibility:', err);
+            projectTeamAssignmentsButton.style.display = 'none';
+        }
+    }
+
+    async function addSelectedProjectTeamMember() {
+        if (!organizationId || !projectTeamStatus) return;
+        if (!projectTeamProjectSelect || !projectTeamUserSelect) return;
+
+        projectTeamStatus.classList.remove('upload-message--success', 'upload-message--error');
+
+        const projectIdStr = projectTeamProjectSelect.value;
+        const userIdStr = projectTeamUserSelect.value;
+
+        if (!projectIdStr) {
+            projectTeamStatus.textContent = 'Please select a project.';
+            projectTeamStatus.classList.add('upload-message--error');
+            return;
+        }
+        if (!userIdStr) {
+            projectTeamStatus.textContent = 'Please select a user.';
+            projectTeamStatus.classList.add('upload-message--error');
+            return;
+        }
+
+        const project_id = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        const user_id = Number.isNaN(Number(userIdStr)) ? userIdStr : Number(userIdStr);
+
+        const userInfo = projectTeamUsersById.get(String(userIdStr));
+        const name = userInfo && userInfo.name ? userInfo.name : null;
+
+        try {
+            if (projectTeamAddButton) {
+                projectTeamAddButton.disabled = true;
+                projectTeamAddButton.textContent = 'Adding...';
+            }
+
+            // Prevent duplicates (same org + project + user)
+            const { data: existing, error: existingErr } = await supabase
+                .from('project_team_members')
+                .select('id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', project_id)
+                .eq('user_id', user_id)
+                .limit(1);
+
+            if (existingErr) {
+                console.warn('Duplicate check failed; proceeding with insert:', existingErr);
+            } else if (existing && existing.length > 0) {
+                projectTeamStatus.textContent = 'That user is already a team member for the selected project.';
+                projectTeamStatus.classList.add('upload-message--error');
+                await updateProjectTeamAssignmentsButtonVisibility();
+                return;
+            }
+
+            const { error } = await supabase
+                .from('project_team_members')
+                .insert({
+                    organization_id: organizationId,
+                    project_id,
+                    user_id,
+                    name,
+                    assignments: false
+                });
+
+            if (error) {
+                console.error('Error inserting project team member:', error);
+                projectTeamStatus.textContent = 'Failed to add team member.';
+                projectTeamStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            projectTeamStatus.textContent = 'Team member added.';
+            projectTeamStatus.classList.add('upload-message--success');
+            await updateProjectTeamAssignmentsButtonVisibility();
+        } catch (err) {
+            console.error('Unexpected error adding team member:', err);
+            projectTeamStatus.textContent = 'An unexpected error occurred while adding the team member.';
+            projectTeamStatus.classList.add('upload-message--error');
+        } finally {
+            if (projectTeamAddButton) {
+                projectTeamAddButton.disabled = false;
+                projectTeamAddButton.textContent = 'Add Team Member';
+            }
         }
     }
 
@@ -1326,6 +2268,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (createColumns) {
             createColumns.style.display = 'none';
         }
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
+        }
         if (orgProjectDetailsPanel) {
             orgProjectDetailsPanel.style.display = 'none';
         }
@@ -1349,6 +2297,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const createColumns = document.getElementById('createColumns');
         if (createColumns) {
             createColumns.style.display = 'none';
+        }
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
         }
         if (lessonsMetadataPanel) {
             lessonsMetadataPanel.style.display = '';
@@ -1462,6 +2416,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const createColumns = document.getElementById('createColumns');
         if (createColumns) {
             createColumns.style.display = 'none';
+        }
+        if (projectTeamPanel) {
+            projectTeamPanel.style.display = 'none';
+        }
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
         }
         if (lessonsMetadataPanel) {
             lessonsMetadataPanel.style.display = 'none';
@@ -2808,6 +3768,10 @@ const projectFormHTML = `
         // When entering Create view, default to showing the Create Project form (hide sub-modules)
         hideOrgProjectDetailsPanel();
         hideLessonsMetadataPanel();
+        hideProjectTeamPanel();
+        if (projectTeamAssignmentsPanel) {
+            projectTeamAssignmentsPanel.style.display = 'none';
+        }
         // Ensure two-column container exists
         const createView = document.querySelector('#createView');
         if (createView && !createView.querySelector('#createColumns')) {
@@ -2838,6 +3802,15 @@ const projectFormHTML = `
                 projectDetailsBtn.dataset.wired = 'true';
             }
 
+            const projectTeamBtn = document.getElementById('projectTeamBtn');
+            if (projectTeamBtn && !projectTeamBtn.dataset.wired) {
+                projectTeamBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showProjectTeamPanel();
+                });
+                projectTeamBtn.dataset.wired = 'true';
+            }
+
             const lessonsMetadataBtn = document.getElementById('lessonsMetadataBtn');
             if (lessonsMetadataBtn && !lessonsMetadataBtn.dataset.wired) {
                 lessonsMetadataBtn.addEventListener('click', (e) => {
@@ -2855,6 +3828,15 @@ const projectFormHTML = `
                     showOrgProjectDetailsPanel();
                 });
                 projectDetailsBtn.dataset.wired = 'true';
+            }
+
+            const projectTeamBtn = document.getElementById('projectTeamBtn');
+            if (projectTeamBtn && !projectTeamBtn.dataset.wired) {
+                projectTeamBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showProjectTeamPanel();
+                });
+                projectTeamBtn.dataset.wired = 'true';
             }
 
             const lessonsMetadataBtn = document.getElementById('lessonsMetadataBtn');
