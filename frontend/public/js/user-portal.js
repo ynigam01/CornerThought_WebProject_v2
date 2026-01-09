@@ -46,9 +46,22 @@ document.addEventListener("DOMContentLoaded", () => {
     let orgProjectDetailsValidateButton = null;
     let orgProjectDetailsStatus = null;
     let orgProjectDetailsBackButton = null;
+    let orgProjectDetailsManageButton = null;
     let orgProjectDetailsChoices = null;
     let currentOrgProject = null;
     let orgProjectsById = new Map();
+
+    // State for Manage Project Details panel (Create view)
+    let orgProjectDetailsManagePanel = null;
+    let orgProjectDetailsManageProjectSelect = null;
+    let orgProjectDetailsManageBackButton = null;
+    let orgProjectDetailsManageRefreshButton = null;
+    let orgProjectDetailsManageSearchNameInput = null;
+    let orgProjectDetailsManageSearchEntryInput = null;
+    let orgProjectDetailsManageStatus = null;
+    let orgProjectDetailsManageTableWrap = null;
+    let orgProjectDetailsManageChoices = null;
+    let orgProjectDetailsManageRowsCache = [];
 
     // State for Lessons Learned Metadata sub-module (Create view)
     let lessonsMetadataPanel = null;
@@ -382,7 +395,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         <h3>Project Details</h3>
                         <p class="subtitle">Select a project from your organization and upload an Excel file of project parameters.</p>
                     </div>
-                    <button type="button" id="orgProjectDetailsBackButton" class="secondary-button">Back to Create Project</button>
+                    <div class="project-types-panel-header-actions">
+                        <button type="button" id="orgProjectDetailsBackButton" class="secondary-button">Back to Create Project</button>
+                        <button type="button" id="orgProjectDetailsManageButton" class="secondary-button">Manage Project Details</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="orgProjectDetailsProjectSelect">Select Project</label>
@@ -413,10 +429,18 @@ document.addEventListener("DOMContentLoaded", () => {
         orgProjectDetailsValidateButton = document.getElementById('orgProjectDetailsValidateButton');
         orgProjectDetailsStatus = document.getElementById('orgProjectDetailsStatus');
         orgProjectDetailsBackButton = document.getElementById('orgProjectDetailsBackButton');
+        orgProjectDetailsManageButton = document.getElementById('orgProjectDetailsManageButton');
 
         if (orgProjectDetailsBackButton) {
             orgProjectDetailsBackButton.addEventListener('click', () => {
                 hideOrgProjectDetailsPanel();
+            });
+        }
+
+        if (orgProjectDetailsManageButton) {
+            orgProjectDetailsManageButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                showOrgProjectDetailsManagePanel();
             });
         }
 
@@ -1190,6 +1214,9 @@ document.addEventListener("DOMContentLoaded", () => {
             orgProjectDetailsPanel.style.display = '';
             orgProjectDetailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+        if (orgProjectDetailsManagePanel) {
+            orgProjectDetailsManagePanel.style.display = 'none';
+        }
         // Load projects into the dropdown when panel is shown
         loadOrgProjectsForDropdown();
     }
@@ -1202,6 +1229,119 @@ document.addEventListener("DOMContentLoaded", () => {
         if (createColumns) {
             createColumns.style.display = '';
         }
+    }
+
+    function ensureOrgProjectDetailsManagePanel() {
+        if (orgProjectDetailsManagePanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="orgProjectDetailsManagePanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Manage Project Details</h3>
+                        <p class="subtitle">View project detail parameters that have been uploaded for a project.</p>
+                    </div>
+                    <button type="button" id="orgProjectDetailsManageBackButton" class="secondary-button">Back</button>
+                </div>
+                <div class="form-group">
+                    <label for="orgProjectDetailsManageProjectSelect">Project</label>
+                    <select id="orgProjectDetailsManageProjectSelect">
+                        <option value=\"\">Select Project</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="orgProjectDetailsManageSearchNameInput">Search (parameter name)</label>
+                    <input
+                        type="text"
+                        id="orgProjectDetailsManageSearchNameInput"
+                        placeholder="Type to filter parameter names..."
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="orgProjectDetailsManageSearchEntryInput">Search (parameter entry)</label>
+                    <input
+                        type="text"
+                        id="orgProjectDetailsManageSearchEntryInput"
+                        placeholder="Type to filter parameter entries..."
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="form-buttons">
+                    <button type="button" id="orgProjectDetailsManageRefreshButton" class="secondary-button">Refresh List</button>
+                </div>
+                <div id="orgProjectDetailsManageStatus" class="upload-message" aria-live="polite"></div>
+                <div id="orgProjectDetailsManageTableWrap" style="margin-top: 12px;"></div>
+            </section>
+        `);
+
+        orgProjectDetailsManagePanel = document.getElementById('orgProjectDetailsManagePanel');
+        orgProjectDetailsManageProjectSelect = document.getElementById('orgProjectDetailsManageProjectSelect');
+        orgProjectDetailsManageBackButton = document.getElementById('orgProjectDetailsManageBackButton');
+        orgProjectDetailsManageRefreshButton = document.getElementById('orgProjectDetailsManageRefreshButton');
+        orgProjectDetailsManageSearchNameInput = document.getElementById('orgProjectDetailsManageSearchNameInput');
+        orgProjectDetailsManageSearchEntryInput = document.getElementById('orgProjectDetailsManageSearchEntryInput');
+        orgProjectDetailsManageStatus = document.getElementById('orgProjectDetailsManageStatus');
+        orgProjectDetailsManageTableWrap = document.getElementById('orgProjectDetailsManageTableWrap');
+
+        if (orgProjectDetailsManageBackButton) {
+            orgProjectDetailsManageBackButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideOrgProjectDetailsManagePanel();
+            });
+        }
+
+        if (orgProjectDetailsManageProjectSelect) {
+            orgProjectDetailsManageProjectSelect.addEventListener('change', () => {
+                refreshOrgProjectDetailsManageList();
+            });
+        }
+
+        if (orgProjectDetailsManageRefreshButton) {
+            orgProjectDetailsManageRefreshButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                refreshOrgProjectDetailsManageList();
+            });
+        }
+
+        if (orgProjectDetailsManageSearchNameInput) {
+            orgProjectDetailsManageSearchNameInput.addEventListener('input', () => {
+                renderOrgProjectDetailsManageTable();
+            });
+        }
+
+        if (orgProjectDetailsManageSearchEntryInput) {
+            orgProjectDetailsManageSearchEntryInput.addEventListener('input', () => {
+                renderOrgProjectDetailsManageTable();
+            });
+        }
+    }
+
+    function showOrgProjectDetailsManagePanel() {
+        ensureOrgProjectDetailsManagePanel();
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+        if (orgProjectDetailsPanel) {
+            orgProjectDetailsPanel.style.display = 'none';
+        }
+        if (orgProjectDetailsManagePanel) {
+            orgProjectDetailsManagePanel.style.display = '';
+            orgProjectDetailsManagePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        loadOrgProjectsForProjectDetailsManageDropdown();
+    }
+
+    function hideOrgProjectDetailsManagePanel() {
+        if (orgProjectDetailsManagePanel) {
+            orgProjectDetailsManagePanel.style.display = 'none';
+        }
+        // Return to the Project Details submodule (still within Create view)
+        showOrgProjectDetailsPanel();
     }
 
     function showLessonsMetadataPanel() {
@@ -1589,6 +1729,221 @@ document.addEventListener("DOMContentLoaded", () => {
             lessonsMetadataManageStatus.textContent = 'An unexpected error occurred while loading metadata.';
             lessonsMetadataManageStatus.classList.add('upload-message--error');
             lessonsMetadataManageRowsCache = [];
+        }
+    }
+
+    async function loadOrgProjectsForProjectDetailsManageDropdown() {
+        if (!organizationId || !orgProjectDetailsManageProjectSelect || !orgProjectDetailsManageStatus) return;
+
+        orgProjectDetailsManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+        orgProjectDetailsManageStatus.textContent = 'Loading projects...';
+
+        try {
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_type_id')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (projectErr) {
+                console.error('Error loading organization projects for manage project details dropdown:', projectErr);
+                orgProjectDetailsManageStatus.textContent = 'Failed to load projects.';
+                orgProjectDetailsManageStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = projectRows || [];
+            if (rows.length === 0) {
+                orgProjectDetailsManageStatus.textContent = 'No projects found for your organization.';
+                orgProjectDetailsManageStatus.classList.add('upload-message--error');
+                if (orgProjectDetailsManageChoices) {
+                    orgProjectDetailsManageChoices.clearChoices();
+                } else {
+                    orgProjectDetailsManageProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
+                }
+                return;
+            }
+
+            const choicesData = rows.map(row => {
+                const idStr = String(row.project_id);
+                const name = row.project_name || `Project ${idStr}`;
+                const typeId = row.project_type_id != null ? String(row.project_type_id) : null;
+                orgProjectsById.set(idStr, { name, project_type_id: typeId });
+                return { value: idStr, label: name };
+            });
+
+            if (!orgProjectDetailsManageChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for manage project details dropdown.');
+                    orgProjectDetailsManageProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        orgProjectDetailsManageProjectSelect.appendChild(option);
+                    });
+                } else {
+                    orgProjectDetailsManageChoices = new Choices(orgProjectDetailsManageProjectSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select Project',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                }
+            }
+
+            if (orgProjectDetailsManageChoices) {
+                orgProjectDetailsManageChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                orgProjectDetailsManageProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    orgProjectDetailsManageProjectSelect.appendChild(option);
+                });
+            }
+
+            orgProjectDetailsManageStatus.textContent = '';
+            orgProjectDetailsManageStatus.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for manage project details dropdown:', err);
+            orgProjectDetailsManageStatus.textContent = 'An unexpected error occurred while loading projects.';
+            orgProjectDetailsManageStatus.classList.add('upload-message--error');
+        }
+    }
+
+    function renderOrgProjectDetailsManageTable() {
+        if (!orgProjectDetailsManageTableWrap) return;
+
+        const rows = Array.isArray(orgProjectDetailsManageRowsCache) ? orgProjectDetailsManageRowsCache : [];
+
+        const nameRaw = orgProjectDetailsManageSearchNameInput ? orgProjectDetailsManageSearchNameInput.value : '';
+        const entryRaw = orgProjectDetailsManageSearchEntryInput ? orgProjectDetailsManageSearchEntryInput.value : '';
+        const nameFilter = String(nameRaw || '').trim().toLowerCase();
+        const entryFilter = String(entryRaw || '').trim().toLowerCase();
+
+        let filtered = rows;
+
+        if (nameFilter) {
+            filtered = filtered.filter(r => String((r && r.parameter_name) || '').toLowerCase().includes(nameFilter));
+        }
+        if (entryFilter) {
+            filtered = filtered.filter(r => String((r && r.parameter_entry) || '').toLowerCase().includes(entryFilter));
+        }
+
+        orgProjectDetailsManageTableWrap.innerHTML = '';
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            if (rows.length === 0) {
+                empty.textContent = 'No project details have been uploaded for this project yet.';
+            } else {
+                empty.textContent = 'No rows match your filters.';
+            }
+            orgProjectDetailsManageTableWrap.appendChild(empty);
+
+            if (orgProjectDetailsManageStatus) {
+                orgProjectDetailsManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+                if (nameFilter || entryFilter) {
+                    orgProjectDetailsManageStatus.textContent = `Showing 0 matching rows (of ${rows.length} total).`;
+                } else {
+                    orgProjectDetailsManageStatus.textContent = `Loaded ${rows.length} project detail entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                }
+                if (rows.length > 0) orgProjectDetailsManageStatus.classList.add('upload-message--success');
+            }
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'organizations-table';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Parameter Name', 'Parameter Entry'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        filtered.forEach(row => {
+            const tr = document.createElement('tr');
+
+            const tdName = document.createElement('td');
+            tdName.textContent = row.parameter_name || '';
+            tr.appendChild(tdName);
+
+            const tdEntry = document.createElement('td');
+            tdEntry.textContent = row.parameter_entry || '';
+            tr.appendChild(tdEntry);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        orgProjectDetailsManageTableWrap.appendChild(table);
+
+        if (orgProjectDetailsManageStatus) {
+            orgProjectDetailsManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+            if (nameFilter || entryFilter) {
+                orgProjectDetailsManageStatus.textContent =
+                    `Showing ${filtered.length} matching row${filtered.length === 1 ? '' : 's'} (of ${rows.length} total).`;
+            } else {
+                orgProjectDetailsManageStatus.textContent = `Loaded ${rows.length} project detail entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            }
+            orgProjectDetailsManageStatus.classList.add('upload-message--success');
+        }
+    }
+
+    async function refreshOrgProjectDetailsManageList() {
+        if (!organizationId || !orgProjectDetailsManageProjectSelect || !orgProjectDetailsManageStatus || !orgProjectDetailsManageTableWrap) return;
+
+        const projectIdStr = orgProjectDetailsManageProjectSelect.value;
+        if (!projectIdStr) {
+            orgProjectDetailsManageTableWrap.innerHTML = '';
+            orgProjectDetailsManageStatus.textContent = 'Please select a project.';
+            orgProjectDetailsManageStatus.classList.remove('upload-message--success');
+            orgProjectDetailsManageStatus.classList.add('upload-message--error');
+            orgProjectDetailsManageRowsCache = [];
+            if (orgProjectDetailsManageSearchNameInput) orgProjectDetailsManageSearchNameInput.value = '';
+            if (orgProjectDetailsManageSearchEntryInput) orgProjectDetailsManageSearchEntryInput.value = '';
+            return;
+        }
+
+        const projectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        orgProjectDetailsManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+        orgProjectDetailsManageStatus.textContent = 'Loading project details...';
+        orgProjectDetailsManageTableWrap.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('project_details')
+                .select('id, parameter_name, parameter_entry')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('parameter_name', { ascending: true })
+                .limit(5000);
+
+            if (error) {
+                console.error('Error loading project details list:', error);
+                orgProjectDetailsManageStatus.textContent = 'Failed to load project details.';
+                orgProjectDetailsManageStatus.classList.add('upload-message--error');
+                orgProjectDetailsManageRowsCache = [];
+                return;
+            }
+
+            const data = rows || [];
+            orgProjectDetailsManageRowsCache = data;
+            renderOrgProjectDetailsManageTable();
+        } catch (err) {
+            console.error('Unexpected error loading project details list:', err);
+            orgProjectDetailsManageStatus.textContent = 'An unexpected error occurred while loading project details.';
+            orgProjectDetailsManageStatus.classList.add('upload-message--error');
+            orgProjectDetailsManageRowsCache = [];
         }
     }
 
