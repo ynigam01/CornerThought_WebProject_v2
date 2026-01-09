@@ -73,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataManageBackButton = null;
     let lessonsMetadataManageRefreshButton = null;
     let lessonsMetadataManageTypeSelect = null;
+    let lessonsMetadataManageSearchInput = null;
     let lessonsMetadataManageStatus = null;
     let lessonsMetadataManageTableWrap = null;
     let lessonsMetadataManageChoices = null;
@@ -1257,6 +1258,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         <option value=\"\">All Types</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label for="lessonsMetadataManageSearchInput">Search (metadata)</label>
+                    <input
+                        type="text"
+                        id="lessonsMetadataManageSearchInput"
+                        placeholder="Type to filter metadata..."
+                        autocomplete="off"
+                    >
+                </div>
                 <div class="form-buttons">
                     <button type="button" id="lessonsMetadataManageRefreshButton" class="secondary-button">Refresh List</button>
                 </div>
@@ -1270,6 +1280,7 @@ document.addEventListener("DOMContentLoaded", () => {
         lessonsMetadataManageBackButton = document.getElementById('lessonsMetadataManageBackButton');
         lessonsMetadataManageRefreshButton = document.getElementById('lessonsMetadataManageRefreshButton');
         lessonsMetadataManageTypeSelect = document.getElementById('lessonsMetadataManageTypeSelect');
+        lessonsMetadataManageSearchInput = document.getElementById('lessonsMetadataManageSearchInput');
         lessonsMetadataManageStatus = document.getElementById('lessonsMetadataManageStatus');
         lessonsMetadataManageTableWrap = document.getElementById('lessonsMetadataManageTableWrap');
 
@@ -1295,6 +1306,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (lessonsMetadataManageTypeSelect) {
             lessonsMetadataManageTypeSelect.addEventListener('change', () => {
+                renderLessonsMetadataManageTable();
+            });
+        }
+
+        if (lessonsMetadataManageSearchInput) {
+            lessonsMetadataManageSearchInput.addEventListener('input', () => {
                 renderLessonsMetadataManageTable();
             });
         }
@@ -1438,24 +1455,43 @@ document.addEventListener("DOMContentLoaded", () => {
         const selectedType = lessonsMetadataManageTypeSelect ? lessonsMetadataManageTypeSelect.value : '';
         const rows = Array.isArray(lessonsMetadataManageRowsCache) ? lessonsMetadataManageRowsCache : [];
 
-        const filtered = selectedType
-            ? rows.filter(r => r && r.metadata_type === selectedType)
-            : rows;
+        const searchRaw = lessonsMetadataManageSearchInput ? lessonsMetadataManageSearchInput.value : '';
+        const search = String(searchRaw || '').trim().toLowerCase();
+
+        let filtered = rows;
+
+        if (selectedType) {
+            filtered = filtered.filter(r => r && r.metadata_type === selectedType);
+        }
+
+        if (search) {
+            filtered = filtered.filter(r => String((r && r.metadata) || '').toLowerCase().includes(search));
+        }
 
         lessonsMetadataManageTableWrap.innerHTML = '';
 
         if (filtered.length === 0) {
             const empty = document.createElement('div');
-            empty.textContent = selectedType
-                ? `No metadata entries found for type "${selectedType}".`
-                : 'No metadata has been imported for this project yet.';
+            const searchDisplay = String(searchRaw || '').trim();
+            empty.textContent =
+                selectedType && searchDisplay
+                    ? `No metadata entries match type "${selectedType}" and "${searchDisplay}".`
+                    : searchDisplay
+                        ? `No metadata entries match "${searchDisplay}".`
+                        : selectedType
+                            ? `No metadata entries found for type "${selectedType}".`
+                            : 'No metadata has been imported for this project yet.';
             lessonsMetadataManageTableWrap.appendChild(empty);
 
             if (lessonsMetadataManageStatus) {
                 lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
-                lessonsMetadataManageStatus.textContent = selectedType
-                    ? `Showing 0 "${selectedType}" entries (of ${rows.length} total).`
-                    : `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                if (selectedType || search) {
+                    lessonsMetadataManageStatus.textContent = selectedType
+                        ? `Showing 0 ${search ? 'matching ' : ''}"${selectedType}" entries (of ${rows.length} total).`
+                        : `Showing 0 matching entries (of ${rows.length} total).`;
+                } else {
+                    lessonsMetadataManageStatus.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                }
                 if (rows.length > 0) lessonsMetadataManageStatus.classList.add('upload-message--success');
             }
 
@@ -1495,9 +1531,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (lessonsMetadataManageStatus) {
             lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
-            lessonsMetadataManageStatus.textContent = selectedType
-                ? `Showing ${filtered.length} "${selectedType}" entr${filtered.length === 1 ? 'y' : 'ies'} (of ${rows.length} total).`
-                : `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            if (selectedType || search) {
+                const typePart = selectedType ? `"${selectedType}" ` : '';
+                const matchPart = search ? 'matching ' : '';
+                lessonsMetadataManageStatus.textContent =
+                    `Showing ${filtered.length} ${matchPart}${typePart}entr${filtered.length === 1 ? 'y' : 'ies'} (of ${rows.length} total).`;
+            } else {
+                lessonsMetadataManageStatus.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            }
             lessonsMetadataManageStatus.classList.add('upload-message--success');
         }
     }
@@ -1513,6 +1554,7 @@ document.addEventListener("DOMContentLoaded", () => {
             lessonsMetadataManageStatus.classList.add('upload-message--error');
             lessonsMetadataManageRowsCache = [];
             if (lessonsMetadataManageTypeSelect) lessonsMetadataManageTypeSelect.value = '';
+            if (lessonsMetadataManageSearchInput) lessonsMetadataManageSearchInput.value = '';
             return;
         }
 
