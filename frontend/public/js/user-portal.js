@@ -2,6 +2,7 @@
 import { supabase } from './supabase-client.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 import { parseMsProjectTxt, importMsProjectTxtToSupabase } from './ms-project-txt-parser.js';
+import { importProjectTeamListExcelToSupabase } from './excel-project-team-importer.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -542,6 +543,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <option value="">Select File Type</option>
                         <option value="ms_project_xml">MS Project XML - New</option>
                         <option value="ms_project_xml_update">MS Project XML - Update</option>
+                        <option value="excel_project_team_list_new">Excel Project Team List - New</option>
                     </select>
                 </div>
                 <div class="form-group" id="lessonsMetadataUploadGroup" style="display: none;">
@@ -621,43 +623,50 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        // Show/hide TXT upload controls based on selected file type
+        // Show/hide upload controls based on selected file type
         if (lessonsMetadataFileTypeSelect && lessonsMetadataUploadGroup) {
             lessonsMetadataFileTypeSelect.addEventListener('change', () => {
                 const value = lessonsMetadataFileTypeSelect.value;
+                const fileLabel = lessonsMetadataUploadGroup
+                    ? lessonsMetadataUploadGroup.querySelector('label[for="lessonsMetadataFileInput"]')
+                    : null;
+
+                const resetStatus = () => {
+                    if (!lessonsMetadataStatus) return;
+                    lessonsMetadataStatus.textContent = '';
+                    lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+                };
+
+                const setHint = (msg) => {
+                    if (!lessonsMetadataStatus) return;
+                    lessonsMetadataStatus.textContent = msg;
+                    lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+                };
+
                 if (value === 'ms_project_xml') {
                     lessonsMetadataUploadGroup.style.display = '';
-                    if (lessonsMetadataUpdateActionsGroup) {
-                        lessonsMetadataUpdateActionsGroup.style.display = 'none';
-                    }
-                    if (lessonsMetadataStatus) {
-                        lessonsMetadataStatus.textContent = 'Please upload a .txt file exported from MS Project.';
-                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
-                    }
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.txt';
+                    if (fileLabel) fileLabel.textContent = 'Upload TXT File';
+                    setHint('Please upload a .txt file exported from MS Project.');
+                } else if (value === 'excel_project_team_list_new') {
+                    lessonsMetadataUploadGroup.style.display = '';
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.xlsx,.xls';
+                    if (fileLabel) fileLabel.textContent = 'Upload Excel File';
+                    setHint('Please upload an Excel file with headers: Team, Description, Team ID, Parent Team ID.');
                 } else if (value === 'ms_project_xml_update') {
                     lessonsMetadataUploadGroup.style.display = 'none';
-                    if (lessonsMetadataFileInput) {
-                        lessonsMetadataFileInput.value = '';
-                    }
-                    if (lessonsMetadataUpdateActionsGroup) {
-                        lessonsMetadataUpdateActionsGroup.style.display = '';
-                    }
-                    if (lessonsMetadataStatus) {
-                        lessonsMetadataStatus.textContent = '';
-                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
-                    }
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = '';
+                    resetStatus();
                 } else {
                     lessonsMetadataUploadGroup.style.display = 'none';
-                    if (lessonsMetadataFileInput) {
-                        lessonsMetadataFileInput.value = '';
-                    }
-                    if (lessonsMetadataUpdateActionsGroup) {
-                        lessonsMetadataUpdateActionsGroup.style.display = 'none';
-                    }
-                    if (lessonsMetadataStatus) {
-                        lessonsMetadataStatus.textContent = '';
-                        lessonsMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
-                    }
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    resetStatus();
                 }
             });
         }
@@ -846,7 +855,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        // Validate TXT file upload for MS Project XML
+        // Upload handler for Lessons Learned Metadata importers (TXT + Excel)
         if (lessonsMetadataUploadButton && lessonsMetadataFileInput && lessonsMetadataStatus) {
             lessonsMetadataUploadButton.addEventListener('click', async () => {
                 lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
@@ -858,32 +867,47 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
-                // Ensure MS Project XML file type is selected
-                if (!lessonsMetadataFileTypeSelect || lessonsMetadataFileTypeSelect.value !== 'ms_project_xml') {
-                    lessonsMetadataStatus.textContent = 'Please select "MS Project XML - New" as the input data file type.';
+                // Ensure an uploadable file type is selected
+                const selectedType = lessonsMetadataFileTypeSelect ? lessonsMetadataFileTypeSelect.value : '';
+                const isMsProjectNew = selectedType === 'ms_project_xml';
+                const isExcelTeamListNew = selectedType === 'excel_project_team_list_new';
+
+                if (!isMsProjectNew && !isExcelTeamListNew) {
+                    lessonsMetadataStatus.textContent = 'Please select an input data file type that supports uploads.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                     return;
                 }
 
                 const file = lessonsMetadataFileInput.files && lessonsMetadataFileInput.files[0];
                 if (!file) {
-                    lessonsMetadataStatus.textContent = 'Please choose a TXT file to upload.';
+                    lessonsMetadataStatus.textContent = 'Please choose a file to upload.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                     return;
                 }
 
                 const name = file.name || '';
                 const isTxt = /\.txt$/i.test(name);
+                const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
 
-                if (!isTxt) {
-                    lessonsMetadataStatus.textContent = 'Invalid file type. Please upload a file with a .txt extension.';
-                    lessonsMetadataStatus.classList.add('upload-message--error');
-                    return;
+                if (isMsProjectNew) {
+                    if (!isTxt) {
+                        lessonsMetadataStatus.textContent = 'Invalid file type. Please upload a file with a .txt extension.';
+                        lessonsMetadataStatus.classList.add('upload-message--error');
+                        return;
+                    }
+
+                    // Basic MIME type check (not all browsers set this reliably, so it is secondary)
+                    if (file.type && file.type !== 'text/plain') {
+                        console.warn('File MIME type is not text/plain:', file.type);
+                    }
                 }
 
-                // Basic MIME type check (not all browsers set this reliably, so it is secondary)
-                if (file.type && file.type !== 'text/plain') {
-                    console.warn('File MIME type is not text/plain:', file.type);
+                if (isExcelTeamListNew) {
+                    if (!isExcel) {
+                        lessonsMetadataStatus.textContent = 'Invalid file type. Please upload an Excel file (.xlsx, .xls).';
+                        lessonsMetadataStatus.classList.add('upload-message--error');
+                        return;
+                    }
                 }
 
                 try {
@@ -911,52 +935,79 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     const projectTypeId = projectRow.project_type_id;
 
-                    // Delegate parse + persistence to the importer.
-                    const result = await importMsProjectTxtToSupabase({
-                        supabase,
-                        file,
-                        context: {
-                            organization_id: organizationId,
-                            created_by: createdBy,
-                            project_id: projectId,
-                            project_type_id: projectTypeId
-                        },
-                        chunkSize: 250,
-                        onProgress: (msg) => {
-                            lessonsMetadataStatus.textContent = msg;
-                            lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    const context = {
+                        organization_id: organizationId,
+                        created_by: createdBy,
+                        project_id: projectId,
+                        project_type_id: projectTypeId
+                    };
+
+                    const onProgress = (msg) => {
+                        lessonsMetadataStatus.textContent = msg;
+                        lessonsMetadataStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    };
+
+                    if (isMsProjectNew) {
+                        // Delegate parse + persistence to the TXT importer.
+                        const result = await importMsProjectTxtToSupabase({
+                            supabase,
+                            file,
+                            context,
+                            chunkSize: 250,
+                            onProgress
+                        });
+
+                        // Build a user-friendly summary of which sections are present.
+                        const count = result && typeof result.presentCount === 'number'
+                            ? result.presentCount
+                            : (result && Array.isArray(result.presentSections) ? result.presentSections.length : 0);
+                        const sectionsList = result && Array.isArray(result.presentSections)
+                            ? result.presentSections.join(', ')
+                            : '';
+
+                        let summaryMessage = '';
+                        if (count === 0) {
+                            summaryMessage = 'This TXT file does not contain Resources, Tasks, or Assignments sections.';
+                        } else if (count === 1) {
+                            summaryMessage = `This TXT file contains 1 of 3 expected sections: ${sectionsList}.`;
+                        } else {
+                            summaryMessage = `This TXT file contains ${count} of 3 expected sections: ${sectionsList}.`;
                         }
-                    });
 
-                    // Build a user-friendly summary of which sections are present.
-                    const count = result && typeof result.presentCount === 'number'
-                        ? result.presentCount
-                        : (result && Array.isArray(result.presentSections) ? result.presentSections.length : 0);
-                    const sectionsList = result && Array.isArray(result.presentSections)
-                        ? result.presentSections.join(', ')
-                        : '';
+                        const inserted = result && result.inserted ? result.inserted : {};
+                        const insertedTasks = inserted.msproject_task_details || 0;
+                        const insertedPred = inserted.msproject_task_predecessors || 0;
 
-                    let summaryMessage = '';
-                    if (count === 0) {
-                        summaryMessage = 'This TXT file does not contain Resources, Tasks, or Assignments sections.';
-                    } else if (count === 1) {
-                        summaryMessage = `This TXT file contains 1 of 3 expected sections: ${sectionsList}.`;
+                        lessonsMetadataStatus.textContent =
+                            `Imported "${name}". ${summaryMessage} Inserted ${insertedTasks} tasks and ${insertedPred} predecessor links.`;
+                        lessonsMetadataStatus.classList.add('upload-message--success');
+                        if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    } else if (isExcelTeamListNew) {
+                        // Delegate parse + persistence to the Excel importer.
+                        const result = await importProjectTeamListExcelToSupabase({
+                            supabase,
+                            file,
+                            context,
+                            chunkSize: 250,
+                            onProgress
+                        });
+
+                        const inserted = result && result.inserted ? result.inserted : {};
+                        const insertedMeta = inserted.lessons_learned_metadata_list || 0;
+                        const insertedTeams = inserted.project_teams_excel || 0;
+
+                        lessonsMetadataStatus.textContent =
+                            `Imported "${name}". Inserted ${insertedTeams} project team rows and ${insertedMeta} metadata rows.`;
+                        lessonsMetadataStatus.classList.add('upload-message--success');
+                        if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     } else {
-                        summaryMessage = `This TXT file contains ${count} of 3 expected sections: ${sectionsList}.`;
+                        throw new Error('Unsupported file type selection.');
                     }
-
-                    const inserted = result && result.inserted ? result.inserted : {};
-                    const insertedTasks = inserted.msproject_task_details || 0;
-                    const insertedPred = inserted.msproject_task_predecessors || 0;
-
-                    lessonsMetadataStatus.textContent =
-                        `Imported "${name}". ${summaryMessage} Inserted ${insertedTasks} tasks and ${insertedPred} predecessor links.`;
-                    lessonsMetadataStatus.classList.add('upload-message--success');
                 } catch (err) {
-                    console.error('Error processing MS Project TXT file:', err);
+                    console.error('Error processing Lessons Learned Metadata upload:', err);
                     lessonsMetadataStatus.textContent = err && err.message
                         ? err.message
-                        : 'Failed to process TXT file.';
+                        : 'Failed to process upload.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                 } finally {
                     if (lessonsMetadataUploadButton) {
