@@ -55,6 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataProjectSelect = null;
     let lessonsMetadataStatus = null;
     let lessonsMetadataBackButton = null;
+    let lessonsMetadataManageButton = null;
     let lessonsMetadataChoices = null;
     let lessonsMetadataFileTypeGroup = null;
     let lessonsMetadataFileTypeSelect = null;
@@ -65,6 +66,17 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataDeleteExistingXmlButton = null;
     let lessonsMetadataDeleteExistingTeamListButton = null;
     let lessonsProjectsById = new Map(); // project_id -> { name, project_type_id }
+
+    // State for Manage Lessons Learned Metadata panel (Create view)
+    let lessonsMetadataManagePanel = null;
+    let lessonsMetadataManageProjectSelect = null;
+    let lessonsMetadataManageBackButton = null;
+    let lessonsMetadataManageRefreshButton = null;
+    let lessonsMetadataManageTypeSelect = null;
+    let lessonsMetadataManageStatus = null;
+    let lessonsMetadataManageTableWrap = null;
+    let lessonsMetadataManageChoices = null;
+    let lessonsMetadataManageRowsCache = [];
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -531,7 +543,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         <h3>Lessons Learned Metadata</h3>
                         <p class="subtitle">Select a project from your organization to work with its lessons learned metadata.</p>
                     </div>
-                    <button type="button" id="lessonsMetadataBackButton" class="secondary-button">Back to Create Project</button>
+                    <div class="project-types-panel-header-actions">
+                        <button type="button" id="lessonsMetadataBackButton" class="secondary-button">Back to Create Project</button>
+                        <button type="button" id="lessonsMetadataManageButton" class="secondary-button">Manage Lessons Learned Metadata</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="lessonsMetadataProjectSelect">Project</label>
@@ -577,6 +592,7 @@ document.addEventListener("DOMContentLoaded", () => {
         lessonsMetadataProjectSelect = document.getElementById('lessonsMetadataProjectSelect');
         lessonsMetadataStatus = document.getElementById('lessonsMetadataStatus');
         lessonsMetadataBackButton = document.getElementById('lessonsMetadataBackButton');
+        lessonsMetadataManageButton = document.getElementById('lessonsMetadataManageButton');
         lessonsMetadataFileTypeGroup = document.getElementById('lessonsMetadataFileTypeGroup');
         lessonsMetadataFileTypeSelect = document.getElementById('lessonsMetadataFileTypeSelect');
         lessonsMetadataUploadGroup = document.getElementById('lessonsMetadataUploadGroup');
@@ -589,6 +605,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (lessonsMetadataBackButton) {
             lessonsMetadataBackButton.addEventListener('click', () => {
                 hideLessonsMetadataPanel();
+            });
+        }
+
+        if (lessonsMetadataManageButton) {
+            lessonsMetadataManageButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                showLessonsMetadataManagePanel();
             });
         }
 
@@ -1190,6 +1213,9 @@ document.addEventListener("DOMContentLoaded", () => {
             lessonsMetadataPanel.style.display = '';
             lessonsMetadataPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+        if (lessonsMetadataManagePanel) {
+            lessonsMetadataManagePanel.style.display = 'none';
+        }
         // Load projects into the dropdown when panel is shown
         loadOrgProjectsForLessonsDropdown();
     }
@@ -1201,6 +1227,326 @@ document.addEventListener("DOMContentLoaded", () => {
         const createColumns = document.getElementById('createColumns');
         if (createColumns) {
             createColumns.style.display = '';
+        }
+    }
+
+    function ensureLessonsMetadataManagePanel() {
+        if (lessonsMetadataManagePanel) return;
+
+        const createView = document.querySelector('#createView');
+        if (!createView) return;
+
+        createView.insertAdjacentHTML('beforeend', `
+            <section id="lessonsMetadataManagePanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Manage Lessons Learned Metadata</h3>
+                        <p class="subtitle">View the metadata entries that have been imported for a project.</p>
+                    </div>
+                    <button type="button" id="lessonsMetadataManageBackButton" class="secondary-button">Back</button>
+                </div>
+                <div class="form-group">
+                    <label for="lessonsMetadataManageProjectSelect">Project</label>
+                    <select id="lessonsMetadataManageProjectSelect">
+                        <option value=\"\">Select Project</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="lessonsMetadataManageTypeSelect">Type (filter)</label>
+                    <select id="lessonsMetadataManageTypeSelect">
+                        <option value=\"\">All Types</option>
+                    </select>
+                </div>
+                <div class="form-buttons">
+                    <button type="button" id="lessonsMetadataManageRefreshButton" class="secondary-button">Refresh List</button>
+                </div>
+                <div id="lessonsMetadataManageStatus" class="upload-message" aria-live="polite"></div>
+                <div id="lessonsMetadataManageTableWrap" style="margin-top: 12px;"></div>
+            </section>
+        `);
+
+        lessonsMetadataManagePanel = document.getElementById('lessonsMetadataManagePanel');
+        lessonsMetadataManageProjectSelect = document.getElementById('lessonsMetadataManageProjectSelect');
+        lessonsMetadataManageBackButton = document.getElementById('lessonsMetadataManageBackButton');
+        lessonsMetadataManageRefreshButton = document.getElementById('lessonsMetadataManageRefreshButton');
+        lessonsMetadataManageTypeSelect = document.getElementById('lessonsMetadataManageTypeSelect');
+        lessonsMetadataManageStatus = document.getElementById('lessonsMetadataManageStatus');
+        lessonsMetadataManageTableWrap = document.getElementById('lessonsMetadataManageTableWrap');
+
+        if (lessonsMetadataManageBackButton) {
+            lessonsMetadataManageBackButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideLessonsMetadataManagePanel();
+            });
+        }
+
+        if (lessonsMetadataManageProjectSelect) {
+            lessonsMetadataManageProjectSelect.addEventListener('change', () => {
+                refreshLessonsMetadataManageList();
+            });
+        }
+
+        if (lessonsMetadataManageRefreshButton) {
+            lessonsMetadataManageRefreshButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                refreshLessonsMetadataManageList();
+            });
+        }
+
+        if (lessonsMetadataManageTypeSelect) {
+            lessonsMetadataManageTypeSelect.addEventListener('change', () => {
+                renderLessonsMetadataManageTable();
+            });
+        }
+    }
+
+    function showLessonsMetadataManagePanel() {
+        ensureLessonsMetadataManagePanel();
+        const createColumns = document.getElementById('createColumns');
+        if (createColumns) {
+            createColumns.style.display = 'none';
+        }
+        if (lessonsMetadataPanel) {
+            lessonsMetadataPanel.style.display = 'none';
+        }
+        if (lessonsMetadataManagePanel) {
+            lessonsMetadataManagePanel.style.display = '';
+            lessonsMetadataManagePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        loadOrgProjectsForLessonsManageDropdown();
+    }
+
+    function hideLessonsMetadataManagePanel() {
+        if (lessonsMetadataManagePanel) {
+            lessonsMetadataManagePanel.style.display = 'none';
+        }
+        // Return to the Lessons Learned Metadata panel (still within Create view)
+        showLessonsMetadataPanel();
+    }
+
+    async function loadOrgProjectsForLessonsManageDropdown() {
+        if (!organizationId || !lessonsMetadataManageProjectSelect || !lessonsMetadataManageStatus) return;
+
+        lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+        lessonsMetadataManageStatus.textContent = 'Loading projects...';
+
+        try {
+            const { data: projectRows, error: projectErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_type_id')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (projectErr) {
+                console.error('Error loading organization projects for manage lessons metadata dropdown:', projectErr);
+                lessonsMetadataManageStatus.textContent = 'Failed to load projects.';
+                lessonsMetadataManageStatus.classList.add('upload-message--error');
+                return;
+            }
+
+            const rows = projectRows || [];
+            if (rows.length === 0) {
+                lessonsMetadataManageStatus.textContent = 'No projects found for your organization.';
+                lessonsMetadataManageStatus.classList.add('upload-message--error');
+                if (lessonsMetadataManageChoices) {
+                    lessonsMetadataManageChoices.clearChoices();
+                } else {
+                    lessonsMetadataManageProjectSelect.innerHTML = '<option value=\"\">No projects available</option>';
+                }
+                return;
+            }
+
+            const choicesData = rows.map(row => {
+                const idStr = String(row.project_id);
+                const name = row.project_name || `Project ${idStr}`;
+                const typeId = row.project_type_id != null ? String(row.project_type_id) : null;
+                lessonsProjectsById.set(idStr, { name, project_type_id: typeId });
+                return { value: idStr, label: name };
+            });
+
+            if (!lessonsMetadataManageChoices) {
+                if (typeof Choices === 'undefined') {
+                    console.warn('Choices library not loaded; falling back to native select for manage lessons metadata dropdown.');
+                    lessonsMetadataManageProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                    choicesData.forEach(choice => {
+                        const option = document.createElement('option');
+                        option.value = choice.value;
+                        option.textContent = choice.label;
+                        lessonsMetadataManageProjectSelect.appendChild(option);
+                    });
+                } else {
+                    lessonsMetadataManageChoices = new Choices(lessonsMetadataManageProjectSelect, {
+                        searchEnabled: true,
+                        shouldSort: false,
+                        placeholder: true,
+                        placeholderValue: 'Select Project',
+                        searchPlaceholderValue: 'Type to search...'
+                    });
+                }
+            }
+
+            if (lessonsMetadataManageChoices) {
+                lessonsMetadataManageChoices.setChoices(choicesData, 'value', 'label', true);
+            } else {
+                lessonsMetadataManageProjectSelect.innerHTML = '<option value=\"\">Select Project</option>';
+                choicesData.forEach(choice => {
+                    const option = document.createElement('option');
+                    option.value = choice.value;
+                    option.textContent = choice.label;
+                    lessonsMetadataManageProjectSelect.appendChild(option);
+                });
+            }
+
+            lessonsMetadataManageStatus.textContent = '';
+            lessonsMetadataManageStatus.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for manage lessons metadata dropdown:', err);
+            lessonsMetadataManageStatus.textContent = 'An unexpected error occurred while loading projects.';
+            lessonsMetadataManageStatus.classList.add('upload-message--error');
+        }
+    }
+
+    function updateLessonsMetadataManageTypeOptions(rows) {
+        if (!lessonsMetadataManageTypeSelect) return;
+
+        const previous = lessonsMetadataManageTypeSelect.value || '';
+        const types = Array.from(
+            new Set((rows || []).map(r => r && r.metadata_type).filter(Boolean))
+        ).sort((a, b) => String(a).localeCompare(String(b)));
+
+        lessonsMetadataManageTypeSelect.innerHTML = '';
+
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All Types';
+        lessonsMetadataManageTypeSelect.appendChild(allOpt);
+
+        types.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            lessonsMetadataManageTypeSelect.appendChild(opt);
+        });
+
+        // Restore previous value if it still exists; otherwise default to All
+        lessonsMetadataManageTypeSelect.value = types.includes(previous) ? previous : '';
+    }
+
+    function renderLessonsMetadataManageTable() {
+        if (!lessonsMetadataManageTableWrap) return;
+
+        const selectedType = lessonsMetadataManageTypeSelect ? lessonsMetadataManageTypeSelect.value : '';
+        const rows = Array.isArray(lessonsMetadataManageRowsCache) ? lessonsMetadataManageRowsCache : [];
+
+        const filtered = selectedType
+            ? rows.filter(r => r && r.metadata_type === selectedType)
+            : rows;
+
+        lessonsMetadataManageTableWrap.innerHTML = '';
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            empty.textContent = selectedType
+                ? `No metadata entries found for type "${selectedType}".`
+                : 'No metadata has been imported for this project yet.';
+            lessonsMetadataManageTableWrap.appendChild(empty);
+
+            if (lessonsMetadataManageStatus) {
+                lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+                lessonsMetadataManageStatus.textContent = selectedType
+                    ? `Showing 0 "${selectedType}" entries (of ${rows.length} total).`
+                    : `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                if (rows.length > 0) lessonsMetadataManageStatus.classList.add('upload-message--success');
+            }
+
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'organizations-table';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Type', 'Metadata'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        filtered.forEach(row => {
+            const tr = document.createElement('tr');
+
+            const tdType = document.createElement('td');
+            tdType.textContent = row.metadata_type || '';
+            tr.appendChild(tdType);
+
+            const tdMetadata = document.createElement('td');
+            tdMetadata.textContent = row.metadata || '';
+            tr.appendChild(tdMetadata);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        lessonsMetadataManageTableWrap.appendChild(table);
+
+        if (lessonsMetadataManageStatus) {
+            lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+            lessonsMetadataManageStatus.textContent = selectedType
+                ? `Showing ${filtered.length} "${selectedType}" entr${filtered.length === 1 ? 'y' : 'ies'} (of ${rows.length} total).`
+                : `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            lessonsMetadataManageStatus.classList.add('upload-message--success');
+        }
+    }
+
+    async function refreshLessonsMetadataManageList() {
+        if (!organizationId || !lessonsMetadataManageProjectSelect || !lessonsMetadataManageStatus || !lessonsMetadataManageTableWrap) return;
+
+        const projectIdStr = lessonsMetadataManageProjectSelect.value;
+        if (!projectIdStr) {
+            lessonsMetadataManageTableWrap.innerHTML = '';
+            lessonsMetadataManageStatus.textContent = 'Please select a project.';
+            lessonsMetadataManageStatus.classList.remove('upload-message--success');
+            lessonsMetadataManageStatus.classList.add('upload-message--error');
+            lessonsMetadataManageRowsCache = [];
+            if (lessonsMetadataManageTypeSelect) lessonsMetadataManageTypeSelect.value = '';
+            return;
+        }
+
+        const projectId = Number.isNaN(Number(projectIdStr)) ? projectIdStr : Number(projectIdStr);
+        lessonsMetadataManageStatus.classList.remove('upload-message--success', 'upload-message--error');
+        lessonsMetadataManageStatus.textContent = 'Loading metadata...';
+        lessonsMetadataManageTableWrap.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('lessons_learned_metadata_list')
+                .select('id, metadata_type, metadata')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('id', { ascending: true })
+                .limit(5000);
+
+            if (error) {
+                console.error('Error loading lessons learned metadata list:', error);
+                lessonsMetadataManageStatus.textContent = 'Failed to load metadata.';
+                lessonsMetadataManageStatus.classList.add('upload-message--error');
+                lessonsMetadataManageRowsCache = [];
+                return;
+            }
+
+            const data = rows || [];
+            lessonsMetadataManageRowsCache = data;
+            updateLessonsMetadataManageTypeOptions(data);
+            renderLessonsMetadataManageTable();
+        } catch (err) {
+            console.error('Unexpected error loading lessons learned metadata list:', err);
+            lessonsMetadataManageStatus.textContent = 'An unexpected error occurred while loading metadata.';
+            lessonsMetadataManageStatus.classList.add('upload-message--error');
+            lessonsMetadataManageRowsCache = [];
         }
     }
 

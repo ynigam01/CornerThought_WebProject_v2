@@ -1184,6 +1184,13 @@ body {
     margin-bottom: 10px;
 }
 
+.project-types-panel-header-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
 #public-projects-view #publicCreateColumns .left-col {
     padding-left: 0; /* align with card edge in admin portal */
 }
