@@ -2977,10 +2977,28 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Hide Create New Project button if user doesn't have permission
-    const createProjectButton = document.querySelector(".create-project-button");
-    if (createProjectButton && !canCreateProjects) {
-        createProjectButton.style.display = 'none';
+    function wireCreateProjectButtons(root = document) {
+        const buttons = root.querySelectorAll('.create-project-button');
+        buttons.forEach((btn) => {
+            if (!btn) return;
+            if (!canCreateProjects) {
+                btn.style.display = 'none';
+                return;
+            }
+            btn.style.display = '';
+            if (btn.dataset && btn.dataset.wired === 'true') return;
+            btn.addEventListener('click', () => {
+                // Check permissions before allowing navigation
+                if (!canCreateProjects) {
+                    alert('You do not have permission to create new projects. Please contact your administrator.');
+                    return;
+                }
+                if (confirmNavigation("Create New Project")) {
+                    location.hash = 'create';
+                }
+            });
+            if (btn.dataset) btn.dataset.wired = 'true';
+        });
     }
 
     // Hide Organization Settings menu item if user doesn't have permission
@@ -3151,18 +3169,7 @@ const projectFormHTML = `
     const modalProjectTypeInput = document.getElementById('projectType');
     attachOrgProjectTypeDropdown(modalProjectTypeInput);
 
-    if (createProjectButton) {
-        createProjectButton.onclick = () => {
-            // Check permissions before allowing navigation
-            if (!canCreateProjects) {
-                alert('You do not have permission to create new projects. Please contact your administrator.');
-                return;
-            }
-            if (confirmNavigation("Create New Project")) {
-                location.hash = 'create';
-            }
-        };
-    }
+    wireCreateProjectButtons(document);
     if (homeLink) {
         homeLink.onclick = (e) => {
             e.preventDefault();
@@ -3977,6 +3984,10 @@ const projectFormHTML = `
                 const addBtn = document.getElementById('addNewUserButton');
                 if (addBtn) addBtn.onclick = () => addUserModal.classList.add('show');
 
+                // Wire Create New Project button now that Org Settings template is mounted
+                const orgView = document.getElementById('orgView');
+                if (orgView) wireCreateProjectButtons(orgView);
+
                 // Manage Projects module within Organization Settings
                 const manageProjectsBtn = document.getElementById('manageProjectsButton');
                 const orgMainSummary = document.getElementById('orgMainSummary');
@@ -3988,6 +3999,119 @@ const projectFormHTML = `
                 const orgManageProjectsSubmodule = document.getElementById('orgManageProjectsSubmodule');
                 const orgProjectsSelect = document.getElementById('orgProjectsSelect');
                 const orgProjectDetailsSelect = document.getElementById('orgProjectDetailsSelect');
+
+                // Create New Asset module within Organization Settings
+                const createNewAssetButton = document.getElementById('createNewAssetButton');
+                const orgAssetsPanel = document.getElementById('orgAssetsPanel');
+                const orgAssetsBackButton = document.getElementById('orgAssetsBackButton');
+                const orgAssetsForm = document.getElementById('orgAssetsForm');
+                const orgAssetsStatus = document.getElementById('orgAssetsStatus');
+
+                function setOrgAssetsStatus(message, kind = 'success') {
+                    if (!orgAssetsStatus) return;
+                    orgAssetsStatus.textContent = message;
+                    orgAssetsStatus.className = `upload-message${kind === 'error' ? ' upload-message--error' : ' upload-message--success'}`;
+                    orgAssetsStatus.style.display = '';
+                }
+
+                // Show Create New Asset panel
+                if (createNewAssetButton && orgMainSummary && orgAssetsPanel) {
+                    createNewAssetButton.onclick = (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgMainSummary.style.display = 'none';
+                        if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
+                        orgAssetsPanel.style.display = '';
+                        if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
+                    };
+                }
+
+                // Go Back from Create New Asset panel
+                if (orgAssetsBackButton && orgMainSummary && orgAssetsPanel) {
+                    orgAssetsBackButton.onclick = (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgAssetsPanel.style.display = 'none';
+                        orgMainSummary.style.display = '';
+                        if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
+                        if (orgAssetsForm && typeof orgAssetsForm.reset === 'function') orgAssetsForm.reset();
+                    };
+                }
+
+                // Create New Asset form submit -> persist to Supabase 'assets'
+                if (orgAssetsForm) {
+                    orgAssetsForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const nameEl = document.getElementById('assetName');
+                        const descEl = document.getElementById('assetDescription');
+                        const startEl = document.getElementById('assetBuildStartDate');
+                        const endEl = document.getElementById('assetCompletionDate');
+
+                        const name = nameEl ? String(nameEl.value || '').trim() : '';
+                        const desc = descEl ? String(descEl.value || '').trim() : '';
+                        const start = startEl ? String(startEl.value || '').trim() : '';
+                        const end = endEl ? String(endEl.value || '').trim() : '';
+
+                        if (!name || !desc) {
+                            setOrgAssetsStatus('Please fill in Asset Name and Asset Description.', 'error');
+                            return;
+                        }
+
+                        // Pull required context from session (avoid referencing organizationId here due to TDZ in this function)
+                        const orgId = ctUser && ctUser.organizationid != null ? Number(ctUser.organizationid) : null;
+                        const createdBy = ctUser && ctUser.id != null ? Number(ctUser.id) : null;
+
+                        if (!orgId || Number.isNaN(orgId)) {
+                            setOrgAssetsStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                            return;
+                        }
+                        if (!createdBy || Number.isNaN(createdBy)) {
+                            setOrgAssetsStatus('Could not determine your user id. Please log out and log back in.', 'error');
+                            return;
+                        }
+
+                        const submitBtn = orgAssetsForm.querySelector('button[type="submit"]');
+                        const originalBtnText = submitBtn ? submitBtn.textContent : '';
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.textContent = 'Creating...';
+                        }
+
+                        try {
+                            const payload = {
+                                organization_id: orgId,
+                                created_by: createdBy,
+                                name,
+                                description: desc,
+                                build_start_date: start || null,
+                                completion_date: end || null,
+                                asset_details: false
+                            };
+
+                            const { data: assetRow, error } = await supabase
+                                .from('assets')
+                                .insert(payload)
+                                .select()
+                                .single();
+
+                            if (error) {
+                                console.error('Supabase assets insert error:', error);
+                                setOrgAssetsStatus(error.message || 'Failed to create asset. Please try again.', 'error');
+                                return;
+                            }
+
+                            const createdName = assetRow && assetRow.name ? String(assetRow.name) : name;
+                            setOrgAssetsStatus(`Asset "${createdName}" created successfully.`, 'success');
+                            if (typeof orgAssetsForm.reset === 'function') orgAssetsForm.reset();
+                        } catch (err) {
+                            console.error('Unexpected error creating asset:', err);
+                            setOrgAssetsStatus('An unexpected error occurred while creating the asset.', 'error');
+                        } finally {
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = originalBtnText || 'Create Asset';
+                            }
+                        }
+                    });
+                }
 
                 // Look up organization id once for this view
                 let organizationId = null;

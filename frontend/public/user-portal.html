@@ -17,7 +17,6 @@
     <header class="toolbar">
         <a href="#home" class="company-name" id="homeLink">CornerThought</a>
         <div class="user-info">
-            <button class="create-project-button">Create New Project</button>
             <button class="add-data-button">Add Data</button>
             <button class="logout-button">Logout</button>
         </div>
@@ -93,10 +92,15 @@
                         <h3>Manage Projects</h3>
                         <div class="org-projects-actions">
                             <button id="manageProjectsButton">Manage Projects</button>
+                            <button class="create-project-button">Create New Project</button>
                         </div>
                         <h3>Manage Teams</h3>
                         <div class="org-teams-actions">
                             <button id="manageOrgTeamsButton">Manage Organizational Teams</button>
+                        </div>
+                        <h3>Manage Assets</h3>
+                        <div class="org-assets-actions">
+                            <button id="createNewAssetButton">Create New Asset</button>
                         </div>
                     </div>
 
@@ -138,6 +142,40 @@
                                 </select>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Create New Asset module (shown when user clicks Create New Asset) -->
+                    <div id="orgAssetsPanel" class="project-types-panel" style="display: none;">
+                        <div class="project-types-panel-header">
+                            <div>
+                                <h3>Create New Asset</h3>
+                                <p class="subtitle">Create an asset for your organization.</p>
+                            </div>
+                            <button type="button" id="orgAssetsBackButton" class="secondary-button">Go Back</button>
+                        </div>
+
+                        <form id="orgAssetsForm">
+                            <div class="form-group">
+                                <label for="assetName">Asset Name</label>
+                                <input type="text" id="assetName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="assetDescription">Asset Description</label>
+                                <textarea id="assetDescription" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="assetBuildStartDate">Build Start Date</label>
+                                <input type="date" id="assetBuildStartDate">
+                            </div>
+                            <div class="form-group">
+                                <label for="assetCompletionDate">Completion Date</label>
+                                <input type="date" id="assetCompletionDate">
+                            </div>
+                            <div class="form-buttons">
+                                <button type="submit" class="public-projects-button">Create Asset</button>
+                            </div>
+                            <div id="orgAssetsStatus" class="upload-message" style="display: none;"></div>
+                        </form>
                     </div>
                 </section>
             </template>

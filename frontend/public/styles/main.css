@@ -360,6 +360,42 @@ body {
     background-color: #2980b9; /* Slightly darker blue on hover */
 }
 
+/* Organization Settings action rows */
+.org-projects-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.org-assets-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* Reuse the Create Project button styling outside the toolbar (Org Settings) */
+.org-projects-actions .create-project-button {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    font-size: 16px;
+}
+
+.org-projects-actions .create-project-button:hover {
+    background-color: #2980b9;
+}
+
+/* Ensure the two buttons align evenly when placed side-by-side */
+.org-projects-actions #manageProjectsButton {
+    margin-top: 0;
+}
+
 .admin-dashboard-layout {
     display: flex;
     min-height: calc(100vh - 80px); /* Adjust for header height */
@@ -1063,6 +1099,23 @@ body {
     background-color: #2980b9;
 }
 
+/* Create New Asset button style (match Manage Projects) */
+#createNewAssetButton {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-top: 10px;
+}
+
+#createNewAssetButton:hover {
+    background-color: #2980b9;
+}
+
 
 .modal h3 {
     margin-top: 0;
@@ -1145,7 +1198,8 @@ body {
 }
 
 #public-projects-view .project-types-panel,
-#createView .project-types-panel {
+#createView .project-types-panel,
+#orgView .project-types-panel {
     background: #ffffff;
     border: 1px solid #ddd;
     border-radius: 8px;
@@ -1237,12 +1291,18 @@ body {
 .project-form input,
 .project-form select,
 .project-types-panel input,
-.project-types-panel select {
+.project-types-panel select,
+.project-types-panel textarea {
     padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;
     width: 100%;
     font-size: 1rem;
+}
+
+.project-types-panel textarea {
+    min-height: 90px;
+    resize: vertical;
 }
 
 .project-form button {
