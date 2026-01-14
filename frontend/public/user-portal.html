@@ -104,6 +104,35 @@
                         </div>
                     </div>
 
+                    <!-- Manage Organizational Teams module (shown when user clicks Manage Organizational Teams) -->
+                    <div id="orgTeamsPanel" class="project-types-panel" style="display: none;">
+                        <div class="project-types-panel-header">
+                            <div>
+                                <h3>Manage Organizational Teams</h3>
+                                <p class="subtitle">Search and select a user in your organization.</p>
+                            </div>
+                            <button type="button" id="orgTeamsBackButton" class="secondary-button">Go Back</button>
+                        </div>
+
+                        <h3 style="margin: 14px 0 10px;">Upload Organizational Teams</h3>
+                        <div class="form-group">
+                            <label for="orgTeamsUploadFile">Upload Excel File</label>
+                            <input type="file" id="orgTeamsUploadFile" accept=".xlsx,.xls,.csv">
+                        </div>
+                        <div class="form-buttons" style="margin-bottom: 12px;">
+                            <button type="button" id="orgTeamsUploadButton" class="secondary-button">Upload File</button>
+                        </div>
+                        <div id="orgTeamsUploadStatus" class="upload-message" style="display: none;"></div>
+
+                        <div class="form-group">
+                            <label for="orgTeamsUserSelect">User</label>
+                            <select id="orgTeamsUserSelect">
+                                <option value="">Select User</option>
+                            </select>
+                        </div>
+                        <div id="orgTeamsUserStatus" class="upload-message" style="display: none;"></div>
+                    </div>
+
                     <!-- Manage Projects & Project Types module (shown when user clicks Manage Projects) -->
                     <div id="orgProjectsPanel" class="project-types-panel" style="display: none;">
                         <div class="project-types-panel-header">

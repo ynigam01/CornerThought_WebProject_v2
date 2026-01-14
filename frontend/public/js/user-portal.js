@@ -3992,6 +3992,14 @@ const projectFormHTML = `
                 // Manage Projects module within Organization Settings
                 const manageProjectsBtn = document.getElementById('manageProjectsButton');
                 const orgMainSummary = document.getElementById('orgMainSummary');
+                const manageOrgTeamsButton = document.getElementById('manageOrgTeamsButton');
+                const orgTeamsPanel = document.getElementById('orgTeamsPanel');
+                const orgTeamsBackButton = document.getElementById('orgTeamsBackButton');
+                const orgTeamsUploadFile = document.getElementById('orgTeamsUploadFile');
+                const orgTeamsUploadButton = document.getElementById('orgTeamsUploadButton');
+                const orgTeamsUploadStatus = document.getElementById('orgTeamsUploadStatus');
+                const orgTeamsUserSelect = document.getElementById('orgTeamsUserSelect');
+                const orgTeamsUserStatus = document.getElementById('orgTeamsUserStatus');
                 const orgProjectsPanel = document.getElementById('orgProjectsPanel');
                 const orgProjectsBackButton = document.getElementById('orgProjectsBackButton');
                 const orgProjectTypesForm = document.getElementById('orgProjectTypesForm');
@@ -4030,6 +4038,328 @@ const projectFormHTML = `
 
                 let orgAssetDetailsAssetChoices = null;
                 let orgAssetDetailsProjectChoices = null;
+
+                // Manage Organizational Teams state
+                let orgTeamsUserChoices = null;
+                let orgTeamsUsersLoaded = false;
+
+                function setOrgTeamsUploadStatus(message, kind = null) {
+                    if (!orgTeamsUploadStatus) return;
+                    orgTeamsUploadStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    orgTeamsUploadStatus.textContent = message || '';
+                    if (kind === 'success') orgTeamsUploadStatus.classList.add('upload-message--success');
+                    if (kind === 'error') orgTeamsUploadStatus.classList.add('upload-message--error');
+                    orgTeamsUploadStatus.style.display = message ? '' : 'none';
+                }
+
+                function setOrgTeamsUserStatus(message, kind = 'success') {
+                    if (!orgTeamsUserStatus) return;
+                    orgTeamsUserStatus.textContent = message;
+                    orgTeamsUserStatus.className = `upload-message${kind === 'error' ? ' upload-message--error' : kind === 'success' ? ' upload-message--success' : ''}`;
+                    orgTeamsUserStatus.style.display = message ? '' : 'none';
+                }
+
+                function normalizeOrgTeamsHeaderKey(value) {
+                    return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+                }
+
+                async function readFileAsArrayBuffer(file) {
+                    return await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onerror = () => reject(new Error('Failed reading file.'));
+                        reader.onload = () => resolve(reader.result);
+                        reader.readAsArrayBuffer(file);
+                    });
+                }
+
+                async function readFileAsText(file) {
+                    return await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onerror = () => reject(new Error('Failed reading file.'));
+                        reader.onload = () => resolve(String(reader.result || ''));
+                        reader.readAsText(file);
+                    });
+                }
+
+                async function parseOrgTeamsFile(file) {
+                    const name = String(file && file.name ? file.name : '');
+                    const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+                    const isCsv = ext === 'csv';
+                    const isExcel = ext === 'xlsx' || ext === 'xls';
+
+                    if (!isCsv && !isExcel) {
+                        throw new Error('Invalid file type. Please upload .xlsx, .xls, or .csv.');
+                    }
+
+                    let workbook = null;
+                    if (isCsv) {
+                        const text = await readFileAsText(file);
+                        workbook = XLSX.read(text, { type: 'string' });
+                    } else {
+                        const buf = await readFileAsArrayBuffer(file);
+                        workbook = XLSX.read(buf, { type: 'array' });
+                    }
+
+                    const firstSheetName = workbook && Array.isArray(workbook.SheetNames) ? workbook.SheetNames[0] : null;
+                    if (!firstSheetName) {
+                        throw new Error('No worksheet found in the uploaded file.');
+                    }
+                    const ws = workbook.Sheets[firstSheetName];
+                    if (!ws) {
+                        throw new Error('Could not read the first worksheet.');
+                    }
+
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) || [];
+                    if (rows.length < 2) {
+                        throw new Error('No data rows found. Ensure the file includes a header row and at least one team row.');
+                    }
+
+                    const header = rows[0] || [];
+                    const headerMap = new Map();
+                    header.forEach((h, idx) => {
+                        const key = normalizeOrgTeamsHeaderKey(h);
+                        if (key) headerMap.set(key, idx);
+                    });
+
+                    const uidIdx = headerMap.get('uid');
+                    const deptIdx = headerMap.get('department');
+                    const descIdx = headerMap.get('description');
+
+                    const missing = [];
+                    if (uidIdx == null) missing.push('UID');
+                    if (deptIdx == null) missing.push('Department');
+                    if (descIdx == null) missing.push('Description');
+                    if (missing.length > 0) {
+                        throw new Error(`Missing required column(s): ${missing.join(', ')}. Expected columns: UID, Department, Description.`);
+                    }
+
+                    // De-duplicate by UID (last one wins)
+                    const byUid = new Map();
+                    let skippedEmptyUid = 0;
+                    let duplicateUidCount = 0;
+
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i] || [];
+                        const uid = String(row[uidIdx] || '').trim();
+                        if (!uid) {
+                            skippedEmptyUid++;
+                            continue;
+                        }
+                        if (byUid.has(uid)) duplicateUidCount++;
+                        byUid.set(uid, {
+                            uid,
+                            department: String(row[deptIdx] || '').trim(),
+                            description: String(row[descIdx] || '').trim()
+                        });
+                    }
+
+                    const out = Array.from(byUid.values());
+                    if (out.length === 0) {
+                        throw new Error('No valid rows found (UID was empty for all rows).');
+                    }
+
+                    return { rows: out, skippedEmptyUid, duplicateUidCount };
+                }
+
+                async function fetchExistingOrgTeamUids(orgId) {
+                    const existing = new Set();
+                    const pageSize = 1000;
+                    let offset = 0;
+                    while (true) {
+                        const { data, error } = await supabase
+                            .from('org_teams')
+                            .select('uid')
+                            .eq('organization_id', orgId)
+                            .order('uid', { ascending: true })
+                            .range(offset, offset + pageSize - 1);
+
+                        if (error) throw error;
+                        const rows = data || [];
+                        rows.forEach(r => {
+                            if (r && r.uid != null) existing.add(String(r.uid));
+                        });
+                        if (rows.length < pageSize) break;
+                        offset += pageSize;
+                    }
+                    return existing;
+                }
+
+                async function uploadOrgTeamsFromFile(file) {
+                    const createdBy = ctUser && ctUser.id != null ? Number(ctUser.id) : null;
+                    const orgId = organizationId != null ? Number(organizationId) : null;
+                    if (!createdBy || Number.isNaN(createdBy)) {
+                        throw new Error('Could not determine the uploader user id. Please log out and log back in.');
+                    }
+                    if (!orgId || Number.isNaN(orgId)) {
+                        throw new Error('Could not determine your organization. Please log out and log back in.');
+                    }
+
+                    setOrgTeamsUploadStatus('Parsing file...', null);
+                    const parsed = await parseOrgTeamsFile(file);
+
+                    setOrgTeamsUploadStatus('Checking existing team UIDs...', null);
+                    const existingUids = await fetchExistingOrgTeamUids(orgId);
+
+                    const toInsert = [];
+                    const toUpdate = [];
+                    parsed.rows.forEach(r => {
+                        if (existingUids.has(String(r.uid))) toUpdate.push(r);
+                        else toInsert.push(r);
+                    });
+
+                    const chunkArray = (arr, size) => {
+                        const n = Math.max(1, Number(size) || 1);
+                        const out = [];
+                        for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+                        return out;
+                    };
+
+                    let inserted = 0;
+                    let updated = 0;
+
+                    // Insert new rows in chunks
+                    if (toInsert.length > 0) {
+                        const payload = toInsert.map(r => ({
+                            organization_id: orgId,
+                            created_by: createdBy,
+                            uid: r.uid,
+                            department: r.department || null,
+                            description: r.description || null
+                        }));
+
+                        const chunks = chunkArray(payload, 250);
+                        for (let i = 0; i < chunks.length; i++) {
+                            setOrgTeamsUploadStatus(`Uploading new teams... (${inserted}/${payload.length})`, null);
+                            const chunk = chunks[i];
+                            const { error } = await supabase.from('org_teams').insert(chunk);
+                            if (error) throw error;
+                            inserted += chunk.length;
+                        }
+                    }
+
+                    // Update existing rows (per UID) with limited concurrency
+                    if (toUpdate.length > 0) {
+                        const updateChunks = chunkArray(toUpdate, 50);
+                        for (let i = 0; i < updateChunks.length; i++) {
+                            const chunk = updateChunks[i];
+                            setOrgTeamsUploadStatus(`Updating existing teams... (${updated}/${toUpdate.length})`, null);
+                            const results = await Promise.all(
+                                chunk.map(r => supabase
+                                    .from('org_teams')
+                                    .update({
+                                        department: r.department || null,
+                                        description: r.description || null,
+                                        created_by: createdBy
+                                    })
+                                    .eq('organization_id', orgId)
+                                    .eq('uid', r.uid)
+                                )
+                            );
+                            results.forEach(res => {
+                                if (res && res.error) throw res.error;
+                            });
+                            updated += chunk.length;
+                        }
+                    }
+
+                    const skipped = parsed.skippedEmptyUid || 0;
+                    const dupes = parsed.duplicateUidCount || 0;
+                    const note = [
+                        skipped ? `${skipped} skipped (missing UID)` : null,
+                        dupes ? `${dupes} duplicates in file (last value used)` : null
+                    ].filter(Boolean).join(', ');
+
+                    const summary = `Upload complete. Inserted ${inserted}, updated ${updated}.${note ? ' ' + note + '.' : ''}`;
+                    setOrgTeamsUploadStatus(summary, 'success');
+                }
+
+                async function loadOrgUsersForOrgTeamsDropdown({ force = false } = {}) {
+                    if (!orgTeamsUserSelect) return;
+                    if (!organizationId) {
+                        setOrgTeamsUserStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                        return;
+                    }
+
+                    if (orgTeamsUsersLoaded && !force) {
+                        setOrgTeamsUserStatus('', 'success');
+                        return;
+                    }
+
+                    setOrgTeamsUserStatus('Loading users...', 'success');
+                    try {
+                        const { data: userRows, error: userErr } = await supabase
+                            .from('users')
+                            .select('id, name, email, organizationid')
+                            .eq('organizationid', organizationId)
+                            .order('name', { ascending: true })
+                            .limit(5000);
+
+                        if (userErr) {
+                            console.error('Error loading organization users for org teams dropdown:', userErr);
+                            setOrgTeamsUserStatus('Failed to load users.', 'error');
+                            return;
+                        }
+
+                        const rows = userRows || [];
+                        if (rows.length === 0) {
+                            orgTeamsUsersLoaded = true;
+                            setOrgTeamsUserStatus('No users found for your organization.', 'error');
+                            if (orgTeamsUserChoices) {
+                                orgTeamsUserChoices.clearChoices();
+                            } else {
+                                orgTeamsUserSelect.innerHTML = '<option value="">No users available</option>';
+                            }
+                            return;
+                        }
+
+                        const choicesData = rows.map(row => {
+                            const idStr = String(row.id);
+                            const name = row.name || `User ${idStr}`;
+                            const email = row.email || '';
+                            const label = email ? `${name} (${email})` : name;
+                            return { value: idStr, label };
+                        });
+
+                        if (!orgTeamsUserChoices) {
+                            if (typeof Choices === 'undefined') {
+                                console.warn('Choices library not loaded; falling back to native select for org teams users dropdown.');
+                                orgTeamsUserSelect.innerHTML = '<option value="">Select User</option>';
+                                choicesData.forEach(choice => {
+                                    const option = document.createElement('option');
+                                    option.value = choice.value;
+                                    option.textContent = choice.label;
+                                    orgTeamsUserSelect.appendChild(option);
+                                });
+                            } else {
+                                orgTeamsUserChoices = new Choices(orgTeamsUserSelect, {
+                                    searchEnabled: true,
+                                    shouldSort: false,
+                                    placeholder: true,
+                                    placeholderValue: 'Select User',
+                                    searchPlaceholderValue: 'Type to search...'
+                                });
+                            }
+                        }
+
+                        if (orgTeamsUserChoices) {
+                            orgTeamsUserChoices.setChoices(choicesData, 'value', 'label', true);
+                        } else {
+                            orgTeamsUserSelect.innerHTML = '<option value="">Select User</option>';
+                            choicesData.forEach(choice => {
+                                const option = document.createElement('option');
+                                option.value = choice.value;
+                                option.textContent = choice.label;
+                                orgTeamsUserSelect.appendChild(option);
+                            });
+                        }
+
+                        orgTeamsUsersLoaded = true;
+                        setOrgTeamsUserStatus('', 'success');
+                    } catch (err) {
+                        console.error('Unexpected error loading organization users for org teams dropdown:', err);
+                        setOrgTeamsUserStatus('An unexpected error occurred while loading users.', 'error');
+                    }
+                }
 
                 function setOrgAssetDetailsStatus(message, kind = 'success') {
                     if (!orgAssetDetailsStatus) return;
@@ -4128,6 +4458,7 @@ const projectFormHTML = `
                         if (e && e.preventDefault) e.preventDefault();
                         orgMainSummary.style.display = 'none';
                         if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
+                        if (orgTeamsPanel) orgTeamsPanel.style.display = 'none';
                         orgAssetsPanel.style.display = '';
                         if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
                         if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = '';
@@ -4718,7 +5049,24 @@ const projectFormHTML = `
                 if (manageProjectsBtn && orgMainSummary && orgProjectsPanel) {
                     manageProjectsBtn.onclick = () => {
                         orgMainSummary.style.display = 'none';
+                        if (orgTeamsPanel) orgTeamsPanel.style.display = 'none';
+                        if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
                         orgProjectsPanel.style.display = '';
+                    };
+                }
+
+                // Show the Manage Organizational Teams module (in main area)
+                if (manageOrgTeamsButton && orgMainSummary && orgTeamsPanel) {
+                    manageOrgTeamsButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgMainSummary.style.display = 'none';
+                        if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
+                        if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
+                        orgTeamsPanel.style.display = '';
+                        if (orgTeamsUploadFile) orgTeamsUploadFile.value = '';
+                        setOrgTeamsUploadStatus('', null);
+                        setOrgTeamsUserStatus('', 'success');
+                        await loadOrgUsersForOrgTeamsDropdown({ force: true });
                     };
                 }
 
@@ -4787,6 +5135,49 @@ const projectFormHTML = `
                         if (orgProjectDetailsSelect) {
                             orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
                             orgProjectDetailsSelect.disabled = true;
+                        }
+                    };
+                }
+
+                // Go Back from Teams panel returns to the main Organization Settings summary
+                if (orgTeamsBackButton && orgMainSummary && orgTeamsPanel) {
+                    orgTeamsBackButton.onclick = (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgTeamsPanel.style.display = 'none';
+                        orgMainSummary.style.display = '';
+                        setOrgTeamsUserStatus('', 'success');
+                        setOrgTeamsUploadStatus('', null);
+                    };
+                }
+
+                // Upload Organizational Teams handler
+                if (orgTeamsUploadButton && orgTeamsUploadFile) {
+                    orgTeamsUploadButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        const file = orgTeamsUploadFile.files && orgTeamsUploadFile.files[0] ? orgTeamsUploadFile.files[0] : null;
+                        if (!file) {
+                            setOrgTeamsUploadStatus('Please choose a file first.', 'error');
+                            return;
+                        }
+
+                        const name = String(file.name || '');
+                        const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+                        const isAllowed = ext === 'xlsx' || ext === 'xls' || ext === 'csv';
+                        if (!isAllowed) {
+                            setOrgTeamsUploadStatus('Invalid file type. Please upload .xlsx, .xls, or .csv.', 'error');
+                            return;
+                        }
+
+                        try {
+                            orgTeamsUploadButton.disabled = true;
+                            orgTeamsUploadButton.textContent = 'Uploading...';
+                            await uploadOrgTeamsFromFile(file);
+                        } catch (err) {
+                            console.error('Org teams upload failed:', err);
+                            setOrgTeamsUploadStatus(err && err.message ? err.message : 'Upload failed.', 'error');
+                        } finally {
+                            orgTeamsUploadButton.disabled = false;
+                            orgTeamsUploadButton.textContent = 'Upload File';
                         }
                     };
                 }
