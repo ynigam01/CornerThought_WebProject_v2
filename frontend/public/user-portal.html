@@ -146,7 +146,7 @@
 
                     <!-- Create New Asset module (shown when user clicks Create New Asset) -->
                     <div id="orgAssetsPanel" class="project-types-panel" style="display: none;">
-                        <div class="project-types-panel-header">
+                        <div id="orgAssetsCreateHeader" class="project-types-panel-header">
                             <div>
                                 <h3>Create New Asset</h3>
                                 <p class="subtitle">Create an asset for your organization.</p>
@@ -173,9 +173,56 @@
                             </div>
                             <div class="form-buttons">
                                 <button type="submit" class="public-projects-button">Create Asset</button>
+                                <button type="button" id="assetDetailsButton" class="secondary-button">Asset Details</button>
                             </div>
                             <div id="orgAssetsStatus" class="upload-message" style="display: none;"></div>
                         </form>
+
+                        <div id="orgAssetDetailsPanel" style="display: none; margin-top: 14px;">
+                            <div class="project-types-panel-header">
+                                <div>
+                                    <h3>Asset Details</h3>
+                                </div>
+                                <div class="project-types-panel-header-actions">
+                                    <button type="button" id="orgAssetDetailsBackButton" class="secondary-button">Back to Create Asset</button>
+                                    <button type="button" id="orgAssetDetailsOrgBackButton" class="secondary-button">Go Back</button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="orgAssetDetailsAssetSelect">Asset</label>
+                                <select id="orgAssetDetailsAssetSelect">
+                                    <option value="">Select Asset</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="orgAssetDetailsProjectSelect">Project</label>
+                                <select id="orgAssetDetailsProjectSelect">
+                                    <option value="">Select Project</option>
+                                    <option value="na">N/A</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="orgAssetDetailsFileTypeSelect">Select Input Data File Type</label>
+                                <select id="orgAssetDetailsFileTypeSelect">
+                                    <option value="">Select File Type</option>
+                                    <option value="excel_general">Excel - General</option>
+                                </select>
+                            </div>
+
+                            <div id="orgAssetDetailsUploadWrap" style="display: none;">
+                                <div class="form-group">
+                                    <label for="orgAssetDetailsFileInput">Upload Spreadsheet</label>
+                                    <input type="file" id="orgAssetDetailsFileInput" accept=".xlsx,.xls">
+                                </div>
+                                <div class="form-buttons">
+                                    <button type="button" id="orgAssetDetailsUploadButton" class="secondary-button">Upload Spreadsheet</button>
+                                </div>
+                                <div id="orgAssetDetailsStatus" class="upload-message" style="display: none;"></div>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </template>

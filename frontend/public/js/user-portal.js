@@ -4,6 +4,7 @@ import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 import { parseMsProjectTxt, importMsProjectTxtToSupabase } from './ms-project-txt-parser.js';
 import { importProjectTeamListExcelToSupabase } from './excel-project-team-importer.js';
 import { importProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
+import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -4003,9 +4004,116 @@ const projectFormHTML = `
                 // Create New Asset module within Organization Settings
                 const createNewAssetButton = document.getElementById('createNewAssetButton');
                 const orgAssetsPanel = document.getElementById('orgAssetsPanel');
+                const orgAssetsCreateHeader = document.getElementById('orgAssetsCreateHeader');
                 const orgAssetsBackButton = document.getElementById('orgAssetsBackButton');
                 const orgAssetsForm = document.getElementById('orgAssetsForm');
                 const orgAssetsStatus = document.getElementById('orgAssetsStatus');
+                const assetDetailsButton = document.getElementById('assetDetailsButton');
+                const orgAssetDetailsPanel = document.getElementById('orgAssetDetailsPanel');
+                const orgAssetDetailsBackButton = document.getElementById('orgAssetDetailsBackButton');
+                const orgAssetDetailsOrgBackButton = document.getElementById('orgAssetDetailsOrgBackButton');
+                const orgAssetDetailsAssetSelect = document.getElementById('orgAssetDetailsAssetSelect');
+                const orgAssetDetailsProjectSelect = document.getElementById('orgAssetDetailsProjectSelect');
+                const orgAssetDetailsFileTypeSelect = document.getElementById('orgAssetDetailsFileTypeSelect');
+                const orgAssetDetailsUploadWrap = document.getElementById('orgAssetDetailsUploadWrap');
+                const orgAssetDetailsFileInput = document.getElementById('orgAssetDetailsFileInput');
+                const orgAssetDetailsUploadButton = document.getElementById('orgAssetDetailsUploadButton');
+                const orgAssetDetailsStatus = document.getElementById('orgAssetDetailsStatus');
+
+                // Asset Details state
+                let assetDetailsSelectedAssetId = null;
+                let assetDetailsSelectedAssetName = null;
+                let assetDetailsSelectedProjectId = null;
+                let assetDetailsSelectedProjectName = null;
+                let assetDetailsAssetsById = new Map();   // asset_id -> asset_name
+                let assetDetailsProjectsById = new Map(); // project_id -> project_name
+
+                let orgAssetDetailsAssetChoices = null;
+                let orgAssetDetailsProjectChoices = null;
+
+                function setOrgAssetDetailsStatus(message, kind = 'success') {
+                    if (!orgAssetDetailsStatus) return;
+                    orgAssetDetailsStatus.textContent = message;
+                    orgAssetDetailsStatus.className = `upload-message${kind === 'error' ? ' upload-message--error' : ' upload-message--success'}`;
+                    orgAssetDetailsStatus.style.display = '';
+                }
+
+                async function loadOrgAssetsForAssetDetails() {
+                    if (!orgAssetDetailsAssetSelect) return;
+
+                    const orgId = ctUser && ctUser.organizationid != null ? Number(ctUser.organizationid) : null;
+                    if (!orgId || Number.isNaN(orgId)) {
+                        setOrgAssetsStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                        return;
+                    }
+
+                    orgAssetDetailsAssetSelect.innerHTML = '<option value=\"\">Select Asset</option>';
+                    assetDetailsAssetsById = new Map();
+
+                    try {
+                        const { data, error } = await supabase
+                            .from('assets')
+                            .select('id, name')
+                            .eq('organization_id', orgId)
+                            .order('name', { ascending: true })
+                            .limit(5000);
+
+                        if (error) {
+                            console.error('Error loading org assets for asset details dropdown:', error);
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'Failed to load assets';
+                            opt.disabled = true;
+                            orgAssetDetailsAssetSelect.appendChild(opt);
+                            return;
+                        }
+
+                        const rows = data || [];
+                        if (rows.length === 0) {
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'No assets found for your organization';
+                            opt.disabled = true;
+                            orgAssetDetailsAssetSelect.appendChild(opt);
+                            return;
+                        }
+
+                        const choicesData = rows.map(row => {
+                            const idStr = String(row.id);
+                            const name = row.name || `Asset ${idStr}`;
+                            assetDetailsAssetsById.set(idStr, name);
+                            return { value: idStr, label: name };
+                        });
+
+                        if (typeof Choices === 'undefined') {
+                            choicesData.forEach(choice => {
+                                const option = document.createElement('option');
+                                option.value = choice.value;
+                                option.textContent = choice.label;
+                                orgAssetDetailsAssetSelect.appendChild(option);
+                            });
+                            return;
+                        }
+
+                        if (!orgAssetDetailsAssetChoices) {
+                            orgAssetDetailsAssetChoices = new Choices(orgAssetDetailsAssetSelect, {
+                                searchEnabled: true,
+                                shouldSort: false,
+                                placeholder: true,
+                                placeholderValue: 'Select Asset',
+                                searchPlaceholderValue: 'Type to search...'
+                            });
+                        }
+                        orgAssetDetailsAssetChoices.setChoices(choicesData, 'value', 'label', true);
+                    } catch (err) {
+                        console.error('Unexpected error loading org assets for asset details dropdown:', err);
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'Unexpected error loading assets';
+                        opt.disabled = true;
+                        orgAssetDetailsAssetSelect.appendChild(opt);
+                    }
+                }
 
                 function setOrgAssetsStatus(message, kind = 'success') {
                     if (!orgAssetsStatus) return;
@@ -4022,6 +4130,9 @@ const projectFormHTML = `
                         if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
                         orgAssetsPanel.style.display = '';
                         if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
+                        if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = '';
+                        if (orgAssetDetailsPanel) orgAssetDetailsPanel.style.display = 'none';
+                        if (orgAssetsForm) orgAssetsForm.style.display = '';
                     };
                 }
 
@@ -4033,7 +4144,278 @@ const projectFormHTML = `
                         orgMainSummary.style.display = '';
                         if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
                         if (orgAssetsForm && typeof orgAssetsForm.reset === 'function') orgAssetsForm.reset();
+                        if (orgAssetDetailsPanel) orgAssetDetailsPanel.style.display = 'none';
+                        if (orgAssetsForm) orgAssetsForm.style.display = '';
+                        if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = '';
                     };
+                }
+
+                async function loadOrgProjectsForAssetDetails() {
+                    if (!orgAssetDetailsProjectSelect) return;
+
+                    const orgId = ctUser && ctUser.organizationid != null ? Number(ctUser.organizationid) : null;
+                    if (!orgId || Number.isNaN(orgId)) {
+                        // Keep UX simple: user will see empty list and can go back; also message in main status.
+                        setOrgAssetsStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                        return;
+                    }
+
+                    // Reset options
+                    orgAssetDetailsProjectSelect.innerHTML = '<option value=\"\">Select Project</option><option value=\"na\">N/A</option>';
+                    assetDetailsProjectsById = new Map();
+                    assetDetailsProjectsById.set('na', 'N/A');
+
+                    try {
+                        const { data, error } = await supabase
+                            .from('projects')
+                            .select('project_id, project_name')
+                            .eq('organization_id', orgId)
+                            .order('project_name', { ascending: true });
+
+                        if (error) {
+                            console.error('Error loading org projects for asset details dropdown:', error);
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'Failed to load projects';
+                            opt.disabled = true;
+                            orgAssetDetailsProjectSelect.appendChild(opt);
+                            return;
+                        }
+
+                        const rows = data || [];
+                        if (rows.length === 0) {
+                            const opt = document.createElement('option');
+                            opt.value = '';
+                            opt.textContent = 'No projects found for your organization';
+                            opt.disabled = true;
+                            orgAssetDetailsProjectSelect.appendChild(opt);
+                            return;
+                        }
+
+                        const choicesData = [
+                            { value: 'na', label: 'N/A' },
+                            ...rows.map(row => {
+                                const idStr = String(row.project_id);
+                                const name = row.project_name || `Project ${idStr}`;
+                                assetDetailsProjectsById.set(idStr, name);
+                                return { value: idStr, label: name };
+                            })
+                        ];
+
+                        if (typeof Choices === 'undefined') {
+                            // Fallback: native select
+                            choicesData.forEach(choice => {
+                                const option = document.createElement('option');
+                                option.value = choice.value;
+                                option.textContent = choice.label;
+                                orgAssetDetailsProjectSelect.appendChild(option);
+                            });
+                            return;
+                        }
+
+                        if (!orgAssetDetailsProjectChoices) {
+                            orgAssetDetailsProjectChoices = new Choices(orgAssetDetailsProjectSelect, {
+                                searchEnabled: true,
+                                shouldSort: false,
+                                placeholder: true,
+                                placeholderValue: 'Select Project',
+                                searchPlaceholderValue: 'Type to search...'
+                            });
+                        }
+                        orgAssetDetailsProjectChoices.setChoices(choicesData, 'value', 'label', true);
+                    } catch (err) {
+                        console.error('Unexpected error loading org projects for asset details dropdown:', err);
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'Unexpected error loading projects';
+                        opt.disabled = true;
+                        orgAssetDetailsProjectSelect.appendChild(opt);
+                    }
+                }
+
+                function getAssetComponentsProjectFields() {
+                    // N/A or blank -> nulls
+                    if (!assetDetailsSelectedProjectId || !assetDetailsSelectedProjectName) {
+                        return { project_id: null, project: null };
+                    }
+                    return {
+                        project_id: assetDetailsSelectedProjectId,
+                        project: assetDetailsSelectedProjectName
+                    };
+                }
+
+                // Asset Details button -> show Asset Details panel
+                if (assetDetailsButton && orgAssetsForm && orgAssetDetailsPanel) {
+                    assetDetailsButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        orgAssetsForm.style.display = 'none';
+                        if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
+                        orgAssetDetailsPanel.style.display = '';
+                        if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = 'none';
+                        if (orgAssetDetailsFileTypeSelect) {
+                            orgAssetDetailsFileTypeSelect.selectedIndex = 0;
+                        }
+                        if (orgAssetDetailsUploadWrap) orgAssetDetailsUploadWrap.style.display = 'none';
+                        if (orgAssetDetailsStatus) orgAssetDetailsStatus.style.display = 'none';
+                        if (orgAssetDetailsFileInput) orgAssetDetailsFileInput.value = '';
+                        if (orgAssetDetailsAssetSelect) {
+                            orgAssetDetailsAssetSelect.selectedIndex = 0;
+                        }
+                        assetDetailsSelectedAssetId = null;
+                        assetDetailsSelectedAssetName = null;
+                        assetDetailsSelectedProjectId = null;
+                        assetDetailsSelectedProjectName = null;
+                        await loadOrgAssetsForAssetDetails();
+                        await loadOrgProjectsForAssetDetails();
+                    });
+                }
+
+                // Back to Create Asset (from Asset Details)
+                if (orgAssetDetailsBackButton && orgAssetsForm && orgAssetDetailsPanel) {
+                    orgAssetDetailsBackButton.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        orgAssetDetailsPanel.style.display = 'none';
+                        orgAssetsForm.style.display = '';
+                        if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = '';
+                    });
+                }
+
+                // Go Back to Org Settings summary (from Asset Details)
+                if (orgAssetDetailsOrgBackButton && orgMainSummary && orgAssetsPanel) {
+                    orgAssetDetailsOrgBackButton.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        orgAssetsPanel.style.display = 'none';
+                        orgMainSummary.style.display = '';
+                        if (orgAssetsStatus) orgAssetsStatus.style.display = 'none';
+                        if (orgAssetDetailsPanel) orgAssetDetailsPanel.style.display = 'none';
+                        if (orgAssetsForm) orgAssetsForm.style.display = '';
+                        if (orgAssetsCreateHeader) orgAssetsCreateHeader.style.display = '';
+                    });
+                }
+
+                // Track asset selection
+                if (orgAssetDetailsAssetSelect) {
+                    orgAssetDetailsAssetSelect.addEventListener('change', () => {
+                        const val = String(orgAssetDetailsAssetSelect.value || '').trim();
+                        if (!val) {
+                            assetDetailsSelectedAssetId = null;
+                            assetDetailsSelectedAssetName = null;
+                            return;
+                        }
+                        assetDetailsSelectedAssetId = Number(val);
+                        assetDetailsSelectedAssetName = assetDetailsAssetsById.get(val) || null;
+                    });
+                }
+
+                // Track project selection (N/A -> null)
+                if (orgAssetDetailsProjectSelect) {
+                    orgAssetDetailsProjectSelect.addEventListener('change', () => {
+                        const val = String(orgAssetDetailsProjectSelect.value || '').trim();
+                        if (!val || val === 'na') {
+                            assetDetailsSelectedProjectId = null;
+                            assetDetailsSelectedProjectName = null;
+                            return;
+                        }
+                        assetDetailsSelectedProjectId = Number(val);
+                        assetDetailsSelectedProjectName = assetDetailsProjectsById.get(val) || null;
+                    });
+                }
+
+                // File type toggle for Asset Details
+                if (orgAssetDetailsFileTypeSelect) {
+                    orgAssetDetailsFileTypeSelect.addEventListener('change', () => {
+                        const val = String(orgAssetDetailsFileTypeSelect.value || '').trim();
+                        const showUpload = val === 'excel_general';
+                        if (orgAssetDetailsUploadWrap) orgAssetDetailsUploadWrap.style.display = showUpload ? '' : 'none';
+                        if (!showUpload) {
+                            if (orgAssetDetailsStatus) orgAssetDetailsStatus.style.display = 'none';
+                            if (orgAssetDetailsFileInput) orgAssetDetailsFileInput.value = '';
+                        }
+                    });
+                }
+
+                // Upload handler (Excel - General)
+                if (orgAssetDetailsUploadButton) {
+                    orgAssetDetailsUploadButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+
+                        const fileType = orgAssetDetailsFileTypeSelect ? String(orgAssetDetailsFileTypeSelect.value || '').trim() : '';
+                        if (fileType !== 'excel_general') {
+                            setOrgAssetDetailsStatus('Please select the input data file type "Excel - General" first.', 'error');
+                            return;
+                        }
+
+                        const orgId = ctUser && ctUser.organizationid != null ? Number(ctUser.organizationid) : null;
+                        const createdBy = ctUser && ctUser.id != null ? Number(ctUser.id) : null;
+                        if (!orgId || Number.isNaN(orgId)) {
+                            setOrgAssetDetailsStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                            return;
+                        }
+                        if (!createdBy || Number.isNaN(createdBy)) {
+                            setOrgAssetDetailsStatus('Could not determine your user id. Please log out and log back in.', 'error');
+                            return;
+                        }
+
+                        if (!assetDetailsSelectedAssetId || !assetDetailsSelectedAssetName) {
+                            setOrgAssetDetailsStatus('Please select an Asset first.', 'error');
+                            return;
+                        }
+
+                        const file = orgAssetDetailsFileInput && orgAssetDetailsFileInput.files
+                            ? orgAssetDetailsFileInput.files[0]
+                            : null;
+                        if (!file) {
+                            setOrgAssetDetailsStatus('Please choose an Excel file (.xlsx or .xls) to upload.', 'error');
+                            return;
+                        }
+                        const name = String(file.name || '').toLowerCase();
+                        const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
+                        if (!isExcel) {
+                            setOrgAssetDetailsStatus('Invalid file type. Please upload an Excel file (.xlsx, .xls).', 'error');
+                            return;
+                        }
+
+                        const submitBtn = orgAssetDetailsUploadButton;
+                        const originalText = submitBtn.textContent;
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Uploading...';
+                        if (orgAssetDetailsStatus) orgAssetDetailsStatus.style.display = 'none';
+
+                        try {
+                            const projectFields = getAssetComponentsProjectFields();
+                            const context = {
+                                organization_id: orgId,
+                                created_by: createdBy,
+                                asset_id: assetDetailsSelectedAssetId,
+                                asset_name: assetDetailsSelectedAssetName,
+                                project_id: projectFields.project_id,
+                                project: projectFields.project
+                            };
+
+                            const result = await importAssetGeneralExcelToSupabase({
+                                supabase,
+                                file,
+                                context,
+                                chunkSize: 250,
+                                onProgress: (msg) => {
+                                    setOrgAssetDetailsStatus(msg, 'success');
+                                }
+                            });
+
+                            const compCount = result && result.inserted ? result.inserted.asset_components : 0;
+                            const depCount = result && result.inserted ? result.inserted.asset_component_dependencies : 0;
+                            setOrgAssetDetailsStatus(
+                                `Upload complete. Inserted ${compCount} asset components and ${depCount} dependencies.`,
+                                'success'
+                            );
+                        } catch (err) {
+                            console.error('Excel - General upload failed:', err);
+                            setOrgAssetDetailsStatus(err && err.message ? err.message : 'Upload failed.', 'error');
+                        } finally {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText || 'Upload Spreadsheet';
+                        }
+                    });
                 }
 
                 // Create New Asset form submit -> persist to Supabase 'assets'
