@@ -131,6 +131,26 @@
                             </select>
                         </div>
                         <div id="orgTeamsUserStatus" class="upload-message" style="display: none;"></div>
+
+                        <div class="form-buttons" style="margin-top: 10px;">
+                            <button type="button" id="orgTeamsAssignButton" class="secondary-button">Assign Teams</button>
+                        </div>
+
+                        <div id="orgTeamsAssignSubmodule" class="project-types-panel" style="display: none; margin-top: 14px;">
+                            <div class="project-types-panel-header">
+                                <div>
+                                    <h3>Assign Teams</h3>
+                                    <p class="subtitle">Click departments to select/unselect, then save.</p>
+                                </div>
+                                <button type="button" id="orgTeamsAssignBackButton" class="secondary-button">Back</button>
+                            </div>
+                            <div class="form-buttons">
+                                <button type="button" id="orgTeamsAssignRefreshButton" class="secondary-button">Refresh List</button>
+                                <button type="button" id="orgTeamsAssignSaveButton" class="secondary-button">Save Assignments</button>
+                            </div>
+                            <div id="orgTeamsAssignStatus" class="upload-message" style="display: none;"></div>
+                            <div id="orgTeamsAssignTableWrap" style="margin-top: 12px;"></div>
+                        </div>
                     </div>
 
                     <!-- Manage Projects & Project Types module (shown when user clicks Manage Projects) -->

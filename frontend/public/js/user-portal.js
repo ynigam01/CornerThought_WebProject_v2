@@ -4000,6 +4000,13 @@ const projectFormHTML = `
                 const orgTeamsUploadStatus = document.getElementById('orgTeamsUploadStatus');
                 const orgTeamsUserSelect = document.getElementById('orgTeamsUserSelect');
                 const orgTeamsUserStatus = document.getElementById('orgTeamsUserStatus');
+                const orgTeamsAssignButton = document.getElementById('orgTeamsAssignButton');
+                const orgTeamsAssignSubmodule = document.getElementById('orgTeamsAssignSubmodule');
+                const orgTeamsAssignBackButton = document.getElementById('orgTeamsAssignBackButton');
+                const orgTeamsAssignRefreshButton = document.getElementById('orgTeamsAssignRefreshButton');
+                const orgTeamsAssignSaveButton = document.getElementById('orgTeamsAssignSaveButton');
+                const orgTeamsAssignStatus = document.getElementById('orgTeamsAssignStatus');
+                const orgTeamsAssignTableWrap = document.getElementById('orgTeamsAssignTableWrap');
                 const orgProjectsPanel = document.getElementById('orgProjectsPanel');
                 const orgProjectsBackButton = document.getElementById('orgProjectsBackButton');
                 const orgProjectTypesForm = document.getElementById('orgProjectTypesForm');
@@ -4042,6 +4049,10 @@ const projectFormHTML = `
                 // Manage Organizational Teams state
                 let orgTeamsUserChoices = null;
                 let orgTeamsUsersLoaded = false;
+                let orgTeamsUsersById = new Map(); // user_id -> { name, email }
+                let orgTeamsTeamsCache = []; // org_teams rows: [{ id, uid, department }]
+                let orgTeamsAssignedTeamIds = new Set(); // org_team_id (uuid) assigned in DB
+                let orgTeamsSelectedTeamIds = new Set(); // org_team_id (uuid) selected in UI
 
                 function setOrgTeamsUploadStatus(message, kind = null) {
                     if (!orgTeamsUploadStatus) return;
@@ -4057,6 +4068,15 @@ const projectFormHTML = `
                     orgTeamsUserStatus.textContent = message;
                     orgTeamsUserStatus.className = `upload-message${kind === 'error' ? ' upload-message--error' : kind === 'success' ? ' upload-message--success' : ''}`;
                     orgTeamsUserStatus.style.display = message ? '' : 'none';
+                }
+
+                function setOrgTeamsAssignStatus(message, kind = null) {
+                    if (!orgTeamsAssignStatus) return;
+                    orgTeamsAssignStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    orgTeamsAssignStatus.textContent = message || '';
+                    if (kind === 'success') orgTeamsAssignStatus.classList.add('upload-message--success');
+                    if (kind === 'error') orgTeamsAssignStatus.classList.add('upload-message--error');
+                    orgTeamsAssignStatus.style.display = message ? '' : 'none';
                 }
 
                 function normalizeOrgTeamsHeaderKey(value) {
@@ -4273,6 +4293,218 @@ const projectFormHTML = `
                     setOrgTeamsUploadStatus(summary, 'success');
                 }
 
+                async function loadOrgTeamsForAssignList() {
+                    if (!organizationId) throw new Error('Could not determine your organization. Please log out and log back in.');
+                    const orgId = Number(organizationId);
+                    if (!orgId || Number.isNaN(orgId)) throw new Error('Could not determine your organization. Please log out and log back in.');
+
+                    const { data, error } = await supabase
+                        .from('org_teams')
+                        .select('id, uid, department')
+                        .eq('organization_id', orgId)
+                        .order('department', { ascending: true })
+                        .order('uid', { ascending: true })
+                        .limit(5000);
+
+                    if (error) throw error;
+                    orgTeamsTeamsCache = (data || []).map(r => ({
+                        id: r.id,
+                        uid: r.uid != null ? String(r.uid) : '',
+                        department: r.department != null ? String(r.department) : ''
+                    }));
+                }
+
+                async function loadOrgTeamsAssignmentsForUser(selectedUserId) {
+                    if (!organizationId) throw new Error('Could not determine your organization. Please log out and log back in.');
+                    const orgId = Number(organizationId);
+                    const userId = Number(selectedUserId);
+                    if (!orgId || Number.isNaN(orgId)) throw new Error('Could not determine your organization. Please log out and log back in.');
+                    if (!userId || Number.isNaN(userId)) throw new Error('Please select a user first.');
+
+                    const { data, error } = await supabase
+                        .from('org_team_members')
+                        .select('org_team_id')
+                        .eq('organization_id', orgId)
+                        .eq('team_member', userId)
+                        .limit(5000);
+
+                    if (error) throw error;
+                    orgTeamsAssignedTeamIds = new Set((data || []).map(r => String(r.org_team_id)));
+                    orgTeamsSelectedTeamIds = new Set(Array.from(orgTeamsAssignedTeamIds));
+                }
+
+                function renderOrgTeamsAssignTable() {
+                    if (!orgTeamsAssignTableWrap) return;
+                    orgTeamsAssignTableWrap.innerHTML = '';
+
+                    if (!orgTeamsTeamsCache || orgTeamsTeamsCache.length === 0) {
+                        const p = document.createElement('p');
+                        p.textContent = 'No teams found for your organization.';
+                        p.style.marginTop = '10px';
+                        orgTeamsAssignTableWrap.appendChild(p);
+                        return;
+                    }
+
+                    const table = document.createElement('table');
+                    table.className = 'organizations-table';
+
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    ['UID', 'Department'].forEach(label => {
+                        const th = document.createElement('th');
+                        th.textContent = label;
+                        headRow.appendChild(th);
+                    });
+                    thead.appendChild(headRow);
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+                    orgTeamsTeamsCache.forEach(team => {
+                        const teamId = String(team.id);
+                        const tr = document.createElement('tr');
+                        tr.style.cursor = 'pointer';
+                        if (orgTeamsSelectedTeamIds && orgTeamsSelectedTeamIds.has(teamId)) {
+                            tr.classList.add('row-selected');
+                        }
+                        tr.addEventListener('click', () => {
+                            if (!orgTeamsSelectedTeamIds) orgTeamsSelectedTeamIds = new Set();
+                            if (orgTeamsSelectedTeamIds.has(teamId)) {
+                                orgTeamsSelectedTeamIds.delete(teamId);
+                                tr.classList.remove('row-selected');
+                            } else {
+                                orgTeamsSelectedTeamIds.add(teamId);
+                                tr.classList.add('row-selected');
+                            }
+                        });
+
+                        const tdUid = document.createElement('td');
+                        tdUid.textContent = team.uid || '';
+                        tr.appendChild(tdUid);
+
+                        const tdDept = document.createElement('td');
+                        tdDept.textContent = team.department || '';
+                        tr.appendChild(tdDept);
+
+                        tbody.appendChild(tr);
+                    });
+                    table.appendChild(tbody);
+                    orgTeamsAssignTableWrap.appendChild(table);
+                }
+
+                async function showOrgTeamsAssignSubmodule() {
+                    if (!orgTeamsAssignSubmodule) return;
+                    const userIdStr = orgTeamsUserSelect ? String(orgTeamsUserSelect.value || '') : '';
+                    if (!userIdStr) {
+                        setOrgTeamsUserStatus('Please select a user first.', 'error');
+                        return;
+                    }
+
+                    orgTeamsAssignSubmodule.style.display = '';
+                    setOrgTeamsAssignStatus('Loading teams...', null);
+
+                    await loadOrgTeamsForAssignList();
+                    setOrgTeamsAssignStatus('Loading existing assignments...', null);
+                    await loadOrgTeamsAssignmentsForUser(userIdStr);
+
+                    renderOrgTeamsAssignTable();
+                    setOrgTeamsAssignStatus('', null);
+                }
+
+                function hideOrgTeamsAssignSubmodule() {
+                    if (!orgTeamsAssignSubmodule) return;
+                    orgTeamsAssignSubmodule.style.display = 'none';
+                    setOrgTeamsAssignStatus('', null);
+                    if (orgTeamsAssignTableWrap) orgTeamsAssignTableWrap.innerHTML = '';
+                    orgTeamsTeamsCache = [];
+                    orgTeamsAssignedTeamIds = new Set();
+                    orgTeamsSelectedTeamIds = new Set();
+                }
+
+                async function saveOrgTeamsAssignments() {
+                    const userIdStr = orgTeamsUserSelect ? String(orgTeamsUserSelect.value || '') : '';
+                    const userId = Number(userIdStr);
+                    const orgId = organizationId != null ? Number(organizationId) : null;
+                    const createdBy = ctUser && ctUser.id != null ? Number(ctUser.id) : null;
+
+                    if (!userIdStr || !userId || Number.isNaN(userId)) {
+                        throw new Error('Please select a user first.');
+                    }
+                    if (!orgId || Number.isNaN(orgId)) {
+                        throw new Error('Could not determine your organization. Please log out and log back in.');
+                    }
+                    if (!createdBy || Number.isNaN(createdBy)) {
+                        throw new Error('Could not determine the uploader user id. Please log out and log back in.');
+                    }
+
+                    const selectedSet = orgTeamsSelectedTeamIds || new Set();
+                    const assignedSet = orgTeamsAssignedTeamIds || new Set();
+
+                    const toInsertIds = Array.from(selectedSet).filter(id => !assignedSet.has(id));
+                    const toDeleteIds = Array.from(assignedSet).filter(id => !selectedSet.has(id));
+
+                    const chunkArray = (arr, size) => {
+                        const n = Math.max(1, Number(size) || 1);
+                        const out = [];
+                        for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+                        return out;
+                    };
+
+                    const userInfo = orgTeamsUsersById && orgTeamsUsersById.get(userIdStr) ? orgTeamsUsersById.get(userIdStr) : null;
+                    const userName = userInfo && userInfo.name ? String(userInfo.name) : `User ${userIdStr}`;
+
+                    const teamsById = new Map((orgTeamsTeamsCache || []).map(t => [String(t.id), t]));
+
+                    let inserted = 0;
+                    let deleted = 0;
+
+                    // Insert new assignments
+                    if (toInsertIds.length > 0) {
+                        const payload = toInsertIds.map(teamId => {
+                            const team = teamsById.get(String(teamId));
+                            return {
+                                organization_id: orgId,
+                                created_by: createdBy,
+                                name: userName,
+                                org_team_id: String(teamId),
+                                team_member: userId,
+                                department: team && team.department ? String(team.department) : null
+                            };
+                        });
+
+                        const chunks = chunkArray(payload, 250);
+                        for (let i = 0; i < chunks.length; i++) {
+                            setOrgTeamsAssignStatus(`Saving... (adding ${inserted}/${payload.length})`, null);
+                            const chunk = chunks[i];
+                            const { error } = await supabase.from('org_team_members').insert(chunk);
+                            if (error) throw error;
+                            inserted += chunk.length;
+                        }
+                    }
+
+                    // Delete removed assignments
+                    if (toDeleteIds.length > 0) {
+                        const idChunks = chunkArray(toDeleteIds.map(String), 250);
+                        for (let i = 0; i < idChunks.length; i++) {
+                            setOrgTeamsAssignStatus(`Saving... (removing ${deleted}/${toDeleteIds.length})`, null);
+                            const chunk = idChunks[i];
+                            const { data, error } = await supabase
+                                .from('org_team_members')
+                                .delete()
+                                .eq('organization_id', orgId)
+                                .eq('team_member', userId)
+                                .in('org_team_id', chunk)
+                                .select('id');
+                            if (error) throw error;
+                            deleted += (data || []).length;
+                        }
+                    }
+
+                    // Update assigned set to match selected set
+                    orgTeamsAssignedTeamIds = new Set(Array.from(selectedSet));
+
+                    setOrgTeamsAssignStatus(`Saved. Added ${inserted} and removed ${deleted}.`, 'success');
+                }
+
                 async function loadOrgUsersForOrgTeamsDropdown({ force = false } = {}) {
                     if (!orgTeamsUserSelect) return;
                     if (!organizationId) {
@@ -4312,10 +4544,12 @@ const projectFormHTML = `
                             return;
                         }
 
+                        orgTeamsUsersById = new Map();
                         const choicesData = rows.map(row => {
                             const idStr = String(row.id);
                             const name = row.name || `User ${idStr}`;
                             const email = row.email || '';
+                            orgTeamsUsersById.set(idStr, { name, email });
                             const label = email ? `${name} (${email})` : name;
                             return { value: idStr, label };
                         });
@@ -5063,6 +5297,7 @@ const projectFormHTML = `
                         if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
                         if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
                         orgTeamsPanel.style.display = '';
+                        hideOrgTeamsAssignSubmodule();
                         if (orgTeamsUploadFile) orgTeamsUploadFile.value = '';
                         setOrgTeamsUploadStatus('', null);
                         setOrgTeamsUserStatus('', 'success');
@@ -5147,6 +5382,7 @@ const projectFormHTML = `
                         orgMainSummary.style.display = '';
                         setOrgTeamsUserStatus('', 'success');
                         setOrgTeamsUploadStatus('', null);
+                        hideOrgTeamsAssignSubmodule();
                     };
                 }
 
@@ -5180,6 +5416,63 @@ const projectFormHTML = `
                             orgTeamsUploadButton.textContent = 'Upload File';
                         }
                     };
+                }
+
+                // Assign Teams wiring
+                if (orgTeamsAssignButton) {
+                    orgTeamsAssignButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        try {
+                            await showOrgTeamsAssignSubmodule();
+                        } catch (err) {
+                            console.error('Failed opening Assign Teams submodule:', err);
+                            setOrgTeamsAssignStatus(err && err.message ? err.message : 'Failed to load teams.', 'error');
+                        }
+                    };
+                }
+
+                if (orgTeamsAssignBackButton) {
+                    orgTeamsAssignBackButton.onclick = (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        hideOrgTeamsAssignSubmodule();
+                    };
+                }
+
+                if (orgTeamsAssignRefreshButton) {
+                    orgTeamsAssignRefreshButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        try {
+                            await showOrgTeamsAssignSubmodule();
+                        } catch (err) {
+                            console.error('Failed refreshing Assign Teams submodule:', err);
+                            setOrgTeamsAssignStatus(err && err.message ? err.message : 'Failed to refresh teams.', 'error');
+                        }
+                    };
+                }
+
+                if (orgTeamsAssignSaveButton) {
+                    orgTeamsAssignSaveButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        try {
+                            orgTeamsAssignSaveButton.disabled = true;
+                            orgTeamsAssignSaveButton.textContent = 'Saving...';
+                            await saveOrgTeamsAssignments();
+                        } catch (err) {
+                            console.error('Failed saving org team member assignments:', err);
+                            setOrgTeamsAssignStatus(err && err.message ? err.message : 'Failed to save assignments.', 'error');
+                        } finally {
+                            orgTeamsAssignSaveButton.disabled = false;
+                            orgTeamsAssignSaveButton.textContent = 'Save Assignments';
+                        }
+                    };
+                }
+
+                // If user changes, close the assign submodule (prevents mixing selections between users)
+                if (orgTeamsUserSelect) {
+                    orgTeamsUserSelect.addEventListener('change', () => {
+                        setOrgTeamsUserStatus('', 'success');
+                        hideOrgTeamsAssignSubmodule();
+                    });
                 }
 
                 // Handle "Create Project Type" form submission for this organization
