@@ -3801,26 +3801,76 @@ const projectFormHTML = `
                 <div id="searchProjectsResults" class="lessons-results"></div>
             </div>
 
-            <div id="searchProjectsDetailsPanel" class="project-types-panel" style="display: none;">
+            <div id="searchProjectsDetailsScreen" style="display: none;">
+                <div class="search-projects-details-layout">
+                    <div id="searchProjectsDetailsPanel" class="project-types-panel">
+                        <div class="project-types-panel-header">
+                            <div>
+                                <h3>Project Info</h3>
+                                <p class="subtitle">Project summary information.</p>
+                            </div>
+                            <button type="button" id="searchProjectsDetailsBack" class="secondary-button">Go Back</button>
+                        </div>
+                        <div class="form-group">
+                            <label>Project Name</label>
+                            <div id="searchProjectsDetailsName"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Project Description</label>
+                            <div id="searchProjectsDetailsDescription"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Project Type</label>
+                            <div id="searchProjectsDetailsType"></div>
+                        </div>
+                    </div>
+                    <div class="search-projects-details-actions">
+                        <button type="button" id="searchProjectsDetailsAction" class="side-button">Project Details</button>
+                        <button type="button" id="searchProjectsTeamAction" class="side-button">Project Team</button>
+                        <button type="button" id="searchProjectsLessonsAction" class="side-button">Lessons Learned Metadata</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="searchProjectsMetadataPanel" class="project-types-panel" style="display: none;">
                 <div class="project-types-panel-header">
                     <div>
-                        <h3>Project Details</h3>
-                        <p class="subtitle">Project summary information.</p>
+                        <h3 id="searchProjectsMetadataTitle">Lessons Learned Metadata</h3>
+                        <p class="subtitle">View the metadata entries that have been imported for this project.</p>
                     </div>
-                    <button type="button" id="searchProjectsDetailsBack" class="secondary-button">Go Back</button>
+                    <button type="button" id="searchProjectsMetadataBackButton" class="secondary-button">Back</button>
                 </div>
                 <div class="form-group">
-                    <label>Project Name</label>
-                    <div id="searchProjectsDetailsName"></div>
+                    <label for="searchProjectsMetadataTypeSelect">Type (filter)</label>
+                    <select id="searchProjectsMetadataTypeSelect">
+                        <option value="">All Types</option>
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label>Project Description</label>
-                    <div id="searchProjectsDetailsDescription"></div>
+                    <label for="searchProjectsMetadataSearchInput">Search (metadata)</label>
+                    <input
+                        type="text"
+                        id="searchProjectsMetadataSearchInput"
+                        placeholder="Type to filter metadata..."
+                        autocomplete="off"
+                    >
                 </div>
-                <div class="form-group">
-                    <label>Project Type</label>
-                    <div id="searchProjectsDetailsType"></div>
+                <div class="form-buttons">
+                    <button type="button" id="searchProjectsMetadataRefreshButton" class="secondary-button">Refresh List</button>
                 </div>
+                <div id="searchProjectsMetadataStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsMetadataTableWrap" style="margin-top: 12px;"></div>
+            </div>
+
+            <div id="searchProjectsTaskDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsTaskDetailsTitle">Task Details</h3>
+                    </div>
+                    <button type="button" id="searchProjectsTaskDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsTaskDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsTaskDetailsBody"></div>
             </div>
         `;
 
@@ -3906,11 +3956,63 @@ const projectFormHTML = `
                 hideSearchProjectsDetails();
             });
         }
+
+        const lessonsBtn = document.getElementById('searchProjectsLessonsAction');
+        if (lessonsBtn) {
+            lessonsBtn.addEventListener('click', () => {
+                showSearchProjectsMetadataPanel();
+            });
+        }
+
+        const detailsBtn = document.getElementById('searchProjectsDetailsAction');
+        if (detailsBtn) {
+            detailsBtn.addEventListener('click', () => {
+                hideSearchProjectsMetadataPanel();
+            });
+        }
+
+        const metadataBackBtn = document.getElementById('searchProjectsMetadataBackButton');
+        if (metadataBackBtn) {
+            metadataBackBtn.addEventListener('click', () => {
+                hideSearchProjectsMetadataPanel();
+            });
+        }
+
+        const metadataTypeSelect = document.getElementById('searchProjectsMetadataTypeSelect');
+        if (metadataTypeSelect) {
+            metadataTypeSelect.addEventListener('change', () => {
+                renderSearchProjectsMetadataTable();
+            });
+        }
+
+        const metadataSearchInput = document.getElementById('searchProjectsMetadataSearchInput');
+        if (metadataSearchInput) {
+            metadataSearchInput.addEventListener('input', () => {
+                renderSearchProjectsMetadataTable();
+            });
+        }
+
+        const metadataRefreshBtn = document.getElementById('searchProjectsMetadataRefreshButton');
+        if (metadataRefreshBtn) {
+            metadataRefreshBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                refreshSearchProjectsMetadataList();
+            });
+        }
+
+        const taskDetailsBackBtn = document.getElementById('searchProjectsTaskDetailsBackButton');
+        if (taskDetailsBackBtn) {
+            taskDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsTaskDetails();
+            });
+        }
     }
 
     let searchProjectsCache = [];
     let searchProjectsCacheLoaded = false;
     let searchProjectsCacheLoading = false;
+    let searchProjectsSelectedProject = null;
+    let searchProjectsMetadataRowsCache = [];
 
     async function loadOrganizationProjectsForSearch() {
         if (!organizationId) {
@@ -4000,7 +4102,7 @@ const projectFormHTML = `
             const detailsBtn = document.createElement('button');
             detailsBtn.type = 'button';
             detailsBtn.className = 'secondary-button search-projects-details-button';
-            detailsBtn.textContent = 'Project Details';
+            detailsBtn.textContent = 'Project Info';
             detailsBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -4013,10 +4115,390 @@ const projectFormHTML = `
         });
     }
 
+    function updateSearchProjectsMetadataTypeOptions(rows) {
+        const typeSelect = document.getElementById('searchProjectsMetadataTypeSelect');
+        if (!typeSelect) return;
+
+        const previous = typeSelect.value || '';
+        const types = Array.from(
+            new Set((rows || []).map(r => r && r.metadata_type).filter(Boolean))
+        ).sort((a, b) => String(a).localeCompare(String(b)));
+
+        typeSelect.innerHTML = '';
+
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All Types';
+        typeSelect.appendChild(allOpt);
+
+        types.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            typeSelect.appendChild(opt);
+        });
+
+        typeSelect.value = types.includes(previous) ? previous : '';
+    }
+
+    function renderSearchProjectsMetadataTable() {
+        const tableWrap = document.getElementById('searchProjectsMetadataTableWrap');
+        const typeSelect = document.getElementById('searchProjectsMetadataTypeSelect');
+        const searchInput = document.getElementById('searchProjectsMetadataSearchInput');
+        const statusEl = document.getElementById('searchProjectsMetadataStatus');
+        if (!tableWrap) return;
+
+        const selectedType = typeSelect ? typeSelect.value : '';
+        const rows = Array.isArray(searchProjectsMetadataRowsCache) ? searchProjectsMetadataRowsCache : [];
+        const searchRaw = searchInput ? searchInput.value : '';
+        const search = String(searchRaw || '').trim().toLowerCase();
+
+        let filtered = rows;
+        if (selectedType) {
+            filtered = filtered.filter(r => r && r.metadata_type === selectedType);
+        }
+        if (search) {
+            filtered = filtered.filter(r => String((r && r.metadata) || '').toLowerCase().includes(search));
+        }
+
+        tableWrap.innerHTML = '';
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            const searchDisplay = String(searchRaw || '').trim();
+            empty.textContent =
+                selectedType && searchDisplay
+                    ? `No metadata entries match type "${selectedType}" and "${searchDisplay}".`
+                    : searchDisplay
+                        ? `No metadata entries match "${searchDisplay}".`
+                        : selectedType
+                            ? `No metadata entries found for type "${selectedType}".`
+                            : 'No metadata has been imported for this project yet.';
+            tableWrap.appendChild(empty);
+
+            if (statusEl) {
+                statusEl.classList.remove('upload-message--success', 'upload-message--error');
+                if (selectedType || search) {
+                    statusEl.textContent = selectedType
+                        ? `Showing 0 ${search ? 'matching ' : ''}"${selectedType}" entries (of ${rows.length} total).`
+                        : `Showing 0 matching entries (of ${rows.length} total).`;
+                } else {
+                    statusEl.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+                }
+                if (rows.length > 0) statusEl.classList.add('upload-message--success');
+            }
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'organizations-table';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Type', 'Metadata'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        filtered.forEach(row => {
+            const tr = document.createElement('tr');
+            const metadataType = row && row.metadata_type ? String(row.metadata_type).toLowerCase() : '';
+            const metadataSource = row && row.metadata_source ? String(row.metadata_source).toLowerCase() : '';
+            const isTask = metadataType === 'task' && metadataSource === 'ms project';
+            if (isTask) {
+                tr.classList.add('metadata-row-clickable');
+                tr.addEventListener('click', () => {
+                    showSearchProjectsTaskDetails(row);
+                });
+            }
+
+            const tdType = document.createElement('td');
+            tdType.textContent = row.metadata_type || '';
+            tr.appendChild(tdType);
+
+            const tdMetadata = document.createElement('td');
+            tdMetadata.textContent = row.metadata || '';
+            tr.appendChild(tdMetadata);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+
+        if (statusEl) {
+            statusEl.classList.remove('upload-message--success', 'upload-message--error');
+            if (selectedType || search) {
+                const typePart = selectedType ? `"${selectedType}" ` : '';
+                const matchPart = search ? 'matching ' : '';
+                statusEl.textContent =
+                    `Showing ${filtered.length} ${matchPart}${typePart}entr${filtered.length === 1 ? 'y' : 'ies'} (of ${rows.length} total).`;
+            } else {
+                statusEl.textContent = `Loaded ${rows.length} metadata entr${rows.length === 1 ? 'y' : 'ies'}.`;
+            }
+            statusEl.classList.add('upload-message--success');
+        }
+    }
+
+    async function refreshSearchProjectsMetadataList() {
+        const statusEl = document.getElementById('searchProjectsMetadataStatus');
+        const tableWrap = document.getElementById('searchProjectsMetadataTableWrap');
+        const typeSelect = document.getElementById('searchProjectsMetadataTypeSelect');
+        const searchInput = document.getElementById('searchProjectsMetadataSearchInput');
+
+        if (!organizationId || !statusEl || !tableWrap) return;
+
+        const projectId = searchProjectsSelectedProject ? searchProjectsSelectedProject.project_id : null;
+        if (!projectId) {
+            tableWrap.innerHTML = '';
+            statusEl.textContent = 'No project selected.';
+            statusEl.classList.remove('upload-message--success');
+            statusEl.classList.add('upload-message--error');
+            searchProjectsMetadataRowsCache = [];
+            if (typeSelect) typeSelect.value = '';
+            if (searchInput) searchInput.value = '';
+            return;
+        }
+
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        statusEl.textContent = 'Loading metadata...';
+        tableWrap.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('lessons_learned_metadata_list')
+                .select('id, metadata_type, metadata, metadata_source')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('id', { ascending: true })
+                .limit(5000);
+
+            if (error) {
+                console.error('Error loading lessons learned metadata list (search projects):', error);
+                statusEl.textContent = 'Failed to load metadata.';
+                statusEl.classList.add('upload-message--error');
+                searchProjectsMetadataRowsCache = [];
+                return;
+            }
+
+            const data = rows || [];
+            searchProjectsMetadataRowsCache = data;
+            updateSearchProjectsMetadataTypeOptions(data);
+            renderSearchProjectsMetadataTable();
+        } catch (err) {
+            console.error('Unexpected error loading lessons learned metadata list (search projects):', err);
+            statusEl.textContent = 'An unexpected error occurred while loading metadata.';
+            statusEl.classList.add('upload-message--error');
+            searchProjectsMetadataRowsCache = [];
+        }
+    }
+
+    async function loadSearchProjectsTaskDetails(metadataRow) {
+        const statusEl = document.getElementById('searchProjectsTaskDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTaskDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const metadataId = metadataRow && metadataRow.id ? metadataRow.id : null;
+        if (!metadataId) {
+            statusEl.textContent = 'Missing metadata record.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        try {
+            const { data: taskRows, error } = await supabase
+                .from('msproject_task_details')
+                .select('id, uid, task_name, created_at, updated_at, start, finish, duration, percent_complete, baseline_start, baseline_finish, actual_start, actual_finish, predecessors, wbs_parent, fixed_cost, notes, project_id, organization_id')
+                .eq('lessons_learned_metadata_list_id', metadataId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading MS Project task details:', error);
+                statusEl.textContent = 'Failed to load task details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const task = Array.isArray(taskRows) && taskRows.length > 0 ? taskRows[0] : null;
+            if (!task) {
+                statusEl.textContent = 'No task details found for this metadata entry.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const predecessorNames = await loadSearchProjectsTaskPredecessorNames(task);
+            const wbsParentName = await loadSearchProjectsWbsParentName(task);
+            renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName);
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading MS Project task details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading task details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadSearchProjectsTaskPredecessorNames(task) {
+        const taskId = task && task.id ? task.id : null;
+        if (!taskId) return [];
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('msproject_task_predecessors')
+                .select('predecessor_uid, project_id, organization_id')
+                .eq('msproject_task_details_id', taskId);
+
+            if (error) {
+                console.error('Error loading task predecessors:', error);
+                return [];
+            }
+
+            const uids = Array.from(
+                new Set((rows || []).map(r => r && r.predecessor_uid).filter(Boolean))
+            );
+            if (uids.length === 0) return [];
+
+            const projectId = task.project_id;
+            const orgId = task.organization_id;
+            const { data: nameRows, error: nameErr } = await supabase
+                .from('msproject_task_details')
+                .select('uid, task_name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .in('uid', uids);
+
+            if (nameErr) {
+                console.error('Error loading predecessor task names:', nameErr);
+                return [];
+            }
+
+            const nameByUid = new Map(
+                (nameRows || []).map(r => [String(r.uid), r.task_name || `UID ${r.uid}`])
+            );
+            return uids.map(uid => nameByUid.get(String(uid)) || `UID ${uid}`);
+        } catch (err) {
+            console.error('Unexpected error loading predecessor names:', err);
+            return [];
+        }
+    }
+
+    function renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName) {
+        const bodyEl = document.getElementById('searchProjectsTaskDetailsBody');
+        if (!bodyEl) return;
+
+        const items = [];
+        const addItem = (label, value) => {
+            if (value == null || value === '') return;
+            items.push({ label, value });
+        };
+
+        addItem('UID', task.uid);
+        addItem('Task Name', task.task_name);
+        addItem('Created At', task.created_at);
+        addItem('Updated At', task.updated_at);
+        addItem('Start', formatDateOnly(task.start));
+        addItem('Finish', formatDateOnly(task.finish));
+        addItem('Duration', task.duration);
+        addItem('Percent Complete', task.percent_complete);
+        addItem('Baseline Start', formatDateOnly(task.baseline_start));
+        addItem('Baseline Finish', formatDateOnly(task.baseline_finish));
+        addItem('Actual Start', formatDateOnly(task.actual_start));
+        addItem('Actual Finish', formatDateOnly(task.actual_finish));
+        if (task.predecessors != null) {
+            addItem('Predecessors', task.predecessors ? 'Yes' : 'No');
+        }
+        if (wbsParentName) {
+            addItem('WBS Parent', wbsParentName);
+        }
+        if (Array.isArray(predecessorNames) && predecessorNames.length > 0) {
+            addItem('Predecessors', predecessorNames.join(', '));
+        }
+        addItem('Fixed Cost', task.fixed_cost);
+        addItem('Notes', task.notes);
+
+        if (items.length === 0) {
+            bodyEl.textContent = 'No task details available.';
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'task-details-list';
+
+        items.forEach(({ label, value }) => {
+            const row = document.createElement('div');
+            row.className = 'task-details-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'task-details-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = 'task-details-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            list.appendChild(row);
+        });
+
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(list);
+    }
+
+    function formatDateOnly(value) {
+        if (!value) return '';
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    async function loadSearchProjectsWbsParentName(task) {
+        const wbsParent = task && task.wbs_parent ? String(task.wbs_parent) : '';
+        if (!wbsParent) return '';
+        const projectId = task.project_id;
+        const orgId = task.organization_id;
+        if (projectId == null || orgId == null) return '';
+
+        try {
+            const { data, error } = await supabase
+                .from('msproject_task_details')
+                .select('task_name, wbs')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('wbs', wbsParent)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading WBS parent task name:', error);
+                return '';
+            }
+
+            const row = Array.isArray(data) && data.length ? data[0] : null;
+            return row && row.task_name ? row.task_name : '';
+        } catch (err) {
+            console.error('Unexpected error loading WBS parent task name:', err);
+            return '';
+        }
+    }
+
     function showSearchProjectsDetails(project) {
         const panel = document.getElementById('searchProjectsDetailsPanel');
-        if (!panel) return;
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        if (!panel || !detailsScreen) return;
         const main = document.getElementById('searchProjectsMain');
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
 
         const nameEl = document.getElementById('searchProjectsDetailsName');
         const descEl = document.getElementById('searchProjectsDetailsDescription');
@@ -4033,16 +4515,81 @@ const projectFormHTML = `
         if (descEl) descEl.textContent = desc;
         if (typeEl) typeEl.textContent = type;
 
+        searchProjectsSelectedProject = project || null;
+
         if (main) main.style.display = 'none';
-        panel.style.display = 'block';
+        if (metadataPanel) metadataPanel.style.display = 'none';
+        detailsScreen.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     function hideSearchProjectsDetails() {
-        const panel = document.getElementById('searchProjectsDetailsPanel');
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
         const main = document.getElementById('searchProjectsMain');
-        if (panel) panel.style.display = 'none';
+        if (detailsScreen) detailsScreen.style.display = 'none';
+        if (metadataPanel) metadataPanel.style.display = 'none';
         if (main) main.style.display = '';
+    }
+
+    function showSearchProjectsMetadataPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const panel = document.getElementById('searchProjectsMetadataPanel');
+        const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
+        const title = document.getElementById('searchProjectsMetadataTitle');
+        if (!panel) return;
+
+        const projectName =
+            searchProjectsSelectedProject && searchProjectsSelectedProject.project_name
+                ? searchProjectsSelectedProject.project_name
+                : 'Project';
+        if (title) {
+            title.textContent = `Lessons Learned Metadata for ${projectName}`;
+        }
+
+        if (detailsScreen) detailsScreen.style.display = 'none';
+        if (taskPanel) taskPanel.style.display = 'none';
+        panel.style.display = 'block';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        refreshSearchProjectsMetadataList();
+    }
+
+    function hideSearchProjectsMetadataPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const panel = document.getElementById('searchProjectsMetadataPanel');
+        if (panel) panel.style.display = 'none';
+        if (detailsScreen) detailsScreen.style.display = 'block';
+    }
+
+    function showSearchProjectsTaskDetails(metadataRow) {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsTaskDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTaskDetailsBody');
+        if (!taskPanel || !statusEl || !bodyEl) return;
+
+        if (metadataPanel) metadataPanel.style.display = 'none';
+        taskPanel.style.display = 'block';
+        taskPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading task details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsTaskDetails(metadataRow)
+            .catch((err) => {
+                console.error('Error loading task details:', err);
+                statusEl.textContent = 'Failed to load task details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideSearchProjectsTaskDetails() {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
+        if (taskPanel) taskPanel.style.display = 'none';
+        if (metadataPanel) metadataPanel.style.display = 'block';
     }
 
     function renderGeneralSearchModule() {

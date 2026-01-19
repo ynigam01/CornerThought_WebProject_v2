@@ -816,6 +816,57 @@ body {
     font-weight: 700;
 }
 
+.search-projects-details-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+#searchProjectsDetailsPanel.project-types-panel {
+    max-width: 520px;
+    width: 100%;
+}
+
+.search-projects-details-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 10px;
+}
+
+.search-projects-details-actions .side-button {
+    width: 180px;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.2;
+}
+
+.metadata-row-clickable {
+    cursor: pointer;
+}
+
+.metadata-row-clickable:hover {
+    background-color: #f3f7ff;
+}
+
+.task-details-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.task-details-row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+.task-details-label {
+    font-weight: 700;
+}
+
 /* Organizations Table */
 .organizations-table {
     width: 100%;
