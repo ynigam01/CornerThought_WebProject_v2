@@ -3706,22 +3706,26 @@ const projectFormHTML = `
         const text = link.textContent.trim();
         const route = text === 'Organization Settings' ? 'org'
                     : text === 'My Projects' ? 'projects'
-                    : text === 'General Search' || text === 'Search Projects' ? 'search'
+                    : text === 'Search Projects' ? 'search-projects'
+                    : text === 'General Search' ? 'general-search'
                     : 'home';
         location.hash = route;
     });
 
     // Simple router
     function setActiveSidebar(route) {
+        // Backward compatibility for older hashes like "#search"
+        const normalizedRoute = route === 'search' ? 'search-projects' : route;
         const links = document.querySelectorAll('.sidebar .nav-item');
         links.forEach(l => {
             const text = l.textContent.trim();
             const r = text === 'Organization Settings' ? 'org'
                     : text === 'My Projects' ? 'projects'
-                    : text === 'General Search' || text === 'Search Projects' ? 'search'
+                    : text === 'Search Projects' ? 'search-projects'
+                    : text === 'General Search' ? 'general-search'
                     : 'home';
-            if (r === route) l.classList.add('active'); else l.classList.remove('active');
-            l.setAttribute('aria-current', r === route ? 'page' : 'false');
+            if (r === normalizedRoute) l.classList.add('active'); else l.classList.remove('active');
+            l.setAttribute('aria-current', r === normalizedRoute ? 'page' : 'false');
         });
     }
 
@@ -3755,6 +3759,381 @@ const projectFormHTML = `
         hide('#createView');
         hide('#addDataView');
         hide('#projectsView');
+    }
+
+    function showSearchProjectsView() {
+        showSearchView();
+        renderSearchProjectsModule();
+    }
+
+    function showGeneralSearchView() {
+        showSearchView();
+        renderGeneralSearchModule();
+    }
+
+    function renderSearchProjectsModule() {
+        const searchView = document.getElementById('searchView');
+        if (!searchView) return;
+
+        // Re-render from scratch each time we enter this route.
+        searchView.innerHTML = `
+            <h1>Search Projects</h1>
+            <div id="searchProjectsMain">
+                <div id="searchProjectsPanel" class="project-types-panel">
+                    <p class="subtitle" style="margin: 0 0 10px;">Search by project name</p>
+                    <div class="form-group" style="margin-bottom: 4px;">
+                        <input
+                            id="searchProjectsInput"
+                            type="text"
+                            placeholder="Search by project name"
+                            autocomplete="off"
+                            aria-label="Search projects by project name"
+                        >
+                    </div>
+                </div>
+
+                <div id="searchProjectsListStatus" class="search-status" aria-live="polite"></div>
+                <div id="searchProjectsListWrap">
+                    <ul id="searchProjectsList" class="search-projects-list"></ul>
+                </div>
+
+                <div id="searchProjectsStatus" class="search-status" aria-live="polite"></div>
+                <div id="searchProjectsResults" class="lessons-results"></div>
+            </div>
+
+            <div id="searchProjectsDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Project Details</h3>
+                        <p class="subtitle">Project summary information.</p>
+                    </div>
+                    <button type="button" id="searchProjectsDetailsBack" class="secondary-button">Go Back</button>
+                </div>
+                <div class="form-group">
+                    <label>Project Name</label>
+                    <div id="searchProjectsDetailsName"></div>
+                </div>
+                <div class="form-group">
+                    <label>Project Description</label>
+                    <div id="searchProjectsDetailsDescription"></div>
+                </div>
+                <div class="form-group">
+                    <label>Project Type</label>
+                    <div id="searchProjectsDetailsType"></div>
+                </div>
+            </div>
+        `;
+
+        const input = document.getElementById('searchProjectsInput');
+        const MIN_TERM_LENGTH = 2;
+        const DEBOUNCE_MS = 350;
+        let debounceTimer = null;
+        let activeSearchController = null;
+
+        const clearResults = () => {
+            setSearchProjectsStatus('');
+            renderSearchProjectsResults([], '');
+        };
+
+        const runSearch = async (rawTerm) => {
+            const term = (rawTerm || '').trim();
+            if (!term) {
+                clearResults();
+                return;
+            }
+            if (term.length < MIN_TERM_LENGTH) {
+                clearResults();
+                setSearchProjectsStatus(`Type at least ${MIN_TERM_LENGTH} characters to search.`);
+                return;
+            }
+
+            // Cancel any in-flight search
+            if (activeSearchController) {
+                try { activeSearchController.abort(); } catch (_) {}
+            }
+            activeSearchController = new AbortController();
+
+            setSearchProjectsStatus('Searching projects…');
+            renderSearchProjectsResults([], '');
+
+            try {
+                const results = await searchProjectsApi(term, activeSearchController.signal);
+                renderSearchProjectsResults(results, term);
+            } catch (err) {
+                // Ignore aborted requests (user kept typing)
+                if (err && (err.name === 'AbortError' || String(err.message || '').includes('aborted'))) {
+                    return;
+                }
+                console.error('Project search error:', err);
+                setSearchProjectsStatus('Something went wrong while searching projects. Please try again.');
+                renderSearchProjectsResults([], '');
+            }
+        };
+
+        if (input) {
+            input.addEventListener('input', () => {
+                const term = input.value || '';
+                updateSearchProjectsNameList(term);
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => runSearch(term), DEBOUNCE_MS);
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (debounceTimer) clearTimeout(debounceTimer);
+                    runSearch(input.value || '');
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    input.value = '';
+                    updateSearchProjectsNameList('');
+                    clearResults();
+                }
+            });
+        }
+
+        // Autofocus when entering the module
+        if (input) {
+            setTimeout(() => input.focus(), 0);
+        }
+
+        // Load organization projects list beneath the search bar.
+        loadOrganizationProjectsForSearch();
+
+        const backBtn = document.getElementById('searchProjectsDetailsBack');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                hideSearchProjectsDetails();
+            });
+        }
+    }
+
+    let searchProjectsCache = [];
+    let searchProjectsCacheLoaded = false;
+    let searchProjectsCacheLoading = false;
+
+    async function loadOrganizationProjectsForSearch() {
+        if (!organizationId) {
+            setSearchProjectsListStatus('No organization found for this user.');
+            return;
+        }
+        if (searchProjectsCacheLoaded || searchProjectsCacheLoading) {
+            updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
+            return;
+        }
+
+        searchProjectsCacheLoading = true;
+        setSearchProjectsListStatus('Loading projects…');
+
+        try {
+            const { data, error } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_description, project_type_id, project_type:project_type_id (project_type)')
+                .eq('organization_id', organizationId)
+                .order('project_name', { ascending: true });
+
+            if (error) {
+                console.error('Error loading organization projects for search list:', error);
+                setSearchProjectsListStatus('Failed to load projects.');
+                searchProjectsCache = [];
+                searchProjectsCacheLoaded = false;
+                searchProjectsCacheLoading = false;
+                updateSearchProjectsNameList('');
+                return;
+            }
+
+            searchProjectsCache = Array.isArray(data) ? data : [];
+            searchProjectsCacheLoaded = true;
+            searchProjectsCacheLoading = false;
+            updateSearchProjectsNameList('');
+        } catch (err) {
+            console.error('Unexpected error loading organization projects for search list:', err);
+            setSearchProjectsListStatus('An unexpected error occurred while loading projects.');
+            searchProjectsCache = [];
+            searchProjectsCacheLoaded = false;
+            searchProjectsCacheLoading = false;
+            updateSearchProjectsNameList('');
+        }
+    }
+
+    function setSearchProjectsListStatus(message) {
+        const el = document.getElementById('searchProjectsListStatus');
+        if (el) el.textContent = message || '';
+    }
+
+    function updateSearchProjectsNameList(term) {
+        const listEl = document.getElementById('searchProjectsList');
+        if (!listEl) return;
+
+        const normalized = (term || '').trim().toLowerCase();
+        const projects = Array.isArray(searchProjectsCache) ? searchProjectsCache : [];
+
+        let filtered = projects;
+        if (normalized) {
+            filtered = projects.filter((p) => {
+                const name = p && p.project_name ? String(p.project_name).toLowerCase() : '';
+                return name.includes(normalized);
+            });
+        }
+
+        listEl.innerHTML = '';
+
+        if (!projects.length) {
+            setSearchProjectsListStatus('No projects found for your organization.');
+            return;
+        }
+
+        if (normalized && filtered.length === 0) {
+            setSearchProjectsListStatus('No matching projects.');
+            return;
+        }
+
+        setSearchProjectsListStatus('');
+
+        filtered.forEach((p) => {
+            const li = document.createElement('li');
+            li.className = 'search-projects-list-item';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'search-projects-list-name';
+            nameSpan.textContent = p && p.project_name ? p.project_name : '(Unnamed Project)';
+
+            const detailsBtn = document.createElement('button');
+            detailsBtn.type = 'button';
+            detailsBtn.className = 'secondary-button search-projects-details-button';
+            detailsBtn.textContent = 'Project Details';
+            detailsBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showSearchProjectsDetails(p);
+            });
+
+            li.appendChild(nameSpan);
+            li.appendChild(detailsBtn);
+            listEl.appendChild(li);
+        });
+    }
+
+    function showSearchProjectsDetails(project) {
+        const panel = document.getElementById('searchProjectsDetailsPanel');
+        if (!panel) return;
+        const main = document.getElementById('searchProjectsMain');
+
+        const nameEl = document.getElementById('searchProjectsDetailsName');
+        const descEl = document.getElementById('searchProjectsDetailsDescription');
+        const typeEl = document.getElementById('searchProjectsDetailsType');
+
+        const name = project && project.project_name ? project.project_name : '(Unnamed Project)';
+        const desc = project && project.project_description ? project.project_description : 'No description available.';
+        const type =
+            project && project.project_type && project.project_type.project_type
+                ? project.project_type.project_type
+                : 'Not set';
+
+        if (nameEl) nameEl.textContent = name;
+        if (descEl) descEl.textContent = desc;
+        if (typeEl) typeEl.textContent = type;
+
+        if (main) main.style.display = 'none';
+        panel.style.display = 'block';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function hideSearchProjectsDetails() {
+        const panel = document.getElementById('searchProjectsDetailsPanel');
+        const main = document.getElementById('searchProjectsMain');
+        if (panel) panel.style.display = 'none';
+        if (main) main.style.display = '';
+    }
+
+    function renderGeneralSearchModule() {
+        const searchView = document.getElementById('searchView');
+        if (!searchView) return;
+
+        searchView.innerHTML = `
+            <h1>General Search</h1>
+            <div class="project-types-panel">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>General Search</h3>
+                        <p class="subtitle">This section is coming soon.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function searchProjectsApi(term, signal) {
+        const response = await fetch('/api/search-projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queryText: term }),
+            signal,
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Project search failed with ${response.status}: ${text}`);
+        }
+
+        const payload = await response.json().catch(() => ({}));
+        return Array.isArray(payload.results) ? payload.results : [];
+    }
+
+    function setSearchProjectsStatus(message) {
+        const el = document.getElementById('searchProjectsStatus');
+        if (el) el.textContent = message || '';
+    }
+
+    function renderSearchProjectsResults(results, term) {
+        const container = document.getElementById('searchProjectsResults');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (!results || results.length === 0) {
+            if (term) {
+                setSearchProjectsStatus(`No projects found for “${term}”.`);
+            }
+            return;
+        }
+
+        setSearchProjectsStatus(
+            `Showing ${results.length} project result${results.length === 1 ? '' : 's'} for “${term}”.`
+        );
+
+        results.forEach((item) => {
+            const card = document.createElement('article');
+            card.className = 'lesson-card';
+
+            const nameLine = document.createElement('div');
+            nameLine.className = 'lesson-card-fpc';
+            const name = item && item.project_name ? String(item.project_name) : '(Unnamed Project)';
+            nameLine.textContent = name;
+
+            const descBox = document.createElement('div');
+            descBox.className = 'lesson-card-inner lesson-card-generic-box';
+            const desc = item && item.project_description ? String(item.project_description) : '';
+            descBox.textContent = desc || 'No description available.';
+
+            const meta = document.createElement('div');
+            meta.className = 'lesson-card-meta';
+
+            const idSpan = document.createElement('span');
+            idSpan.textContent = `Project ID: ${item && item.project_id != null ? item.project_id : 'N/A'}`;
+
+            const scoreSpan = document.createElement('span');
+            const score = item && typeof item.score === 'number' ? item.score : null;
+            scoreSpan.textContent = `Relevance: ${score == null ? 'N/A' : score.toFixed(4)}`;
+
+            meta.appendChild(idSpan);
+            meta.appendChild(scoreSpan);
+
+            card.appendChild(nameLine);
+            card.appendChild(descBox);
+            card.appendChild(meta);
+
+            container.appendChild(card);
+        });
     }
 
     function showProjectsView() {
@@ -5566,7 +5945,14 @@ const projectFormHTML = `
             showCreateView();
         } else if (route === 'search') {
             resetMainArea();
-            showSearchView();
+            // Backward compatibility: if a link still uses #search, treat it as Search Projects.
+            showSearchProjectsView();
+        } else if (route === 'search-projects') {
+            resetMainArea();
+            showSearchProjectsView();
+        } else if (route === 'general-search') {
+            resetMainArea();
+            showGeneralSearchView();
         } else if (route === 'projects') {
             resetMainArea();
             showProjectsView();
