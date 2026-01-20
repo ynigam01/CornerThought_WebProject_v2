@@ -3894,6 +3894,17 @@ const projectFormHTML = `
                 <div id="searchProjectsTeamDetailsStatus" class="upload-message" aria-live="polite"></div>
                 <div id="searchProjectsTeamDetailsBody"></div>
             </div>
+
+            <div id="searchProjectsMiscDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsMiscDetailsTitle">Miscellaneous Item Details</h3>
+                    </div>
+                    <button type="button" id="searchProjectsMiscDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsMiscDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsMiscDetailsBody"></div>
+            </div>
         `;
 
         const input = document.getElementById('searchProjectsInput');
@@ -4040,6 +4051,13 @@ const projectFormHTML = `
         if (teamDetailsBackBtn) {
             teamDetailsBackBtn.addEventListener('click', () => {
                 hideSearchProjectsTeamDetails();
+            });
+        }
+
+        const miscDetailsBackBtn = document.getElementById('searchProjectsMiscDetailsBackButton');
+        if (miscDetailsBackBtn) {
+            miscDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsMiscDetails();
             });
         }
     }
@@ -4247,15 +4265,18 @@ const projectFormHTML = `
             const isTask = metadataType === 'task' && metadataSource === 'ms project';
             const isResource = metadataType === 'resource' && metadataSource === 'ms project';
             const isProjectTeam = metadataType === 'project team' && metadataSource === 'excel project team list';
-            if (isTask || isResource || isProjectTeam) {
+            const isMisc = metadataType === 'miscellaneous' && metadataSource === 'excel project miscellaneous list';
+            if (isTask || isResource || isProjectTeam || isMisc) {
                 tr.classList.add('metadata-row-clickable');
                 tr.addEventListener('click', () => {
                     if (isTask) {
                         showSearchProjectsTaskDetails(row);
                     } else if (isResource) {
                         showSearchProjectsResourceDetails(row);
-                    } else {
+                    } else if (isProjectTeam) {
                         showSearchProjectsTeamDetails(row);
+                    } else {
+                        showSearchProjectsMiscDetails(row);
                     }
                 });
             }
@@ -4804,6 +4825,165 @@ const projectFormHTML = `
         bodyEl.appendChild(list);
     }
 
+    async function loadSearchProjectsMiscDetails(metadataRow) {
+        const statusEl = document.getElementById('searchProjectsMiscDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsMiscDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const metadataId = metadataRow && metadataRow.id ? metadataRow.id : null;
+        if (!metadataId) {
+            statusEl.textContent = 'Missing metadata record.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        try {
+            const { data: miscRows, error } = await supabase
+                .from('project_miscellaneous_excel')
+                .select('id, item_id, name, description, created_at, updated_at, parent_id, project_id, organization_id')
+                .eq('lessons_learned_metadata_list_id', metadataId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading miscellaneous item details:', error);
+                statusEl.textContent = 'Failed to load miscellaneous details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const misc = Array.isArray(miscRows) && miscRows.length > 0 ? miscRows[0] : null;
+            if (!misc) {
+                statusEl.textContent = 'No miscellaneous details found for this metadata entry.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const parentName = await loadSearchProjectsMiscParentName(misc);
+            const subItemNames = await loadSearchProjectsMiscSubItems(misc);
+            renderSearchProjectsMiscDetails(misc, parentName, subItemNames);
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading miscellaneous details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading miscellaneous details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadSearchProjectsMiscParentName(misc) {
+        const parentId = misc && misc.parent_id ? String(misc.parent_id) : '';
+        if (!parentId) return '';
+        const projectId = misc.project_id;
+        const orgId = misc.organization_id;
+        if (projectId == null || orgId == null) return '';
+
+        try {
+            const { data, error } = await supabase
+                .from('project_miscellaneous_excel')
+                .select('item_id, name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('item_id', parentId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading parent miscellaneous item name:', error);
+                return '';
+            }
+
+            const row = Array.isArray(data) && data.length ? data[0] : null;
+            return row && row.name ? row.name : '';
+        } catch (err) {
+            console.error('Unexpected error loading parent miscellaneous item name:', err);
+            return '';
+        }
+    }
+
+    async function loadSearchProjectsMiscSubItems(misc) {
+        const itemId = misc && misc.item_id ? String(misc.item_id) : '';
+        if (!itemId) return [];
+        const projectId = misc.project_id;
+        const orgId = misc.organization_id;
+        if (projectId == null || orgId == null) return [];
+
+        try {
+            const { data, error } = await supabase
+                .from('project_miscellaneous_excel')
+                .select('name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('parent_id', itemId)
+                .order('name', { ascending: true });
+
+            if (error) {
+                console.error('Error loading sub miscellaneous items:', error);
+                return [];
+            }
+
+            return (data || []).map(row => row && row.name).filter(Boolean);
+        } catch (err) {
+            console.error('Unexpected error loading sub miscellaneous items:', err);
+            return [];
+        }
+    }
+
+    function renderSearchProjectsMiscDetails(misc, parentName, subItemNames) {
+        const bodyEl = document.getElementById('searchProjectsMiscDetailsBody');
+        if (!bodyEl) return;
+
+        const items = [];
+        const addItem = (label, value) => {
+            if (value == null || value === '') return;
+            items.push({ label, value });
+        };
+
+        addItem('Item ID', misc.item_id);
+        addItem('Name', misc.name);
+        addItem('Description', misc.description);
+        addItem('Created At', misc.created_at);
+        addItem('Updated At', misc.updated_at);
+        if (parentName) {
+            addItem('Parent Item', parentName);
+        }
+        if (Array.isArray(subItemNames) && subItemNames.length > 0) {
+            addItem('Sub Item', subItemNames.join(', '));
+        }
+
+        if (items.length === 0) {
+            bodyEl.textContent = 'No miscellaneous details available.';
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'task-details-list';
+
+        items.forEach(({ label, value }) => {
+            const row = document.createElement('div');
+            row.className = 'task-details-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'task-details-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = 'task-details-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            list.appendChild(row);
+        });
+
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(list);
+    }
+
     function formatDateOnly(value) {
         if (!value) return '';
         const date = value instanceof Date ? value : new Date(value);
@@ -4888,6 +5068,7 @@ const projectFormHTML = `
         const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
         const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
         const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
+        const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
         const title = document.getElementById('searchProjectsMetadataTitle');
         if (!panel) return;
 
@@ -4903,6 +5084,7 @@ const projectFormHTML = `
         if (taskPanel) taskPanel.style.display = 'none';
         if (resourcePanel) resourcePanel.style.display = 'none';
         if (teamPanel) teamPanel.style.display = 'none';
+        if (miscPanel) miscPanel.style.display = 'none';
         panel.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -4915,10 +5097,12 @@ const projectFormHTML = `
         const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
         const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
         const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
+        const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
         if (panel) panel.style.display = 'none';
         if (taskPanel) taskPanel.style.display = 'none';
         if (resourcePanel) resourcePanel.style.display = 'none';
         if (teamPanel) teamPanel.style.display = 'none';
+        if (miscPanel) miscPanel.style.display = 'none';
         if (detailsScreen) detailsScreen.style.display = 'block';
     }
 
@@ -5009,6 +5193,36 @@ const projectFormHTML = `
         const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
         const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
         if (teamPanel) teamPanel.style.display = 'none';
+        if (metadataPanel) metadataPanel.style.display = 'block';
+    }
+
+    function showSearchProjectsMiscDetails(metadataRow) {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsMiscDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsMiscDetailsBody');
+        if (!miscPanel || !statusEl || !bodyEl) return;
+
+        if (metadataPanel) metadataPanel.style.display = 'none';
+        miscPanel.style.display = 'block';
+        miscPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading miscellaneous details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsMiscDetails(metadataRow)
+            .catch((err) => {
+                console.error('Error loading miscellaneous details:', err);
+                statusEl.textContent = 'Failed to load miscellaneous details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideSearchProjectsMiscDetails() {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
+        if (miscPanel) miscPanel.style.display = 'none';
         if (metadataPanel) metadataPanel.style.display = 'block';
     }
 
