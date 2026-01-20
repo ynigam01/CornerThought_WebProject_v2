@@ -3872,6 +3872,28 @@ const projectFormHTML = `
                 <div id="searchProjectsTaskDetailsStatus" class="upload-message" aria-live="polite"></div>
                 <div id="searchProjectsTaskDetailsBody"></div>
             </div>
+
+            <div id="searchProjectsResourceDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsResourceDetailsTitle">Resource Details</h3>
+                    </div>
+                    <button type="button" id="searchProjectsResourceDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsResourceDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsResourceDetailsBody"></div>
+            </div>
+
+            <div id="searchProjectsTeamDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsTeamDetailsTitle">Project Team Details</h3>
+                    </div>
+                    <button type="button" id="searchProjectsTeamDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsTeamDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsTeamDetailsBody"></div>
+            </div>
         `;
 
         const input = document.getElementById('searchProjectsInput');
@@ -4004,6 +4026,20 @@ const projectFormHTML = `
         if (taskDetailsBackBtn) {
             taskDetailsBackBtn.addEventListener('click', () => {
                 hideSearchProjectsTaskDetails();
+            });
+        }
+
+        const resourceDetailsBackBtn = document.getElementById('searchProjectsResourceDetailsBackButton');
+        if (resourceDetailsBackBtn) {
+            resourceDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsResourceDetails();
+            });
+        }
+
+        const teamDetailsBackBtn = document.getElementById('searchProjectsTeamDetailsBackButton');
+        if (teamDetailsBackBtn) {
+            teamDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsTeamDetails();
             });
         }
     }
@@ -4209,10 +4245,18 @@ const projectFormHTML = `
             const metadataType = row && row.metadata_type ? String(row.metadata_type).toLowerCase() : '';
             const metadataSource = row && row.metadata_source ? String(row.metadata_source).toLowerCase() : '';
             const isTask = metadataType === 'task' && metadataSource === 'ms project';
-            if (isTask) {
+            const isResource = metadataType === 'resource' && metadataSource === 'ms project';
+            const isProjectTeam = metadataType === 'project team' && metadataSource === 'excel project team list';
+            if (isTask || isResource || isProjectTeam) {
                 tr.classList.add('metadata-row-clickable');
                 tr.addEventListener('click', () => {
-                    showSearchProjectsTaskDetails(row);
+                    if (isTask) {
+                        showSearchProjectsTaskDetails(row);
+                    } else if (isResource) {
+                        showSearchProjectsResourceDetails(row);
+                    } else {
+                        showSearchProjectsTeamDetails(row);
+                    }
                 });
             }
 
@@ -4454,6 +4498,312 @@ const projectFormHTML = `
         bodyEl.appendChild(list);
     }
 
+    async function loadSearchProjectsResourceDetails(metadataRow) {
+        const statusEl = document.getElementById('searchProjectsResourceDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsResourceDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const metadataId = metadataRow && metadataRow.id ? metadataRow.id : null;
+        if (!metadataId) {
+            statusEl.textContent = 'Missing metadata record.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        try {
+            const { data: resourceRows, error } = await supabase
+                .from('msproject_resource_details')
+                .select('id, uid, resource_name, created_at, updated_at, type, standard_rate, max_units, project_id, organization_id')
+                .eq('lessons_learned_metadata_list_id', metadataId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading MS Project resource details:', error);
+                statusEl.textContent = 'Failed to load resource details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const resource = Array.isArray(resourceRows) && resourceRows.length > 0 ? resourceRows[0] : null;
+            if (!resource) {
+                statusEl.textContent = 'No resource details found for this metadata entry.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const assignedTasks = await loadSearchProjectsResourceAssignedTasks(resource);
+            renderSearchProjectsResourceDetails(resource, assignedTasks);
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading MS Project resource details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading resource details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadSearchProjectsResourceAssignedTasks(resource) {
+        const resourceUid = resource && resource.uid ? String(resource.uid) : '';
+        if (!resourceUid) return [];
+        const projectId = resource.project_id;
+        const orgId = resource.organization_id;
+        if (projectId == null || orgId == null) return [];
+
+        try {
+            const { data: assignments, error } = await supabase
+                .from('msproject_assignments')
+                .select('task_uid')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('resource_uid', resourceUid);
+
+            if (error) {
+                console.error('Error loading resource assignments:', error);
+                return [];
+            }
+
+            const taskUids = Array.from(
+                new Set((assignments || []).map(a => a && a.task_uid).filter(Boolean))
+            );
+            if (taskUids.length === 0) return [];
+
+            const { data: taskRows, error: taskErr } = await supabase
+                .from('msproject_task_details')
+                .select('uid, task_name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .in('uid', taskUids);
+
+            if (taskErr) {
+                console.error('Error loading assigned task names:', taskErr);
+                return [];
+            }
+
+            const nameByUid = new Map(
+                (taskRows || []).map(r => [String(r.uid), r.task_name || `UID ${r.uid}`])
+            );
+            return taskUids.map(uid => nameByUid.get(String(uid)) || `UID ${uid}`);
+        } catch (err) {
+            console.error('Unexpected error loading assigned task names:', err);
+            return [];
+        }
+    }
+
+    function renderSearchProjectsResourceDetails(resource, assignedTasks) {
+        const bodyEl = document.getElementById('searchProjectsResourceDetailsBody');
+        if (!bodyEl) return;
+
+        const items = [];
+        const addItem = (label, value) => {
+            if (value == null || value === '') return;
+            items.push({ label, value });
+        };
+
+        addItem('UID', resource.uid);
+        addItem('Name', resource.resource_name);
+        addItem('Created At', resource.created_at);
+        addItem('Updated At', resource.updated_at);
+        addItem('Type', resource.type);
+        addItem('Standard Rate', resource.standard_rate);
+        addItem('Max Units', resource.max_units);
+        if (Array.isArray(assignedTasks) && assignedTasks.length > 0) {
+            addItem('Tasks Assigned', assignedTasks.join(', '));
+        }
+
+        if (items.length === 0) {
+            bodyEl.textContent = 'No resource details available.';
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'task-details-list';
+
+        items.forEach(({ label, value }) => {
+            const row = document.createElement('div');
+            row.className = 'task-details-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'task-details-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = 'task-details-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            list.appendChild(row);
+        });
+
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(list);
+    }
+
+    async function loadSearchProjectsTeamDetails(metadataRow) {
+        const statusEl = document.getElementById('searchProjectsTeamDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTeamDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const metadataId = metadataRow && metadataRow.id ? metadataRow.id : null;
+        if (!metadataId) {
+            statusEl.textContent = 'Missing metadata record.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        try {
+            const { data: teamRows, error } = await supabase
+                .from('project_teams_excel')
+                .select('id, excel_id, name, description, created_at, updated_at, parent_id, project_id, organization_id')
+                .eq('lessons_learned_metadata_list_id', metadataId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading project team details:', error);
+                statusEl.textContent = 'Failed to load team details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const team = Array.isArray(teamRows) && teamRows.length > 0 ? teamRows[0] : null;
+            if (!team) {
+                statusEl.textContent = 'No team details found for this metadata entry.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const parentName = await loadSearchProjectsTeamParentName(team);
+            const subTeamNames = await loadSearchProjectsTeamSubTeams(team);
+            renderSearchProjectsTeamDetails(team, parentName, subTeamNames);
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading project team details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading team details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadSearchProjectsTeamParentName(team) {
+        const parentId = team && team.parent_id ? String(team.parent_id) : '';
+        if (!parentId) return '';
+        const projectId = team.project_id;
+        const orgId = team.organization_id;
+        if (projectId == null || orgId == null) return '';
+
+        try {
+            const { data, error } = await supabase
+                .from('project_teams_excel')
+                .select('excel_id, name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('excel_id', parentId)
+                .limit(1);
+
+            if (error) {
+                console.error('Error loading parent team name:', error);
+                return '';
+            }
+
+            const row = Array.isArray(data) && data.length ? data[0] : null;
+            return row && row.name ? row.name : '';
+        } catch (err) {
+            console.error('Unexpected error loading parent team name:', err);
+            return '';
+        }
+    }
+
+    async function loadSearchProjectsTeamSubTeams(team) {
+        const excelId = team && team.excel_id ? String(team.excel_id) : '';
+        if (!excelId) return [];
+        const projectId = team.project_id;
+        const orgId = team.organization_id;
+        if (projectId == null || orgId == null) return [];
+
+        try {
+            const { data, error } = await supabase
+                .from('project_teams_excel')
+                .select('name')
+                .eq('project_id', projectId)
+                .eq('organization_id', orgId)
+                .eq('parent_id', excelId)
+                .order('name', { ascending: true });
+
+            if (error) {
+                console.error('Error loading sub teams:', error);
+                return [];
+            }
+
+            return (data || []).map(row => row && row.name).filter(Boolean);
+        } catch (err) {
+            console.error('Unexpected error loading sub teams:', err);
+            return [];
+        }
+    }
+
+    function renderSearchProjectsTeamDetails(team, parentName, subTeamNames) {
+        const bodyEl = document.getElementById('searchProjectsTeamDetailsBody');
+        if (!bodyEl) return;
+
+        const items = [];
+        const addItem = (label, value) => {
+            if (value == null || value === '') return;
+            items.push({ label, value });
+        };
+
+        addItem('Excel ID', team.excel_id);
+        addItem('Name', team.name);
+        addItem('Description', team.description);
+        addItem('Created At', team.created_at);
+        addItem('Updated At', team.updated_at);
+        if (parentName) {
+            addItem('Parent Team', parentName);
+        }
+        if (Array.isArray(subTeamNames) && subTeamNames.length > 0) {
+            addItem('Sub Team', subTeamNames.join(', '));
+        }
+
+        if (items.length === 0) {
+            bodyEl.textContent = 'No team details available.';
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'task-details-list';
+
+        items.forEach(({ label, value }) => {
+            const row = document.createElement('div');
+            row.className = 'task-details-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'task-details-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = 'task-details-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            list.appendChild(row);
+        });
+
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(list);
+    }
+
     function formatDateOnly(value) {
         if (!value) return '';
         const date = value instanceof Date ? value : new Date(value);
@@ -4536,6 +4886,8 @@ const projectFormHTML = `
         const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
         const panel = document.getElementById('searchProjectsMetadataPanel');
         const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
+        const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
+        const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
         const title = document.getElementById('searchProjectsMetadataTitle');
         if (!panel) return;
 
@@ -4549,6 +4901,8 @@ const projectFormHTML = `
 
         if (detailsScreen) detailsScreen.style.display = 'none';
         if (taskPanel) taskPanel.style.display = 'none';
+        if (resourcePanel) resourcePanel.style.display = 'none';
+        if (teamPanel) teamPanel.style.display = 'none';
         panel.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -4558,7 +4912,13 @@ const projectFormHTML = `
     function hideSearchProjectsMetadataPanel() {
         const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
         const panel = document.getElementById('searchProjectsMetadataPanel');
+        const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
+        const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
+        const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
         if (panel) panel.style.display = 'none';
+        if (taskPanel) taskPanel.style.display = 'none';
+        if (resourcePanel) resourcePanel.style.display = 'none';
+        if (teamPanel) teamPanel.style.display = 'none';
         if (detailsScreen) detailsScreen.style.display = 'block';
     }
 
@@ -4589,6 +4949,66 @@ const projectFormHTML = `
         const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
         const taskPanel = document.getElementById('searchProjectsTaskDetailsPanel');
         if (taskPanel) taskPanel.style.display = 'none';
+        if (metadataPanel) metadataPanel.style.display = 'block';
+    }
+
+    function showSearchProjectsResourceDetails(metadataRow) {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsResourceDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsResourceDetailsBody');
+        if (!resourcePanel || !statusEl || !bodyEl) return;
+
+        if (metadataPanel) metadataPanel.style.display = 'none';
+        resourcePanel.style.display = 'block';
+        resourcePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading resource details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsResourceDetails(metadataRow)
+            .catch((err) => {
+                console.error('Error loading resource details:', err);
+                statusEl.textContent = 'Failed to load resource details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideSearchProjectsResourceDetails() {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
+        if (resourcePanel) resourcePanel.style.display = 'none';
+        if (metadataPanel) metadataPanel.style.display = 'block';
+    }
+
+    function showSearchProjectsTeamDetails(metadataRow) {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsTeamDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTeamDetailsBody');
+        if (!teamPanel || !statusEl || !bodyEl) return;
+
+        if (metadataPanel) metadataPanel.style.display = 'none';
+        teamPanel.style.display = 'block';
+        teamPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading team details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsTeamDetails(metadataRow)
+            .catch((err) => {
+                console.error('Error loading team details:', err);
+                statusEl.textContent = 'Failed to load team details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideSearchProjectsTeamDetails() {
+        const metadataPanel = document.getElementById('searchProjectsMetadataPanel');
+        const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
+        if (teamPanel) teamPanel.style.display = 'none';
         if (metadataPanel) metadataPanel.style.display = 'block';
     }
 
