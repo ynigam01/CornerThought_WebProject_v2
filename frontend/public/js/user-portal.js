@@ -3905,6 +3905,29 @@ const projectFormHTML = `
                 <div id="searchProjectsMiscDetailsStatus" class="upload-message" aria-live="polite"></div>
                 <div id="searchProjectsMiscDetailsBody"></div>
             </div>
+
+            <div id="searchProjectsTeamMembersPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsTeamMembersTitle">Project Team</h3>
+                        <p class="subtitle">Team members assigned to this project.</p>
+                    </div>
+                    <button type="button" id="searchProjectsTeamMembersBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsTeamMembersStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsTeamMembersTableWrap" style="margin-top: 12px;"></div>
+            </div>
+
+            <div id="searchProjectsTeamMemberDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsTeamMemberDetailsTitle">Team Member Details</h3>
+                    </div>
+                    <button type="button" id="searchProjectsTeamMemberDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsTeamMemberDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsTeamMemberDetailsBody"></div>
+            </div>
         `;
 
         const input = document.getElementById('searchProjectsInput');
@@ -4008,6 +4031,27 @@ const projectFormHTML = `
         if (metadataBackBtn) {
             metadataBackBtn.addEventListener('click', () => {
                 hideSearchProjectsMetadataPanel();
+            });
+        }
+
+        const teamBtn = document.getElementById('searchProjectsTeamAction');
+        if (teamBtn) {
+            teamBtn.addEventListener('click', () => {
+                showSearchProjectsTeamMembersPanel();
+            });
+        }
+
+        const teamMembersBackBtn = document.getElementById('searchProjectsTeamMembersBackButton');
+        if (teamMembersBackBtn) {
+            teamMembersBackBtn.addEventListener('click', () => {
+                hideSearchProjectsTeamMembersPanel();
+            });
+        }
+
+        const teamMemberDetailsBackBtn = document.getElementById('searchProjectsTeamMemberDetailsBackButton');
+        if (teamMemberDetailsBackBtn) {
+            teamMemberDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsTeamMemberDetails();
             });
         }
 
@@ -4984,6 +5028,215 @@ const projectFormHTML = `
         bodyEl.appendChild(list);
     }
 
+    async function refreshSearchProjectsTeamMembers() {
+        const statusEl = document.getElementById('searchProjectsTeamMembersStatus');
+        const tableWrap = document.getElementById('searchProjectsTeamMembersTableWrap');
+        if (!statusEl || !tableWrap) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const projectId = searchProjectsSelectedProject ? searchProjectsSelectedProject.project_id : null;
+        if (!projectId) {
+            tableWrap.innerHTML = '';
+            statusEl.textContent = 'No project selected.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        statusEl.textContent = 'Loading team members...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        tableWrap.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('project_team_members')
+                .select('user_id, name')
+                .eq('project_id', projectId)
+                .eq('organization_id', organizationId)
+                .order('name', { ascending: true });
+
+            if (error) {
+                console.error('Error loading project team members:', error);
+                statusEl.textContent = 'Failed to load team members.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const members = (rows || []).filter(r => r && r.name);
+            if (members.length === 0) {
+                statusEl.textContent = 'No team members found for this project.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.className = 'organizations-table';
+
+            const thead = document.createElement('thead');
+            const headRow = document.createElement('tr');
+            const th = document.createElement('th');
+            th.textContent = 'Name';
+            headRow.appendChild(th);
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            members.forEach(member => {
+                const tr = document.createElement('tr');
+                tr.classList.add('metadata-row-clickable');
+                tr.addEventListener('click', () => {
+                    showSearchProjectsTeamMemberDetails(member);
+                });
+                const td = document.createElement('td');
+                td.textContent = member.name;
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+
+            tableWrap.innerHTML = '';
+            tableWrap.appendChild(table);
+
+            statusEl.textContent = `Loaded ${members.length} team member${members.length === 1 ? '' : 's'}.`;
+            statusEl.classList.add('upload-message--success');
+        } catch (err) {
+            console.error('Unexpected error loading project team members:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading team members.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    async function loadSearchProjectsTeamMemberDetails(member) {
+        const statusEl = document.getElementById('searchProjectsTeamMemberDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTeamMemberDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const userId = member && member.user_id ? member.user_id : null;
+        if (!userId) {
+            statusEl.textContent = 'Missing user for this team member.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const projectId = searchProjectsSelectedProject ? searchProjectsSelectedProject.project_id : null;
+        if (!projectId) {
+            statusEl.textContent = 'No project selected.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        try {
+            const { data: userRows, error: userErr } = await supabase
+                .from('users')
+                .select('id, name, usertype, organizationid')
+                .eq('id', userId)
+                .limit(1);
+
+            if (userErr) {
+                console.error('Error loading user details:', userErr);
+                statusEl.textContent = 'Failed to load user details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const user = Array.isArray(userRows) && userRows.length ? userRows[0] : null;
+            const displayName = (user && user.name) ? user.name : (member.name || 'User');
+            const userType = user && user.usertype ? user.usertype : '';
+
+            const { data: assignments, error: assignErr } = await supabase
+                .from('project_team_member_assignments')
+                .select('assignment_type, assignment')
+                .eq('project_id', projectId)
+                .eq('organization_id', organizationId)
+                .eq('user_id', userId)
+                .order('assignment_type', { ascending: true });
+
+            if (assignErr) {
+                console.error('Error loading team member assignments:', assignErr);
+                statusEl.textContent = 'Failed to load assignments.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            renderSearchProjectsTeamMemberDetails(displayName, userType, assignments || []);
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error');
+        } catch (err) {
+            console.error('Unexpected error loading team member details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading team member details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
+    function renderSearchProjectsTeamMemberDetails(name, userType, assignments) {
+        const bodyEl = document.getElementById('searchProjectsTeamMemberDetailsBody');
+        if (!bodyEl) return;
+
+        const items = [];
+        const addItem = (label, value) => {
+            if (value == null || value === '') return;
+            items.push({ label, value });
+        };
+
+        addItem('Name', name);
+        addItem('User Type', userType);
+
+        const list = document.createElement('div');
+        list.className = 'task-details-list';
+
+        items.forEach(({ label, value }) => {
+            const row = document.createElement('div');
+            row.className = 'task-details-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'task-details-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = 'task-details-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            list.appendChild(row);
+        });
+
+        if (Array.isArray(assignments)) {
+            assignments.forEach((assignment) => {
+                const type = assignment && assignment.assignment_type ? assignment.assignment_type : '';
+                const value = assignment && assignment.assignment ? assignment.assignment : '';
+                if (!type && !value) return;
+                const row = document.createElement('div');
+                row.className = 'task-details-row';
+
+                const labelEl = document.createElement('div');
+                labelEl.className = 'task-details-label';
+                labelEl.textContent = 'Assignment';
+
+                const valueEl = document.createElement('div');
+                valueEl.className = 'task-details-value';
+                valueEl.textContent = `${type}${type && value ? ': ' : ''}${value}`;
+
+                row.appendChild(labelEl);
+                row.appendChild(valueEl);
+                list.appendChild(row);
+            });
+        }
+
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(list);
+    }
+
     function formatDateOnly(value) {
         if (!value) return '';
         const date = value instanceof Date ? value : new Date(value);
@@ -5069,6 +5322,7 @@ const projectFormHTML = `
         const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
         const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
         const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
         const title = document.getElementById('searchProjectsMetadataTitle');
         if (!panel) return;
 
@@ -5085,6 +5339,7 @@ const projectFormHTML = `
         if (resourcePanel) resourcePanel.style.display = 'none';
         if (teamPanel) teamPanel.style.display = 'none';
         if (miscPanel) miscPanel.style.display = 'none';
+        if (membersPanel) membersPanel.style.display = 'none';
         panel.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -5098,11 +5353,13 @@ const projectFormHTML = `
         const resourcePanel = document.getElementById('searchProjectsResourceDetailsPanel');
         const teamPanel = document.getElementById('searchProjectsTeamDetailsPanel');
         const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
         if (panel) panel.style.display = 'none';
         if (taskPanel) taskPanel.style.display = 'none';
         if (resourcePanel) resourcePanel.style.display = 'none';
         if (teamPanel) teamPanel.style.display = 'none';
         if (miscPanel) miscPanel.style.display = 'none';
+        if (membersPanel) membersPanel.style.display = 'none';
         if (detailsScreen) detailsScreen.style.display = 'block';
     }
 
@@ -5224,6 +5481,65 @@ const projectFormHTML = `
         const miscPanel = document.getElementById('searchProjectsMiscDetailsPanel');
         if (miscPanel) miscPanel.style.display = 'none';
         if (metadataPanel) metadataPanel.style.display = 'block';
+    }
+
+    function showSearchProjectsTeamMembersPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
+        const memberDetailsPanel = document.getElementById('searchProjectsTeamMemberDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsTeamMembersStatus');
+        if (!membersPanel || !statusEl) return;
+
+        if (detailsScreen) detailsScreen.style.display = 'none';
+        if (memberDetailsPanel) memberDetailsPanel.style.display = 'none';
+        membersPanel.style.display = 'block';
+        membersPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        const projectName =
+            searchProjectsSelectedProject && searchProjectsSelectedProject.project_name
+                ? searchProjectsSelectedProject.project_name
+                : 'Project';
+        const titleEl = document.getElementById('searchProjectsTeamMembersTitle');
+        if (titleEl) titleEl.textContent = `Project Team for ${projectName}`;
+
+        refreshSearchProjectsTeamMembers();
+    }
+
+    function hideSearchProjectsTeamMembersPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
+        if (membersPanel) membersPanel.style.display = 'none';
+        if (detailsScreen) detailsScreen.style.display = 'block';
+    }
+
+    function showSearchProjectsTeamMemberDetails(member) {
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
+        const detailsPanel = document.getElementById('searchProjectsTeamMemberDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsTeamMemberDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsTeamMemberDetailsBody');
+        if (!detailsPanel || !statusEl || !bodyEl) return;
+
+        if (membersPanel) membersPanel.style.display = 'none';
+        detailsPanel.style.display = 'block';
+        detailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading team member details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsTeamMemberDetails(member)
+            .catch((err) => {
+                console.error('Error loading team member details:', err);
+                statusEl.textContent = 'Failed to load team member details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideSearchProjectsTeamMemberDetails() {
+        const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
+        const detailsPanel = document.getElementById('searchProjectsTeamMemberDetailsPanel');
+        if (detailsPanel) detailsPanel.style.display = 'none';
+        if (membersPanel) membersPanel.style.display = 'block';
     }
 
     function renderGeneralSearchModule() {
