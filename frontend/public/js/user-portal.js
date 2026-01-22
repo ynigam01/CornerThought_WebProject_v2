@@ -3766,18 +3766,41 @@ const projectFormHTML = `
         renderSearchProjectsModule();
     }
 
+    function renderMyProjectsModule() {
+        renderSearchProjectsModule({
+            title: 'My Projects',
+            listLoader: loadMyProjectsForUser,
+            emptyMessage: 'No projects assigned to you.'
+        });
+    }
+
     function showGeneralSearchView() {
         showSearchView();
         renderGeneralSearchModule();
     }
 
-    function renderSearchProjectsModule() {
+    let searchProjectsListEmptyMessage = 'No projects found for your organization.';
+
+    function resetSearchProjectsCache() {
+        searchProjectsCache = [];
+        searchProjectsCacheLoaded = false;
+        searchProjectsCacheLoading = false;
+    }
+
+    function renderSearchProjectsModule(options = {}) {
         const searchView = document.getElementById('searchView');
         if (!searchView) return;
+        const {
+            title = 'Search Projects',
+            listLoader = loadOrganizationProjectsForSearch,
+            emptyMessage = 'No projects found for your organization.'
+        } = options;
+
+        searchProjectsListEmptyMessage = emptyMessage;
 
         // Re-render from scratch each time we enter this route.
         searchView.innerHTML = `
-            <h1>Search Projects</h1>
+            <h1>${title}</h1>
             <div id="searchProjectsMain">
                 <div id="searchProjectsPanel" class="project-types-panel">
                     <p class="subtitle" style="margin: 0 0 10px;">Search by project name</p>
@@ -3928,6 +3951,18 @@ const projectFormHTML = `
                 <div id="searchProjectsTeamMemberDetailsStatus" class="upload-message" aria-live="polite"></div>
                 <div id="searchProjectsTeamMemberDetailsBody"></div>
             </div>
+
+            <div id="searchProjectsProjectDetailsPanel" class="project-types-panel" style="display: none;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3 id="searchProjectsProjectDetailsTitle">Project Details</h3>
+                        <p class="subtitle">Project parameters and entries.</p>
+                    </div>
+                    <button type="button" id="searchProjectsProjectDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="searchProjectsProjectDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="searchProjectsProjectDetailsBody"></div>
+            </div>
         `;
 
         const input = document.getElementById('searchProjectsInput');
@@ -4004,7 +4039,8 @@ const projectFormHTML = `
         }
 
         // Load organization projects list beneath the search bar.
-        loadOrganizationProjectsForSearch();
+        resetSearchProjectsCache();
+        listLoader();
 
         const backBtn = document.getElementById('searchProjectsDetailsBack');
         if (backBtn) {
@@ -4023,7 +4059,7 @@ const projectFormHTML = `
         const detailsBtn = document.getElementById('searchProjectsDetailsAction');
         if (detailsBtn) {
             detailsBtn.addEventListener('click', () => {
-                hideSearchProjectsMetadataPanel();
+                showSearchProjectsProjectDetailsPanel();
             });
         }
 
@@ -4052,6 +4088,13 @@ const projectFormHTML = `
         if (teamMemberDetailsBackBtn) {
             teamMemberDetailsBackBtn.addEventListener('click', () => {
                 hideSearchProjectsTeamMemberDetails();
+            });
+        }
+
+        const projectDetailsBackBtn = document.getElementById('searchProjectsProjectDetailsBackButton');
+        if (projectDetailsBackBtn) {
+            projectDetailsBackBtn.addEventListener('click', () => {
+                hideSearchProjectsProjectDetailsPanel();
             });
         }
 
@@ -4156,6 +4199,80 @@ const projectFormHTML = `
         }
     }
 
+    async function loadMyProjectsForUser() {
+        const userId = ctUser && ctUser.id != null ? ctUser.id : null;
+        if (!organizationId || userId == null) {
+            setSearchProjectsListStatus('Unable to determine your user or organization.');
+            return;
+        }
+        if (searchProjectsCacheLoaded || searchProjectsCacheLoading) {
+            updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
+            return;
+        }
+
+        searchProjectsCacheLoading = true;
+        setSearchProjectsListStatus('Loading your projects…');
+
+        try {
+            const { data: memberships, error: memberErr } = await supabase
+                .from('project_team_members')
+                .select('project_id')
+                .eq('organization_id', organizationId)
+                .eq('user_id', userId);
+
+            if (memberErr) {
+                console.error('Error loading project team memberships:', memberErr);
+                setSearchProjectsListStatus('Failed to load your projects.');
+                searchProjectsCache = [];
+                searchProjectsCacheLoaded = false;
+                searchProjectsCacheLoading = false;
+                updateSearchProjectsNameList('');
+                return;
+            }
+
+            const projectIds = Array.from(
+                new Set((memberships || []).map(row => row && row.project_id).filter(Boolean))
+            );
+
+            if (projectIds.length === 0) {
+                searchProjectsCache = [];
+                searchProjectsCacheLoaded = true;
+                searchProjectsCacheLoading = false;
+                updateSearchProjectsNameList('');
+                return;
+            }
+
+            const { data: projects, error: projErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name, project_description, project_type_id, project_type:project_type_id (project_type)')
+                .eq('organization_id', organizationId)
+                .in('project_id', projectIds)
+                .order('project_name', { ascending: true });
+
+            if (projErr) {
+                console.error('Error loading user projects:', projErr);
+                setSearchProjectsListStatus('Failed to load your projects.');
+                searchProjectsCache = [];
+                searchProjectsCacheLoaded = false;
+                searchProjectsCacheLoading = false;
+                updateSearchProjectsNameList('');
+                return;
+            }
+
+            searchProjectsCache = Array.isArray(projects) ? projects : [];
+            searchProjectsCacheLoaded = true;
+            searchProjectsCacheLoading = false;
+            updateSearchProjectsNameList('');
+        } catch (err) {
+            console.error('Unexpected error loading user projects:', err);
+            setSearchProjectsListStatus('An unexpected error occurred while loading your projects.');
+            searchProjectsCache = [];
+            searchProjectsCacheLoaded = false;
+            searchProjectsCacheLoading = false;
+            updateSearchProjectsNameList('');
+        }
+    }
+
     function setSearchProjectsListStatus(message) {
         const el = document.getElementById('searchProjectsListStatus');
         if (el) el.textContent = message || '';
@@ -4179,7 +4296,7 @@ const projectFormHTML = `
         listEl.innerHTML = '';
 
         if (!projects.length) {
-            setSearchProjectsListStatus('No projects found for your organization.');
+            setSearchProjectsListStatus(searchProjectsListEmptyMessage);
             return;
         }
 
@@ -5110,6 +5227,85 @@ const projectFormHTML = `
         }
     }
 
+    async function refreshSearchProjectsProjectDetails() {
+        const statusEl = document.getElementById('searchProjectsProjectDetailsStatus');
+        const bodyEl = document.getElementById('searchProjectsProjectDetailsBody');
+        if (!statusEl || !bodyEl) return;
+
+        if (!organizationId) {
+            statusEl.textContent = 'No organization found for this user.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        const projectId = searchProjectsSelectedProject ? searchProjectsSelectedProject.project_id : null;
+        if (!projectId) {
+            bodyEl.innerHTML = '';
+            statusEl.textContent = 'No project selected.';
+            statusEl.classList.add('upload-message--error');
+            return;
+        }
+
+        statusEl.textContent = 'Loading project details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        try {
+            const { data: rows, error } = await supabase
+                .from('project_details')
+                .select('parameter_name, parameter_entry')
+                .eq('project_id', projectId)
+                .eq('organization_id', organizationId)
+                .order('parameter_name', { ascending: true });
+
+            if (error) {
+                console.error('Error loading project details:', error);
+                statusEl.textContent = 'Failed to load project details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const details = (rows || []).filter(r => r && (r.parameter_name || r.parameter_entry));
+            if (details.length === 0) {
+                statusEl.textContent = 'No project details found.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const list = document.createElement('div');
+            list.className = 'task-details-list';
+
+            details.forEach((row) => {
+                const name = row.parameter_name || '';
+                const entry = row.parameter_entry || '';
+                const line = document.createElement('div');
+                line.className = 'task-details-row';
+
+                const labelEl = document.createElement('div');
+                labelEl.className = 'task-details-label';
+                labelEl.textContent = name ? `${name}:` : '';
+
+                const valueEl = document.createElement('div');
+                valueEl.className = 'task-details-value';
+                valueEl.textContent = entry;
+
+                line.appendChild(labelEl);
+                line.appendChild(valueEl);
+                list.appendChild(line);
+            });
+
+            bodyEl.innerHTML = '';
+            bodyEl.appendChild(list);
+
+            statusEl.textContent = `Loaded ${details.length} detail${details.length === 1 ? '' : 's'}.`;
+            statusEl.classList.add('upload-message--success');
+        } catch (err) {
+            console.error('Unexpected error loading project details:', err);
+            statusEl.textContent = 'An unexpected error occurred while loading project details.';
+            statusEl.classList.add('upload-message--error');
+        }
+    }
+
     async function loadSearchProjectsTeamMemberDetails(member) {
         const statusEl = document.getElementById('searchProjectsTeamMemberDetailsStatus');
         const bodyEl = document.getElementById('searchProjectsTeamMemberDetailsBody');
@@ -5487,11 +5683,13 @@ const projectFormHTML = `
         const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
         const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
         const memberDetailsPanel = document.getElementById('searchProjectsTeamMemberDetailsPanel');
+        const projectDetailsPanel = document.getElementById('searchProjectsProjectDetailsPanel');
         const statusEl = document.getElementById('searchProjectsTeamMembersStatus');
         if (!membersPanel || !statusEl) return;
 
         if (detailsScreen) detailsScreen.style.display = 'none';
         if (memberDetailsPanel) memberDetailsPanel.style.display = 'none';
+        if (projectDetailsPanel) projectDetailsPanel.style.display = 'none';
         membersPanel.style.display = 'block';
         membersPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -5509,6 +5707,33 @@ const projectFormHTML = `
         const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
         const membersPanel = document.getElementById('searchProjectsTeamMembersPanel');
         if (membersPanel) membersPanel.style.display = 'none';
+        if (detailsScreen) detailsScreen.style.display = 'block';
+    }
+
+    function showSearchProjectsProjectDetailsPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const projectDetailsPanel = document.getElementById('searchProjectsProjectDetailsPanel');
+        const statusEl = document.getElementById('searchProjectsProjectDetailsStatus');
+        if (!projectDetailsPanel || !statusEl) return;
+
+        if (detailsScreen) detailsScreen.style.display = 'none';
+        projectDetailsPanel.style.display = 'block';
+        projectDetailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        const projectName =
+            searchProjectsSelectedProject && searchProjectsSelectedProject.project_name
+                ? searchProjectsSelectedProject.project_name
+                : 'Project';
+        const titleEl = document.getElementById('searchProjectsProjectDetailsTitle');
+        if (titleEl) titleEl.textContent = `Project Details for ${projectName}`;
+
+        refreshSearchProjectsProjectDetails();
+    }
+
+    function hideSearchProjectsProjectDetailsPanel() {
+        const detailsScreen = document.getElementById('searchProjectsDetailsScreen');
+        const projectDetailsPanel = document.getElementById('searchProjectsProjectDetailsPanel');
+        if (projectDetailsPanel) projectDetailsPanel.style.display = 'none';
         if (detailsScreen) detailsScreen.style.display = 'block';
     }
 
@@ -5635,11 +5860,8 @@ const projectFormHTML = `
 
     function showProjectsView() {
         exitOrganizationSettings();
-        hide('#homeView');
-        hide('#searchView');
-        hide('#createView');
-        hide('#addDataView');
-        show('#projectsView');
+        showSearchView();
+        renderMyProjectsModule();
     }
 
     function showCreateView() {
