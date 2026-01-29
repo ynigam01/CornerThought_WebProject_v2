@@ -1248,6 +1248,53 @@ body {
     cursor: pointer;
 }
 
+.add-data-project-name {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background-color: #eaf4ff;
+    color: #1f5fa8;
+    font-size: 0.9rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* Add Data: Project selection modal tweaks */
+.add-data-project-modal .modal-content {
+    padding: 24px 28px 20px;
+    box-sizing: border-box;
+    gap: 12px;
+}
+.add-data-project-modal .subtitle {
+    margin: 6px 0 4px;
+}
+.add-data-project-modal .input-group {
+    margin-top: 8px;
+}
+.add-data-project-modal #addDataProjectStatus {
+    margin-top: 6px;
+}
+.add-data-project-modal .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+.add-data-project-modal .modal-actions button {
+    margin-left: 0;
+    background-color: #3498db;
+    color: #ffffff;
+    padding: 8px 15px;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+.add-data-project-modal .modal-actions button:hover {
+    background-color: #2980b9;
+}
+
 .modal-actions button[type="submit"] {
     background-color: #27ae60;
     color: white;

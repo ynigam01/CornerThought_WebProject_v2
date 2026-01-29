@@ -121,6 +121,19 @@ document.addEventListener("DOMContentLoaded", () => {
     let lessonsMetadataManageChoices = null;
     let lessonsMetadataManageRowsCache = [];
 
+    // State for Add Data project selection
+    let addDataProjectModal = null;
+    let addDataProjectSelect = null;
+    let addDataProjectConfirmButton = null;
+    let addDataProjectCancelButton = null;
+    let addDataProjectStatus = null;
+    let addDataSelectedProject = null; // { id, name }
+    let addDataProjectsCache = [];
+    let addDataProjectsLoaded = false;
+    let addDataProjectsLoading = false;
+    let addDataProjectNameEl = null;
+    let addDataEditingEntry = null;
+
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
         try {
@@ -3079,6 +3092,7 @@ const projectFormHTML = `
             <div class="form-content">
             <span class="close-button" id="closeAddData">&times;</span>
             <h3>Add Data</h3>
+            <div id="addDataProjectLabel" class="subtitle" style="margin-bottom: 10px;"></div>
             <form id="addDataForm">
                 <div class="input-group">
                     <label for="issueSuccess">Issue/Success</label>
@@ -3109,6 +3123,26 @@ const projectFormHTML = `
                         <button type="button" class="add-lesson-button">Add</button>
                     </div>
             </form>
+            </div>
+        </div>
+    </div>`;
+
+    const addDataProjectModalHTML = `
+    <div class="modal modal--center add-data-project-modal" id="addDataProjectModal">
+        <div class="modal-content add-data-project-modal-content" style="max-width: 520px;">
+            <span class="close-button" id="closeAddDataProject">&times;</span>
+            <h3>Select Project</h3>
+            <p class="subtitle">Choose a project assigned to you before adding data.</p>
+            <div class="input-group">
+                <label for="addDataProjectSelect">Project</label>
+                <select id="addDataProjectSelect">
+                    <option value="">Select a project</option>
+                </select>
+            </div>
+            <div id="addDataProjectStatus" class="upload-message" aria-live="polite"></div>
+            <div class="modal-actions">
+                <button type="button" id="cancelAddDataProject">Cancel</button>
+                <button type="button" id="confirmAddDataProject">Continue</button>
             </div>
         </div>
     </div>`;
@@ -3148,6 +3182,7 @@ const projectFormHTML = `
 
     document.body.insertAdjacentHTML("beforeend", projectFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
+    document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
 
     const addDataButton = document.querySelector(".add-data-button");
@@ -3156,13 +3191,28 @@ const projectFormHTML = `
 
     const createProjectModal = document.getElementById("createProjectModal");
     const addDataModal = document.getElementById("addDataModal");
+    addDataProjectModal = document.getElementById("addDataProjectModal");
     const addUserModal = document.getElementById("addUserModal");
+    addDataProjectSelect = document.getElementById("addDataProjectSelect");
+    addDataProjectConfirmButton = document.getElementById("confirmAddDataProject");
+    addDataProjectCancelButton = document.getElementById("cancelAddDataProject");
+    addDataProjectStatus = document.getElementById("addDataProjectStatus");
+    const addDataProjectLabel = document.getElementById("addDataProjectLabel");
+    addDataProjectNameEl = document.getElementById("addDataProjectName");
 
     document.getElementById("closeCreateProject").onclick = () => createProjectModal.classList.remove("show");
     document.getElementById("closeAddData").onclick = () => {
         addDataModal.classList.remove("show");
         resetAddDataForm();
     };
+    document.getElementById("closeAddDataProject").onclick = () => {
+        if (addDataProjectModal) addDataProjectModal.classList.remove("show");
+    };
+    if (addDataProjectCancelButton) {
+        addDataProjectCancelButton.onclick = () => {
+            if (addDataProjectModal) addDataProjectModal.classList.remove("show");
+        };
+    }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
 
@@ -3195,6 +3245,9 @@ const projectFormHTML = `
     if (e.target === addDataModal) {
         addDataModal.classList.remove("show");
         resetAddDataForm();
+    }
+    if (addDataProjectModal && e.target === addDataProjectModal) {
+        addDataProjectModal.classList.remove("show");
     }
     if (e.target === addUserModal) addUserModal.classList.remove("show");
     };
@@ -3308,42 +3361,37 @@ const projectFormHTML = `
         e.target.reset();
     };
 
+    function handleIssueSuccessSubmit(type) {
+        const text = document.getElementById("issueSuccess").value.trim();
+        if (!text) return;
+
+        if (addDataEditingEntry) {
+            updateIssueSuccessEntry(addDataEditingEntry, type, text);
+        } else {
+            addIssueSuccessEntry(type, text);
+        }
+
+        // Grey out the field and disable it
+        const inputField = document.getElementById("issueSuccess");
+        inputField.style.backgroundColor = "#f5f5f5";
+        inputField.style.color = "#999";
+        inputField.disabled = true;
+        // Show all sections
+        document.getElementById("causesSection").style.display = "block";
+        document.getElementById("impactsSection").style.display = "block";
+        document.getElementById("actionsSection").style.display = "block";
+        document.getElementById("lessonsSection").style.display = "block";
+        // Keep the form open - don't close it
+    }
+
     // Handle Issue button click
     document.querySelector(".issue-button").onclick = () => {
-        const text = document.getElementById("issueSuccess").value.trim();
-        if (text) {
-            addIssueSuccessEntry("Issue", text);
-            // Grey out the field and disable it
-            const inputField = document.getElementById("issueSuccess");
-            inputField.style.backgroundColor = "#f5f5f5";
-            inputField.style.color = "#999";
-            inputField.disabled = true;
-            // Show all sections
-            document.getElementById("causesSection").style.display = "block";
-            document.getElementById("impactsSection").style.display = "block";
-            document.getElementById("actionsSection").style.display = "block";
-            document.getElementById("lessonsSection").style.display = "block";
-            // Keep the form open - don't close it
-        }
+        handleIssueSuccessSubmit("Issue");
     };
 
     // Handle Success button click
     document.querySelector(".success-button").onclick = () => {
-        const text = document.getElementById("issueSuccess").value.trim();
-        if (text) {
-            addIssueSuccessEntry("Success", text);
-            // Grey out the field and disable it
-            const inputField = document.getElementById("issueSuccess");
-            inputField.style.backgroundColor = "#f5f5f5";
-            inputField.style.color = "#999";
-            inputField.disabled = true;
-            // Show all sections
-            document.getElementById("causesSection").style.display = "block";
-            document.getElementById("impactsSection").style.display = "block";
-            document.getElementById("actionsSection").style.display = "block";
-            document.getElementById("lessonsSection").style.display = "block";
-            // Keep the form open - don't close it
-        }
+        handleIssueSuccessSubmit("Success");
     };
 
     // Function to add Issue/Success entry to display area
@@ -3351,6 +3399,12 @@ const projectFormHTML = `
         const displayArea = getActiveDisplayArea();
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
+        entry.dataset.type = type;
+        entry.dataset.text = text;
+        if (addDataSelectedProject && addDataSelectedProject.id != null) {
+            entry.dataset.projectId = addDataSelectedProject.id;
+            entry.dataset.projectName = addDataSelectedProject.name || '';
+        }
         
         // Create the main content with edit/delete buttons
         const mainContent = document.createElement("div");
@@ -3427,22 +3481,29 @@ const projectFormHTML = `
         const editButton = mainContent.querySelector('.edit-entry-button');
         editButton.addEventListener('click', (e) => {
             e.stopPropagation(); // Prevent triggering the entry click
-            openEditModal(type, text, (newText) => {
-                // Update the main text
-                const textElement = mainContent.querySelector('.entry-text');
-                textElement.innerHTML = `<strong>${type}:</strong> ${newText}`;
-            });
+            openAddDataFormForEdit(entry);
         });
 
         // Add event listener for clicking on the entry text to edit main content
         const textElement = mainContent.querySelector('.entry-text');
         textElement.addEventListener('click', (e) => {
             e.stopPropagation();
-            openEditModal(type, text, (newText) => {
-                // Update the main text
-                textElement.innerHTML = `<strong>${type}:</strong> ${newText}`;
-            });
+            openAddDataFormForEdit(entry);
         });
+    }
+
+    function updateIssueSuccessEntry(entry, type, text) {
+        entry.dataset.type = type;
+        entry.dataset.text = text;
+        const textElement = entry.querySelector('.entry-text');
+        if (textElement) {
+            textElement.innerHTML = `<strong>${type}:</strong> ${text}`;
+        }
+        const editButton = entry.querySelector('.edit-entry-button');
+        if (editButton) {
+            editButton.setAttribute('title', `Edit ${type}`);
+        }
+        addDataEditingEntry = entry;
     }
 
     // Handle Add Cause button click
@@ -3489,43 +3550,41 @@ const projectFormHTML = `
     function addSubItemEntry(listType, text) {
         const displayArea = getActiveDisplayArea();
         const entries = displayArea.querySelectorAll('.issue-success-entry');
-        
-        if (entries.length > 0) {
-            const lastEntry = entries[entries.length - 1];
-            const container = lastEntry.querySelector(`.sub-item-container:nth-child(${listType === 'causes' ? '2' : listType === 'impacts' ? '3' : listType === 'actions' ? '4' : '5'})`);
-            const list = lastEntry[`${listType}List`];
-            
-            // Show the container if it's hidden
-            container.style.display = "block";
-            
-            // Add the item as a clickable bullet point
-            const item = document.createElement("li");
-            item.textContent = text;
-            item.style.cursor = "pointer";
-            item.style.padding = "4px 8px";
-            item.style.borderRadius = "4px";
-            item.style.transition = "background-color 0.2s ease";
-            item.style.marginBottom = "2px";
-            
-            // Add hover effect
-            item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = "#f0f0f0";
+        const targetEntry = addDataEditingEntry || (entries.length > 0 ? entries[entries.length - 1] : null);
+        if (!targetEntry) return;
+        const container = targetEntry.querySelector(`.sub-item-container:nth-child(${listType === 'causes' ? '2' : listType === 'impacts' ? '3' : listType === 'actions' ? '4' : '5'})`);
+        const list = targetEntry[`${listType}List`];
+
+        // Show the container if it's hidden
+        container.style.display = "block";
+
+        // Add the item as a clickable bullet point
+        const item = document.createElement("li");
+        item.textContent = text;
+        item.style.cursor = "pointer";
+        item.style.padding = "4px 8px";
+        item.style.borderRadius = "4px";
+        item.style.transition = "background-color 0.2s ease";
+        item.style.marginBottom = "2px";
+
+        // Add hover effect
+        item.addEventListener('mouseenter', () => {
+            item.style.backgroundColor = "#f0f0f0";
+        });
+
+        item.addEventListener('mouseleave', () => {
+            item.style.backgroundColor = "transparent";
+        });
+
+        // Add click event to edit the sub-item
+        item.addEventListener('click', () => {
+            const capitalizedType = listType.charAt(0).toUpperCase() + listType.slice(1);
+            openEditModal(capitalizedType, text, (newText) => {
+                item.textContent = newText;
             });
-            
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = "transparent";
-            });
-            
-            // Add click event to edit the sub-item
-            item.addEventListener('click', () => {
-                const capitalizedType = listType.charAt(0).toUpperCase() + listType.slice(1);
-                openEditModal(capitalizedType, text, (newText) => {
-                    item.textContent = newText;
-                });
-            });
-            
-            list.appendChild(item);
-        }
+        });
+
+        list.appendChild(item);
     }
 
     // Function to reset the Add Data form
@@ -3535,6 +3594,7 @@ const projectFormHTML = `
         inputField.disabled = false;
         inputField.style.backgroundColor = "";
         inputField.style.color = "";
+        addDataEditingEntry = null;
         // Hide all sections
         document.getElementById("causesSection").style.display = "none";
         document.getElementById("impactsSection").style.display = "none";
@@ -3592,14 +3652,185 @@ const projectFormHTML = `
                 return;
             }
         }
+        // Require project selection before showing the Add Data form
+        openAddDataProjectSelector();
+    };
+
+    function setAddDataProjectStatus(message, isError = false) {
+        if (!addDataProjectStatus) return;
+        addDataProjectStatus.textContent = message || '';
+        addDataProjectStatus.classList.remove('upload-message--error', 'upload-message--success');
+        if (message) {
+            addDataProjectStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+        }
+    }
+
+    function renderAddDataProjectOptions() {
+        if (!addDataProjectSelect) return;
+        addDataProjectSelect.innerHTML = '<option value="">Select a project</option>';
+        addDataProjectsCache.forEach(project => {
+            const option = document.createElement('option');
+            option.value = project.project_id;
+            option.textContent = project.project_name;
+            addDataProjectSelect.appendChild(option);
+        });
+        addDataProjectSelect.disabled = addDataProjectsCache.length === 0;
+        if (addDataSelectedProject) {
+            addDataProjectSelect.value = String(addDataSelectedProject.id);
+        }
+    }
+
+    async function loadAddDataProjectsForUser() {
+        if (addDataProjectsLoaded || addDataProjectsLoading) {
+            renderAddDataProjectOptions();
+            return;
+        }
+        const userId = ctUser && ctUser.id != null ? ctUser.id : null;
+        if (!organizationId || userId == null) {
+            setAddDataProjectStatus('Unable to determine your user or organization.', true);
+            addDataProjectsCache = [];
+            addDataProjectsLoaded = true;
+            renderAddDataProjectOptions();
+            return;
+        }
+
+        addDataProjectsLoading = true;
+        setAddDataProjectStatus('Loading projects...');
+
+        try {
+            const { data: memberships, error: memberErr } = await supabase
+                .from('project_team_members')
+                .select('project_id')
+                .eq('organization_id', organizationId)
+                .eq('user_id', userId);
+
+            if (memberErr) {
+                console.error('Error loading add data project memberships:', memberErr);
+                setAddDataProjectStatus('Failed to load your projects.', true);
+                addDataProjectsCache = [];
+                addDataProjectsLoaded = true;
+                addDataProjectsLoading = false;
+                renderAddDataProjectOptions();
+                return;
+            }
+
+            const projectIds = Array.from(
+                new Set((memberships || []).map(row => row && row.project_id).filter(Boolean))
+            );
+
+            if (projectIds.length === 0) {
+                setAddDataProjectStatus('No projects assigned to you.', true);
+                addDataProjectsCache = [];
+                addDataProjectsLoaded = true;
+                addDataProjectsLoading = false;
+                renderAddDataProjectOptions();
+                return;
+            }
+
+            const { data: projects, error: projErr } = await supabase
+                .from('projects')
+                .select('project_id, project_name')
+                .eq('organization_id', organizationId)
+                .in('project_id', projectIds)
+                .order('project_name', { ascending: true });
+
+            if (projErr) {
+                console.error('Error loading add data projects:', projErr);
+                setAddDataProjectStatus('Failed to load your projects.', true);
+                addDataProjectsCache = [];
+            } else {
+                addDataProjectsCache = Array.isArray(projects) ? projects : [];
+                if (addDataProjectsCache.length === 0) {
+                    setAddDataProjectStatus('No projects assigned to you.', true);
+                } else {
+                    setAddDataProjectStatus('');
+                }
+            }
+        } catch (err) {
+            console.error('Unexpected error loading add data projects:', err);
+            setAddDataProjectStatus('An unexpected error occurred while loading your projects.', true);
+            addDataProjectsCache = [];
+        }
+
+        addDataProjectsLoaded = true;
+        addDataProjectsLoading = false;
+        renderAddDataProjectOptions();
+    }
+
+    function updateAddDataProjectLabel() {
+        if (addDataProjectLabel) {
+            if (addDataSelectedProject && addDataSelectedProject.name) {
+                addDataProjectLabel.textContent = `Project: ${addDataSelectedProject.name}`;
+            } else {
+                addDataProjectLabel.textContent = '';
+            }
+        }
+        if (addDataProjectNameEl) {
+            addDataProjectNameEl.textContent = addDataSelectedProject && addDataSelectedProject.name
+                ? addDataSelectedProject.name
+                : '';
+        }
+    }
+
+    async function openAddDataProjectSelector() {
+        if (!addDataProjectModal) return;
+        addDataProjectModal.classList.add('show');
+        setAddDataProjectStatus('');
+        await loadAddDataProjectsForUser();
+    }
+
+    function showAddDataFormAfterProjectSelect() {
         // Navigate to add data then open modal and reveal display area
         location.hash = 'adddata';
         setTimeout(() => {
             addDataModal.classList.add('show');
             const display = getActiveDisplayArea();
             if (display) display.style.display = 'block';
+            updateAddDataProjectLabel();
         }, 0);
-    };
+    }
+
+    function openAddDataFormForEdit(entry) {
+        if (!entry) return;
+        if (entry.dataset.projectId) {
+            addDataSelectedProject = {
+                id: entry.dataset.projectId,
+                name: entry.dataset.projectName || ''
+            };
+        }
+        resetAddDataForm();
+        addDataEditingEntry = entry;
+        const inputField = document.getElementById("issueSuccess");
+        inputField.value = entry.dataset.text || '';
+        inputField.disabled = false;
+        document.getElementById("causesSection").style.display = "block";
+        document.getElementById("impactsSection").style.display = "block";
+        document.getElementById("actionsSection").style.display = "block";
+        document.getElementById("lessonsSection").style.display = "block";
+        location.hash = 'adddata';
+        setTimeout(() => {
+            addDataModal.classList.add('show');
+            const display = getActiveDisplayArea();
+            if (display) display.style.display = 'block';
+            updateAddDataProjectLabel();
+        }, 0);
+    }
+
+    if (addDataProjectConfirmButton) {
+        addDataProjectConfirmButton.addEventListener('click', () => {
+            const selectedId = addDataProjectSelect ? addDataProjectSelect.value : '';
+            if (!selectedId) {
+                setAddDataProjectStatus('Please select a project to continue.', true);
+                return;
+            }
+            const match = addDataProjectsCache.find(project => String(project.project_id) === String(selectedId));
+            addDataSelectedProject = match
+                ? { id: match.project_id, name: match.project_name }
+                : { id: selectedId, name: '' };
+            if (addDataProjectModal) addDataProjectModal.classList.remove('show');
+            showAddDataFormAfterProjectSelect();
+        });
+    }
 
     function getActiveDisplayArea() {
         // Prefer Add Data view's area if present; fallback to homeView's area
