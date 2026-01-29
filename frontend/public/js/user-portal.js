@@ -133,6 +133,19 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataProjectsLoading = false;
     let addDataProjectNameEl = null;
     let addDataEditingEntry = null;
+    let addMetadataButton = null;
+    let addDataMetadataModal = null;
+    let addDataMetadataSelect = null;
+    let addDataMetadataStatus = null;
+    let addDataMetadataApplyButton = null;
+    let addDataMetadataCancelButton = null;
+    let addDataMetadataChoices = null;
+    let addDataMetadataOptionsCache = [];
+    let addDataMetadataAssignedIds = new Set();
+    let addDataMetadataProjectId = null;
+    let addDataMetadataLoaded = false;
+    let addDataMetadataLoading = false;
+    let addDataMetadataEntry = null;
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -3147,6 +3160,24 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const addDataMetadataModalHTML = `
+    <div class="modal add-data-metadata-modal" id="addDataMetadataModal">
+        <div class="modal-content add-data-metadata-modal-content" style="max-width: 520px;">
+            <span class="close-button" id="closeAddDataMetadata">&times;</span>
+            <h3>Add Metadata</h3>
+            <p class="subtitle">Tag this lesson learned with metadata for the selected project.</p>
+            <div class="input-group">
+                <label for="addDataMetadataSelect">Metadata</label>
+                <select id="addDataMetadataSelect" multiple></select>
+            </div>
+            <div id="addDataMetadataStatus" class="upload-message" aria-live="polite"></div>
+            <div class="modal-actions">
+                <button type="button" id="cancelAddDataMetadata">Cancel</button>
+                <button type="button" id="applyAddDataMetadata">Apply</button>
+            </div>
+        </div>
+    </div>`;
+
     const addUserModalHTML = `
     <div class="modal" id="addUserModal">
         <div class="modal-content" style="width: 500px; max-width: 90%; padding: 30px;">
@@ -3183,6 +3214,7 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", projectFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
+    document.body.insertAdjacentHTML("beforeend", addDataMetadataModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
 
     const addDataButton = document.querySelector(".add-data-button");
@@ -3192,6 +3224,7 @@ const projectFormHTML = `
     const createProjectModal = document.getElementById("createProjectModal");
     const addDataModal = document.getElementById("addDataModal");
     addDataProjectModal = document.getElementById("addDataProjectModal");
+    addDataMetadataModal = document.getElementById("addDataMetadataModal");
     const addUserModal = document.getElementById("addUserModal");
     addDataProjectSelect = document.getElementById("addDataProjectSelect");
     addDataProjectConfirmButton = document.getElementById("confirmAddDataProject");
@@ -3199,11 +3232,19 @@ const projectFormHTML = `
     addDataProjectStatus = document.getElementById("addDataProjectStatus");
     const addDataProjectLabel = document.getElementById("addDataProjectLabel");
     addDataProjectNameEl = document.getElementById("addDataProjectName");
+    addMetadataButton = document.getElementById("addMetadataButton");
+    addDataMetadataSelect = document.getElementById("addDataMetadataSelect");
+    addDataMetadataStatus = document.getElementById("addDataMetadataStatus");
+    addDataMetadataApplyButton = document.getElementById("applyAddDataMetadata");
+    addDataMetadataCancelButton = document.getElementById("cancelAddDataMetadata");
 
     document.getElementById("closeCreateProject").onclick = () => createProjectModal.classList.remove("show");
     document.getElementById("closeAddData").onclick = () => {
         addDataModal.classList.remove("show");
         resetAddDataForm();
+    };
+    document.getElementById("closeAddDataMetadata").onclick = () => {
+        if (addDataMetadataModal) addDataMetadataModal.classList.remove("show");
     };
     document.getElementById("closeAddDataProject").onclick = () => {
         if (addDataProjectModal) addDataProjectModal.classList.remove("show");
@@ -3211,6 +3252,11 @@ const projectFormHTML = `
     if (addDataProjectCancelButton) {
         addDataProjectCancelButton.onclick = () => {
             if (addDataProjectModal) addDataProjectModal.classList.remove("show");
+        };
+    }
+    if (addDataMetadataCancelButton) {
+        addDataMetadataCancelButton.onclick = () => {
+            if (addDataMetadataModal) addDataMetadataModal.classList.remove("show");
         };
     }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
@@ -3248,6 +3294,9 @@ const projectFormHTML = `
     }
     if (addDataProjectModal && e.target === addDataProjectModal) {
         addDataProjectModal.classList.remove("show");
+    }
+    if (addDataMetadataModal && e.target === addDataMetadataModal) {
+        addDataMetadataModal.classList.remove("show");
     }
     if (e.target === addUserModal) addUserModal.classList.remove("show");
     };
@@ -3428,28 +3477,39 @@ const projectFormHTML = `
         // Add containers for all sub-items
         const causesContainer = document.createElement("div");
         causesContainer.className = "sub-item-container";
+        causesContainer.dataset.type = "causes";
         causesContainer.style.display = "none";
         causesContainer.innerHTML = '<div class="sub-item-header"><strong>Causes:</strong></div><ul class="sub-item-list"></ul>';
         
         const impactsContainer = document.createElement("div");
         impactsContainer.className = "sub-item-container";
+        impactsContainer.dataset.type = "impacts";
         impactsContainer.style.display = "none";
         impactsContainer.innerHTML = '<div class="sub-item-header"><strong>Impacts:</strong></div><ul class="sub-item-list"></ul>';
         
         const actionsContainer = document.createElement("div");
         actionsContainer.className = "sub-item-container";
+        actionsContainer.dataset.type = "actions";
         actionsContainer.style.display = "none";
         actionsContainer.innerHTML = '<div class="sub-item-header"><strong>Actions Taken:</strong></div><ul class="sub-item-list"></ul>';
         
         const lessonsContainer = document.createElement("div");
         lessonsContainer.className = "sub-item-container";
+        lessonsContainer.dataset.type = "lessons";
         lessonsContainer.style.display = "none";
         lessonsContainer.innerHTML = '<div class="sub-item-header"><strong>Lessons Learned:</strong></div><ul class="sub-item-list"></ul>';
+
+        const metadataContainer = document.createElement("div");
+        metadataContainer.className = "sub-item-container";
+        metadataContainer.dataset.type = "metadata";
+        metadataContainer.style.display = "none";
+        metadataContainer.innerHTML = '<div class="sub-item-header"><strong>Metadata:</strong></div><ul class="sub-item-list"></ul>';
         
         entry.appendChild(causesContainer);
         entry.appendChild(impactsContainer);
         entry.appendChild(actionsContainer);
         entry.appendChild(lessonsContainer);
+        entry.appendChild(metadataContainer);
         displayArea.appendChild(entry);
         
         // Store references to the lists for this entry
@@ -3457,6 +3517,7 @@ const projectFormHTML = `
         entry.impactsList = impactsContainer.querySelector('.sub-item-list');
         entry.actionsList = actionsContainer.querySelector('.sub-item-list');
         entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
+        entry.metadataList = metadataContainer.querySelector('.sub-item-list');
         
         // Add event listener for the delete button
         const deleteButton = mainContent.querySelector('.delete-entry-button');
@@ -3552,7 +3613,7 @@ const projectFormHTML = `
         const entries = displayArea.querySelectorAll('.issue-success-entry');
         const targetEntry = addDataEditingEntry || (entries.length > 0 ? entries[entries.length - 1] : null);
         if (!targetEntry) return;
-        const container = targetEntry.querySelector(`.sub-item-container:nth-child(${listType === 'causes' ? '2' : listType === 'impacts' ? '3' : listType === 'actions' ? '4' : '5'})`);
+        const container = targetEntry.querySelector(`.sub-item-container[data-type="${listType}"]`);
         const list = targetEntry[`${listType}List`];
 
         // Show the container if it's hidden
@@ -3585,6 +3646,27 @@ const projectFormHTML = `
         });
 
         list.appendChild(item);
+    }
+
+    function renderMetadataList(entry) {
+        if (!entry) return;
+        const container = entry.querySelector('.sub-item-container[data-type="metadata"]');
+        const list = entry.metadataList;
+        if (!container || !list) return;
+        list.innerHTML = '';
+        const items = Array.isArray(entry.metadataItems) ? entry.metadataItems : [];
+        if (items.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        items.forEach(item => {
+            const li = document.createElement('li');
+            li.textContent = item.label;
+            li.style.padding = "4px 8px";
+            li.style.marginBottom = "2px";
+            list.appendChild(li);
+        });
+        container.style.display = 'block';
     }
 
     // Function to reset the Add Data form
@@ -3655,6 +3737,209 @@ const projectFormHTML = `
         // Require project selection before showing the Add Data form
         openAddDataProjectSelector();
     };
+
+    if (addMetadataButton) {
+        addMetadataButton.addEventListener('click', () => {
+            openAddDataMetadataModal();
+        });
+    }
+
+    function setAddDataMetadataStatus(message, isError = false) {
+        if (!addDataMetadataStatus) return;
+        addDataMetadataStatus.textContent = message || '';
+        addDataMetadataStatus.classList.remove('upload-message--error', 'upload-message--success');
+        if (message) {
+            addDataMetadataStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+        }
+    }
+
+    function getActiveEntryForMetadata() {
+        if (addDataEditingEntry) return addDataEditingEntry;
+        const displayArea = getActiveDisplayArea();
+        if (!displayArea) return null;
+        const entries = displayArea.querySelectorAll('.issue-success-entry');
+        return entries.length > 0 ? entries[entries.length - 1] : null;
+    }
+
+    function buildMetadataLabel(row) {
+        if (!row) return '';
+        const type = row.metadata_type ? String(row.metadata_type).trim() : '';
+        const meta = row.metadata ? String(row.metadata).trim() : '';
+        if (type && meta) return `${type}: ${meta}`;
+        return type || meta;
+    }
+
+    function updateMetadataChoices(selectedIds = new Set()) {
+        if (!addDataMetadataSelect) return;
+
+        const options = addDataMetadataOptionsCache.map(row => ({
+            value: String(row.id),
+            label: buildMetadataLabel(row)
+        }));
+
+        addDataMetadataSelect.innerHTML = '';
+        if (options.length === 0) {
+            addDataMetadataSelect.disabled = true;
+            if (addDataMetadataChoices) addDataMetadataChoices.clearChoices();
+            return;
+        }
+        addDataMetadataSelect.disabled = false;
+
+        if (typeof Choices === 'undefined') {
+            options.forEach(opt => {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.value;
+                optionEl.textContent = opt.label;
+                optionEl.selected = selectedIds.has(opt.value);
+                addDataMetadataSelect.appendChild(optionEl);
+            });
+            return;
+        }
+
+        if (!addDataMetadataChoices) {
+            addDataMetadataChoices = new Choices(addDataMetadataSelect, {
+                removeItemButton: true,
+                searchEnabled: true,
+                shouldSort: false,
+                placeholderValue: 'Select metadata'
+            });
+        } else {
+            addDataMetadataChoices.clearChoices();
+        }
+
+        const choiceData = options.map(opt => ({
+            value: opt.value,
+            label: opt.label,
+            selected: selectedIds.has(opt.value)
+        }));
+        addDataMetadataChoices.setChoices(choiceData, 'value', 'label', true);
+    }
+
+    async function loadAddDataMetadataOptions(projectId) {
+        if (!organizationId || !ctUser || ctUser.id == null || projectId == null) return;
+        if (addDataMetadataLoading) return;
+        if (addDataMetadataProjectId === projectId && addDataMetadataLoaded) return;
+
+        addDataMetadataLoading = true;
+        setAddDataMetadataStatus('Loading metadata...');
+
+        try {
+            const { data: assignedRows, error: assignedErr } = await supabase
+                .from('project_team_member_assignments')
+                .select('lessons_learned_metadata_list_id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .eq('user_id', ctUser.id)
+                .limit(5000);
+
+            if (assignedErr) {
+                console.error('Error loading assigned metadata:', assignedErr);
+            }
+
+            addDataMetadataAssignedIds = new Set(
+                (assignedRows || [])
+                    .map(r => r && r.lessons_learned_metadata_list_id)
+                    .filter(v => v != null)
+                    .map(v => String(v))
+            );
+
+            const { data: metadataRows, error: metadataErr } = await supabase
+                .from('lessons_learned_metadata_list')
+                .select('id, metadata_type, metadata')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .order('id', { ascending: true })
+                .limit(5000);
+
+            if (metadataErr) {
+                console.error('Error loading lessons learned metadata list:', metadataErr);
+                setAddDataMetadataStatus('Failed to load metadata.', true);
+                addDataMetadataOptionsCache = [];
+                addDataMetadataProjectId = projectId;
+                addDataMetadataLoaded = true;
+                addDataMetadataLoading = false;
+                return;
+            }
+
+            const rows = Array.isArray(metadataRows) ? metadataRows : [];
+            const assigned = rows.filter(r => addDataMetadataAssignedIds.has(String(r.id)));
+            const unassigned = rows.filter(r => !addDataMetadataAssignedIds.has(String(r.id)));
+            addDataMetadataOptionsCache = [...assigned, ...unassigned];
+            addDataMetadataProjectId = projectId;
+            addDataMetadataLoaded = true;
+            if (addDataMetadataOptionsCache.length === 0) {
+                setAddDataMetadataStatus('No metadata found for this project.', true);
+            } else {
+                setAddDataMetadataStatus('');
+            }
+        } catch (err) {
+            console.error('Unexpected error loading metadata options:', err);
+            setAddDataMetadataStatus('An unexpected error occurred while loading metadata.', true);
+            addDataMetadataOptionsCache = [];
+            addDataMetadataLoaded = true;
+        }
+
+        addDataMetadataLoading = false;
+    }
+
+    async function openAddDataMetadataModal() {
+        if (!addDataMetadataModal) return;
+        addDataMetadataModal.classList.add('show');
+        setAddDataMetadataStatus('');
+
+        const entry = getActiveEntryForMetadata();
+        addDataMetadataEntry = entry;
+        if (!entry) {
+            setAddDataMetadataStatus('Add an Issue or Success first.', true);
+        }
+
+        if (!addDataSelectedProject || addDataSelectedProject.id == null) {
+            setAddDataMetadataStatus('Select a project first.', true);
+            if (addDataMetadataSelect) addDataMetadataSelect.disabled = true;
+            return;
+        }
+
+        const projectId = addDataSelectedProject.id;
+        await loadAddDataMetadataOptions(projectId);
+
+        const selectedIds = new Set(
+            (entry && Array.isArray(entry.metadataItems))
+                ? entry.metadataItems.map(item => String(item.id))
+                : []
+        );
+        updateMetadataChoices(selectedIds);
+    }
+
+    function applyMetadataSelection() {
+        const entry = addDataMetadataEntry;
+        if (!entry) {
+            setAddDataMetadataStatus('Add an Issue or Success first.', true);
+            return;
+        }
+        if (!addDataMetadataSelect) return;
+
+        const selectedIds = Array.from(addDataMetadataSelect.selectedOptions || []).map(opt => String(opt.value));
+        const rowById = new Map();
+        addDataMetadataOptionsCache.forEach(row => {
+            if (row && row.id != null) rowById.set(String(row.id), row);
+        });
+
+        const items = selectedIds.map(id => {
+            const row = rowById.get(id);
+            return {
+                id,
+                label: buildMetadataLabel(row) || ''
+            };
+        }).filter(item => item.label);
+
+        entry.metadataItems = items;
+        renderMetadataList(entry);
+        if (addDataMetadataModal) addDataMetadataModal.classList.remove('show');
+    }
+
+    if (addDataMetadataApplyButton) {
+        addDataMetadataApplyButton.addEventListener('click', applyMetadataSelection);
+    }
 
     function setAddDataProjectStatus(message, isError = false) {
         if (!addDataProjectStatus) return;
