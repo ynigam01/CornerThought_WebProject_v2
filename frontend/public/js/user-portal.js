@@ -3659,11 +3659,35 @@ const projectFormHTML = `
             container.style.display = 'none';
             return;
         }
-        items.forEach(item => {
+        items.forEach((item, index) => {
             const li = document.createElement('li');
-            li.textContent = item.label;
+            li.style.display = 'flex';
+            li.style.alignItems = 'center';
+            li.style.justifyContent = 'space-between';
+            li.style.gap = '8px';
             li.style.padding = "4px 8px";
             li.style.marginBottom = "2px";
+
+            const label = document.createElement('span');
+            label.textContent = item.label;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '✕';
+            removeBtn.title = 'Remove metadata';
+            removeBtn.style.border = 'none';
+            removeBtn.style.background = 'transparent';
+            removeBtn.style.cursor = 'pointer';
+            removeBtn.style.color = '#cc0000';
+            removeBtn.style.fontWeight = 'bold';
+
+            removeBtn.addEventListener('click', () => {
+                entry.metadataItems = entry.metadataItems.filter((_, i) => i !== index);
+                renderMetadataList(entry);
+            });
+
+            li.appendChild(label);
+            li.appendChild(removeBtn);
             list.appendChild(li);
         });
         container.style.display = 'block';
@@ -3804,6 +3828,7 @@ const projectFormHTML = `
                 placeholderValue: 'Select metadata'
             });
         } else {
+            addDataMetadataChoices.clearStore();
             addDataMetadataChoices.clearChoices();
         }
 
@@ -3902,12 +3927,11 @@ const projectFormHTML = `
         const projectId = addDataSelectedProject.id;
         await loadAddDataMetadataOptions(projectId);
 
-        const selectedIds = new Set(
-            (entry && Array.isArray(entry.metadataItems))
-                ? entry.metadataItems.map(item => String(item.id))
-                : []
-        );
-        updateMetadataChoices(selectedIds);
+        if (addDataMetadataChoices) {
+            addDataMetadataChoices.clearStore();
+            addDataMetadataChoices.clearChoices();
+        }
+        updateMetadataChoices(new Set());
     }
 
     function applyMetadataSelection() {
@@ -3932,8 +3956,20 @@ const projectFormHTML = `
             };
         }).filter(item => item.label);
 
-        entry.metadataItems = items;
+        const existing = Array.isArray(entry.metadataItems) ? entry.metadataItems : [];
+        const merged = new Map();
+        existing.forEach(item => merged.set(String(item.id), item));
+        items.forEach(item => merged.set(String(item.id), item));
+        entry.metadataItems = Array.from(merged.values());
         renderMetadataList(entry);
+        // Clear selection in the popup after applying
+        if (addDataMetadataChoices) {
+            addDataMetadataChoices.removeActiveItems();
+        } else if (addDataMetadataSelect) {
+            Array.from(addDataMetadataSelect.options).forEach(opt => {
+                opt.selected = false;
+            });
+        }
         if (addDataMetadataModal) addDataMetadataModal.classList.remove('show');
     }
 
