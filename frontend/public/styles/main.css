@@ -1270,6 +1270,12 @@ body {
     box-sizing: border-box;
 }
 
+.add-data-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .add-metadata-button {
     background-color: #3498db;
     color: #ffffff;
@@ -1282,6 +1288,20 @@ body {
 
 .add-metadata-button:hover {
     background-color: #2980b9;
+}
+
+.save-lessons-button {
+    background-color: #2d9cdb;
+    color: #ffffff;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.save-lessons-button:hover {
+    background-color: #2383b9;
 }
 
 /* Add Data: Project selection modal tweaks */

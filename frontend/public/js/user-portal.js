@@ -127,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataProjectConfirmButton = null;
     let addDataProjectCancelButton = null;
     let addDataProjectStatus = null;
-    let addDataSelectedProject = null; // { id, name }
+    let addDataSelectedProject = null; // { id, name, project_type_id }
     let addDataProjectsCache = [];
     let addDataProjectsLoaded = false;
     let addDataProjectsLoading = false;
@@ -146,6 +146,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataMetadataLoaded = false;
     let addDataMetadataLoading = false;
     let addDataMetadataEntry = null;
+    let saveLessonsButton = null;
+    let saveLessonsStatus = null;
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -3233,6 +3235,7 @@ const projectFormHTML = `
     const addDataProjectLabel = document.getElementById("addDataProjectLabel");
     addDataProjectNameEl = document.getElementById("addDataProjectName");
     addMetadataButton = document.getElementById("addMetadataButton");
+    saveLessonsButton = document.getElementById("saveLessonsButton");
     addDataMetadataSelect = document.getElementById("addDataMetadataSelect");
     addDataMetadataStatus = document.getElementById("addDataMetadataStatus");
     addDataMetadataApplyButton = document.getElementById("applyAddDataMetadata");
@@ -3453,6 +3456,9 @@ const projectFormHTML = `
         if (addDataSelectedProject && addDataSelectedProject.id != null) {
             entry.dataset.projectId = addDataSelectedProject.id;
             entry.dataset.projectName = addDataSelectedProject.name || '';
+            if (addDataSelectedProject.project_type_id != null) {
+                entry.dataset.projectTypeId = addDataSelectedProject.project_type_id;
+            }
         }
         
         // Create the main content with edit/delete buttons
@@ -3621,12 +3627,18 @@ const projectFormHTML = `
 
         // Add the item as a clickable bullet point
         const item = document.createElement("li");
-        item.textContent = text;
-        item.style.cursor = "pointer";
+        item.style.display = "flex";
+        item.style.alignItems = "center";
+        item.style.justifyContent = "space-between";
+        item.style.gap = "8px";
         item.style.padding = "4px 8px";
         item.style.borderRadius = "4px";
         item.style.transition = "background-color 0.2s ease";
         item.style.marginBottom = "2px";
+
+        const label = document.createElement("span");
+        label.textContent = text;
+        label.style.cursor = "pointer";
 
         // Add hover effect
         item.addEventListener('mouseenter', () => {
@@ -3638,13 +3650,31 @@ const projectFormHTML = `
         });
 
         // Add click event to edit the sub-item
-        item.addEventListener('click', () => {
+        label.addEventListener('click', () => {
             const capitalizedType = listType.charAt(0).toUpperCase() + listType.slice(1);
             openEditModal(capitalizedType, text, (newText) => {
-                item.textContent = newText;
+                label.textContent = newText;
             });
         });
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = '✕';
+        removeBtn.title = `Remove ${listType.slice(0, -1)}`;
+        removeBtn.style.border = 'none';
+        removeBtn.style.background = 'transparent';
+        removeBtn.style.cursor = 'pointer';
+        removeBtn.style.color = '#cc0000';
+        removeBtn.style.fontWeight = 'bold';
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            item.remove();
+            if (list && list.children.length === 0) {
+                container.style.display = "none";
+            }
+        });
 
+        item.appendChild(label);
+        item.appendChild(removeBtn);
         list.appendChild(item);
     }
 
@@ -3691,6 +3721,194 @@ const projectFormHTML = `
             list.appendChild(li);
         });
         container.style.display = 'block';
+    }
+
+    function setSaveLessonsStatus(message, isError = false) {
+        if (!saveLessonsStatus) {
+            saveLessonsStatus = document.createElement('div');
+            saveLessonsStatus.className = 'upload-message';
+            const header = document.querySelector('#addDataView .add-data-header');
+            if (header) {
+                header.insertAdjacentElement('afterend', saveLessonsStatus);
+            } else {
+                const addDataView = document.getElementById('addDataView');
+                if (addDataView) addDataView.prepend(saveLessonsStatus);
+            }
+        }
+        saveLessonsStatus.textContent = message || '';
+        saveLessonsStatus.classList.remove('upload-message--success', 'upload-message--error');
+        if (message) {
+            saveLessonsStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+        }
+    }
+
+    function getEntrySubItems(entry, type) {
+        if (!entry) return [];
+        const list = entry.querySelector(`.sub-item-container[data-type="${type}"] .sub-item-list`);
+        if (!list) return [];
+        return Array.from(list.querySelectorAll('li'))
+            .map(li => {
+                const label = li.querySelector('span');
+                return (label ? label.textContent : li.textContent).trim();
+            })
+            .filter(Boolean);
+    }
+
+    async function saveLessonsLearned() {
+        const displayArea = getActiveDisplayArea();
+        if (!displayArea) {
+            setSaveLessonsStatus('No entries to save.', true);
+            return;
+        }
+        if (!addDataSelectedProject || addDataSelectedProject.id == null) {
+            setSaveLessonsStatus('Select a project before saving.', true);
+            return;
+        }
+        if (!ctUser || ctUser.id == null || !ctUser.organizationid) {
+            setSaveLessonsStatus('Missing user information.', true);
+            return;
+        }
+
+        const entries = Array.from(displayArea.querySelectorAll('.issue-success-entry'));
+        if (entries.length === 0) {
+            setSaveLessonsStatus('No entries to save.', true);
+            return;
+        }
+
+        const projectId = addDataSelectedProject.id;
+        const projectTypeId = addDataSelectedProject.project_type_id || null;
+        const orgId = ctUser.organizationid;
+        const userId = ctUser.id;
+
+        setSaveLessonsStatus('Saving lessons learned...');
+        if (saveLessonsButton) {
+            saveLessonsButton.disabled = true;
+            saveLessonsButton.textContent = 'Saving...';
+        }
+
+        try {
+            let savedCount = 0;
+
+            for (const entry of entries) {
+                const title = (entry.dataset && entry.dataset.text) ? entry.dataset.text : '';
+                const typeRaw = entry.dataset && entry.dataset.type ? entry.dataset.type : '';
+                const category = String(typeRaw || '').toLowerCase() === 'success' ? 'success' : 'issue';
+
+                const { data: lessonRows, error: lessonErr } = await supabase
+                    .from('lessons_learned')
+                    .insert({
+                        title,
+                        category,
+                        review: 'for review',
+                        share: '',
+                        created_by: userId,
+                        organization_id: orgId,
+                        project_id: projectId,
+                        project_type_id: projectTypeId
+                    })
+                    .select('id')
+                    .single();
+
+                if (lessonErr || !lessonRows) {
+                    throw new Error(lessonErr?.message || 'Failed to save lesson.');
+                }
+
+                const lessonId = lessonRows.id;
+                savedCount += 1;
+
+                const causes = getEntrySubItems(entry, 'causes');
+                if (causes.length) {
+                    const { error } = await supabase
+                        .from('lessons_learned_causes')
+                        .insert(causes.map(cause => ({
+                            lessons_learned_id: lessonId,
+                            cause,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save causes.');
+                }
+
+                const impacts = getEntrySubItems(entry, 'impacts');
+                if (impacts.length) {
+                    const { error } = await supabase
+                        .from('lessons_learned_impacts')
+                        .insert(impacts.map(impact => ({
+                            lessons_learned_id: lessonId,
+                            impact,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save impacts.');
+                }
+
+                const actions = getEntrySubItems(entry, 'actions');
+                if (actions.length) {
+                    const { error } = await supabase
+                        .from('action_items')
+                        .insert(actions.map(action_item => ({
+                            lessons_learned_id: lessonId,
+                            action_item,
+                            lessons_learned_impact_id: null,
+                            lessons_learned_cause_id: null,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save action items.');
+                }
+
+                const lessons = getEntrySubItems(entry, 'lessons');
+                if (lessons.length) {
+                    const { error } = await supabase
+                        .from('future_project_considerations')
+                        .insert(lessons.map(fpc => ({
+                            lessons_learned_id: lessonId,
+                            fpc,
+                            lessons_learned_impact_id: null,
+                            lessons_learned_cause_id: null,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save lessons learned items.');
+                }
+
+                const metadataItems = Array.isArray(entry.metadataItems) ? entry.metadataItems : [];
+                if (metadataItems.length) {
+                    const { error } = await supabase
+                        .from('lessons_learned_metadata')
+                        .insert(metadataItems.map(item => ({
+                            lessons_learned_id: lessonId,
+                            metadata_type: item.label.includes(':')
+                                ? item.label.split(':')[0].trim()
+                                : null,
+                            metadata: item.label.includes(':')
+                                ? item.label.split(':').slice(1).join(':').trim()
+                                : item.label,
+                            lessons_learned_metadata_list_id: item.id,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId,
+                            project_type_id: projectTypeId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save metadata.');
+                }
+            }
+
+            setSaveLessonsStatus(`Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`);
+            resetMainArea();
+        } catch (err) {
+            console.error('Error saving lessons learned:', err);
+            setSaveLessonsStatus(err.message || 'Failed to save lessons learned.', true);
+        } finally {
+            if (saveLessonsButton) {
+                saveLessonsButton.disabled = false;
+                saveLessonsButton.textContent = 'Save';
+            }
+        }
     }
 
     // Function to reset the Add Data form
@@ -3765,6 +3983,12 @@ const projectFormHTML = `
     if (addMetadataButton) {
         addMetadataButton.addEventListener('click', () => {
             openAddDataMetadataModal();
+        });
+    }
+
+    if (saveLessonsButton) {
+        saveLessonsButton.addEventListener('click', () => {
+            saveLessonsLearned();
         });
     }
 
@@ -4050,7 +4274,7 @@ const projectFormHTML = `
 
             const { data: projects, error: projErr } = await supabase
                 .from('projects')
-                .select('project_id, project_name')
+                .select('project_id, project_name, project_type_id')
                 .eq('organization_id', organizationId)
                 .in('project_id', projectIds)
                 .order('project_name', { ascending: true });
@@ -4116,7 +4340,8 @@ const projectFormHTML = `
         if (entry.dataset.projectId) {
             addDataSelectedProject = {
                 id: entry.dataset.projectId,
-                name: entry.dataset.projectName || ''
+                name: entry.dataset.projectName || '',
+                project_type_id: entry.dataset.projectTypeId || null
             };
         }
         resetAddDataForm();
@@ -4146,8 +4371,8 @@ const projectFormHTML = `
             }
             const match = addDataProjectsCache.find(project => String(project.project_id) === String(selectedId));
             addDataSelectedProject = match
-                ? { id: match.project_id, name: match.project_name }
-                : { id: selectedId, name: '' };
+                ? { id: match.project_id, name: match.project_name, project_type_id: match.project_type_id || null }
+                : { id: selectedId, name: '', project_type_id: null };
             if (addDataProjectModal) addDataProjectModal.classList.remove('show');
             showAddDataFormAfterProjectSelect();
         });
