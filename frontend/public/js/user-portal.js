@@ -2,6 +2,7 @@
 import { supabase } from './supabase-client.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 import { parseMsProjectTxt, importMsProjectTxtToSupabase } from './ms-project-txt-parser.js';
+import { updateMsProjectXmlToSupabase } from './ms-project-xml-update.js';
 import { importProjectTeamListExcelToSupabase } from './excel-project-team-importer.js';
 import { importProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
 import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
@@ -784,12 +785,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
                     setHint('Please upload an Excel file with headers: Item ID, Item, Description, Parent Item ID.');
                 } else if (value === 'ms_project_xml_update') {
-                    lessonsMetadataUploadGroup.style.display = 'none';
-                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    lessonsMetadataUploadGroup.style.display = '';
                     if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = '';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.txt';
+                    if (fileLabel) fileLabel.textContent = 'Upload TXT File';
                     if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
                     if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
-                    resetStatus();
+                    setHint('Please upload an MS Project XML file exported as TXT (.txt).');
                 } else if (value === 'excel_project_team_list_update') {
                     lessonsMetadataUploadGroup.style.display = 'none';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
@@ -1085,10 +1088,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Ensure an uploadable file type is selected
                 const selectedType = lessonsMetadataFileTypeSelect ? lessonsMetadataFileTypeSelect.value : '';
                 const isMsProjectNew = selectedType === 'ms_project_xml';
+                const isMsProjectUpdate = selectedType === 'ms_project_xml_update';
                 const isExcelTeamListNew = selectedType === 'excel_project_team_list_new';
                 const isExcelMiscListNew = selectedType === 'excel_project_misc_list_new';
 
-                if (!isMsProjectNew && !isExcelTeamListNew && !isExcelMiscListNew) {
+                if (!isMsProjectNew && !isMsProjectUpdate && !isExcelTeamListNew && !isExcelMiscListNew) {
                     lessonsMetadataStatus.textContent = 'Please select an input data file type that supports uploads.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                     return;
@@ -1103,6 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const name = file.name || '';
                 const isTxt = /\.txt$/i.test(name);
+                const isXml = /\.xml$/i.test(name);
                 const isExcel = /\.xlsx$/i.test(name) || /\.xls$/i.test(name);
 
                 if (isMsProjectNew) {
@@ -1115,6 +1120,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     // Basic MIME type check (not all browsers set this reliably, so it is secondary)
                     if (file.type && file.type !== 'text/plain') {
                         console.warn('File MIME type is not text/plain:', file.type);
+                    }
+                }
+
+                if (isMsProjectUpdate) {
+                    if (!isTxt && !isXml) {
+                        lessonsMetadataStatus.textContent = 'Invalid file type. Please upload an MS Project XML file exported as .txt (or .xml).';
+                        lessonsMetadataStatus.classList.add('upload-message--error');
+                        return;
                     }
                 }
 
@@ -1204,6 +1217,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         lessonsMetadataStatus.textContent =
                             `Imported "${name}". ${summaryMessage} Inserted ${insertedTasks} tasks and ${insertedPred} predecessor links.`;
+                        lessonsMetadataStatus.classList.add('upload-message--success');
+                        if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    } else if (isMsProjectUpdate) {
+                        const result = await updateMsProjectXmlToSupabase({
+                            supabase,
+                            file,
+                            context,
+                            chunkSize: 250,
+                            onProgress
+                        });
+
+                        const lines = result && Array.isArray(result.summaryLines)
+                            ? result.summaryLines
+                            : [`Updated "${name}".`];
+
+                        lessonsMetadataStatus.style.whiteSpace = 'pre-wrap';
+                        lessonsMetadataStatus.textContent = lines.join('\n');
                         lessonsMetadataStatus.classList.add('upload-message--success');
                         if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     } else if (isExcelTeamListNew) {
