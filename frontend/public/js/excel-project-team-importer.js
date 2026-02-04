@@ -233,4 +233,252 @@ export async function importProjectTeamListExcelToSupabase({
     };
 }
 
+function normalizeComparable(value) {
+    if (value == null) return '';
+    return String(value).trim();
+}
+
+/**
+ * Update an Excel Project Team List in Supabase (match by Team ID).
+ *
+ * Updates:
+ * - project_teams_excel (name, description, parent_id)
+ * - lessons_learned_metadata_list.metadata when team name changes
+ * - lessons_learned_metadata.metadata when team name changes
+ *
+ * Inserts:
+ * - new lessons_learned_metadata_list rows for new Team IDs
+ * - new project_teams_excel rows linked to those metadata rows
+ *
+ * Missing Team IDs are NOT deleted.
+ */
+export async function updateProjectTeamListExcelToSupabase({
+    supabase,
+    file,
+    context,
+    onProgress,
+    chunkSize = 250
+}) {
+    if (!supabase) throw new Error('Supabase client is required.');
+    if (!file) throw new Error('File is required.');
+    if (!context) throw new Error('Context is required.');
+
+    const organization_id = context.organization_id;
+    const created_by = context.created_by;
+    const project_id = context.project_id;
+    const project_type_id = context.project_type_id;
+
+    if (organization_id == null || created_by == null || project_id == null || project_type_id == null) {
+        throw new Error('Missing required context: organization_id, created_by, project_id, project_type_id.');
+    }
+
+    if (typeof onProgress === 'function') {
+        onProgress('Reading Excel file...');
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+    const parsedTeams = parseProjectTeamSheetRows(rows);
+
+    if (typeof onProgress === 'function') {
+        onProgress('Loading existing project team rows...');
+    }
+
+    const { data: existingRows, error: existingErr } = await supabase
+        .from('project_teams_excel')
+        .select('id, lessons_learned_metadata_list_id, excel_id, name, description, parent_id')
+        .eq('organization_id', organization_id)
+        .eq('project_id', project_id);
+
+    if (existingErr) {
+        throw new Error(existingErr.message || 'Failed loading existing project team rows.');
+    }
+
+    const existingByTeamId = new Map();
+    (existingRows || []).forEach(row => {
+        const key = row && row.excel_id != null ? String(row.excel_id) : '';
+        if (!key) return;
+        if (!existingByTeamId.has(key)) {
+            existingByTeamId.set(key, row);
+        }
+    });
+
+    const seenTeamIds = new Set();
+    const dedupedTeams = [];
+    let skipped = 0;
+
+    parsedTeams.forEach(team => {
+        const teamId = normalizeComparable(team.teamId);
+        if (!teamId) {
+            skipped += 1;
+            return;
+        }
+        if (seenTeamIds.has(teamId)) {
+            skipped += 1;
+            return;
+        }
+        seenTeamIds.add(teamId);
+        dedupedTeams.push(team);
+    });
+
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    let syncedNames = 0;
+
+    const newTeams = [];
+
+    for (const team of dedupedTeams) {
+        const teamId = normalizeComparable(team.teamId);
+        const existing = existingByTeamId.get(teamId);
+        const nextName = normalizeComparable(team.team);
+        const nextDesc = normalizeComparable(team.description) || null;
+        const nextParent = normalizeComparable(team.parentTeamId) || null;
+
+        if (!existing) {
+            newTeams.push(team);
+            continue;
+        }
+
+        const changes = {};
+        const updatePayload = {};
+
+        const prevName = normalizeComparable(existing.name);
+        const prevDesc = normalizeComparable(existing.description) || null;
+        const prevParent = normalizeComparable(existing.parent_id) || null;
+
+        if (prevName !== nextName) {
+            updatePayload.name = nextName || null;
+            changes.name = { from: existing.name || null, to: nextName || null };
+        }
+        if (prevDesc !== nextDesc) {
+            updatePayload.description = nextDesc;
+            changes.description = { from: existing.description || null, to: nextDesc };
+        }
+        if (prevParent !== nextParent) {
+            updatePayload.parent_id = nextParent;
+            changes.parent_id = { from: existing.parent_id || null, to: nextParent };
+        }
+
+        if (Object.keys(updatePayload).length === 0) {
+            unchangedCount += 1;
+            continue;
+        }
+
+        const { error: updateErr } = await supabase
+            .from('project_teams_excel')
+            .update(updatePayload)
+            .eq('id', existing.id);
+        if (updateErr) {
+            throw new Error(updateErr.message || 'Failed updating project team row.');
+        }
+        updatedCount += 1;
+
+        if (changes.name) {
+            const listId = existing.lessons_learned_metadata_list_id;
+            if (listId != null) {
+                const { error: listErr } = await supabase
+                    .from('lessons_learned_metadata_list')
+                    .update({ metadata: changes.name.to })
+                    .eq('id', listId);
+                if (listErr) {
+                    throw new Error(listErr.message || 'Failed updating metadata list name.');
+                }
+
+                const { error: metaErr } = await supabase
+                    .from('lessons_learned_metadata')
+                    .update({ metadata: changes.name.to })
+                    .eq('organization_id', organization_id)
+                    .eq('project_id', project_id)
+                    .eq('lessons_learned_metadata_list_id', listId);
+                if (metaErr) {
+                    throw new Error(metaErr.message || 'Failed updating lessons learned metadata name.');
+                }
+
+                syncedNames += 1;
+            }
+        }
+    }
+
+    let insertedMetaCount = 0;
+    let insertedTeamsCount = 0;
+
+    if (newTeams.length) {
+        if (typeof onProgress === 'function') {
+            onProgress('Saving new project team rows...');
+        }
+
+        const metadataRows = newTeams.map(t => ({
+            metadata_source: 'excel project team list',
+            metadata: t.team,
+            metadata_type: 'project team',
+            created_by,
+            organization_id,
+            project_id,
+            project_type_id
+        }));
+
+        const insertedMetadata = await insertChunked({
+            supabase,
+            table: 'lessons_learned_metadata_list',
+            rows: metadataRows,
+            select: 'id',
+            chunkSize,
+            onProgress,
+            label: 'Saving project team metadata'
+        });
+
+        if (insertedMetadata.length !== metadataRows.length) {
+            throw new Error('Unexpected mismatch inserting lessons_learned_metadata_list rows for project teams.');
+        }
+
+        insertedMetaCount = insertedMetadata.length;
+
+        const lessonsIds = insertedMetadata.map(r => r.id);
+        const teamRows = newTeams.map((t, idx) => ({
+            lessons_learned_metadata_list_id: lessonsIds[idx],
+            organization_id,
+            project_id,
+            project_type_id,
+            created_by,
+            name: t.team,
+            description: t.description,
+            excel_id: t.teamId,
+            parent_id: t.parentTeamId
+        }));
+
+        const insertedTeams = await insertChunked({
+            supabase,
+            table: 'project_teams_excel',
+            rows: teamRows,
+            select: 'id',
+            chunkSize,
+            onProgress,
+            label: 'Saving project team rows'
+        });
+
+        if (insertedTeams.length !== teamRows.length) {
+            throw new Error('Unexpected mismatch inserting project_teams_excel rows.');
+        }
+
+        insertedTeamsCount = insertedTeams.length;
+    }
+
+    return {
+        updated: {
+            project_teams_excel: updatedCount
+        },
+        inserted: {
+            lessons_learned_metadata_list: insertedMetaCount,
+            project_teams_excel: insertedTeamsCount
+        },
+        unchanged: unchangedCount,
+        skipped,
+        synced_names: syncedNames
+    };
+}
+
 
