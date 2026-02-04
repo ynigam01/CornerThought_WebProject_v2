@@ -2426,6 +2426,50 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div id="lessonsMetadataManageStatus" class="upload-message" aria-live="polite"></div>
                 <div id="lessonsMetadataManageTableWrap" style="margin-top: 12px;"></div>
             </section>
+
+            <section id="lessonsMetadataManageTaskDetailsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Task Details</h3>
+                    </div>
+                    <button type="button" id="lessonsMetadataManageTaskDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="lessonsMetadataManageTaskDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="lessonsMetadataManageTaskDetailsBody"></div>
+            </section>
+
+            <section id="lessonsMetadataManageResourceDetailsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Resource Details</h3>
+                    </div>
+                    <button type="button" id="lessonsMetadataManageResourceDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="lessonsMetadataManageResourceDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="lessonsMetadataManageResourceDetailsBody"></div>
+            </section>
+
+            <section id="lessonsMetadataManageTeamDetailsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Project Team Details</h3>
+                    </div>
+                    <button type="button" id="lessonsMetadataManageTeamDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="lessonsMetadataManageTeamDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="lessonsMetadataManageTeamDetailsBody"></div>
+            </section>
+
+            <section id="lessonsMetadataManageMiscDetailsPanel" class="project-types-panel" style="display: none; margin-top: 16px;">
+                <div class="project-types-panel-header">
+                    <div>
+                        <h3>Miscellaneous Item Details</h3>
+                    </div>
+                    <button type="button" id="lessonsMetadataManageMiscDetailsBackButton" class="secondary-button">Back</button>
+                </div>
+                <div id="lessonsMetadataManageMiscDetailsStatus" class="upload-message" aria-live="polite"></div>
+                <div id="lessonsMetadataManageMiscDetailsBody"></div>
+            </section>
         `);
 
         lessonsMetadataManagePanel = document.getElementById('lessonsMetadataManagePanel');
@@ -2468,6 +2512,38 @@ document.addEventListener("DOMContentLoaded", () => {
                 renderLessonsMetadataManageTable();
             });
         }
+
+        const manageTaskDetailsBackBtn = document.getElementById('lessonsMetadataManageTaskDetailsBackButton');
+        if (manageTaskDetailsBackBtn) {
+            manageTaskDetailsBackBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideLessonsMetadataManageTaskDetails();
+            });
+        }
+
+        const manageResourceDetailsBackBtn = document.getElementById('lessonsMetadataManageResourceDetailsBackButton');
+        if (manageResourceDetailsBackBtn) {
+            manageResourceDetailsBackBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideLessonsMetadataManageResourceDetails();
+            });
+        }
+
+        const manageTeamDetailsBackBtn = document.getElementById('lessonsMetadataManageTeamDetailsBackButton');
+        if (manageTeamDetailsBackBtn) {
+            manageTeamDetailsBackBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideLessonsMetadataManageTeamDetails();
+            });
+        }
+
+        const manageMiscDetailsBackBtn = document.getElementById('lessonsMetadataManageMiscDetailsBackButton');
+        if (manageMiscDetailsBackBtn) {
+            manageMiscDetailsBackBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                hideLessonsMetadataManageMiscDetails();
+            });
+        }
     }
 
     function showLessonsMetadataManagePanel() {
@@ -2489,6 +2565,14 @@ document.addEventListener("DOMContentLoaded", () => {
             lessonsMetadataManagePanel.style.display = '';
             lessonsMetadataManagePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+        const manageTaskPanel = document.getElementById('lessonsMetadataManageTaskDetailsPanel');
+        const manageResourcePanel = document.getElementById('lessonsMetadataManageResourceDetailsPanel');
+        const manageTeamPanel = document.getElementById('lessonsMetadataManageTeamDetailsPanel');
+        const manageMiscPanel = document.getElementById('lessonsMetadataManageMiscDetailsPanel');
+        if (manageTaskPanel) manageTaskPanel.style.display = 'none';
+        if (manageResourcePanel) manageResourcePanel.style.display = 'none';
+        if (manageTeamPanel) manageTeamPanel.style.display = 'none';
+        if (manageMiscPanel) manageMiscPanel.style.display = 'none';
         loadOrgProjectsForLessonsManageDropdown();
     }
 
@@ -2673,6 +2757,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const tbody = document.createElement('tbody');
         filtered.forEach(row => {
             const tr = document.createElement('tr');
+            const metadataType = row && row.metadata_type ? String(row.metadata_type).toLowerCase() : '';
+            const metadataSource = row && row.metadata_source ? String(row.metadata_source).toLowerCase() : '';
+            const isTask = metadataType === 'task' && metadataSource === 'ms project';
+            const isResource = metadataType === 'resource' && metadataSource === 'ms project';
+            const isProjectTeam = metadataType === 'project team' && metadataSource === 'excel project team list';
+            const isMisc = metadataType === 'miscellaneous' && metadataSource === 'excel project miscellaneous list';
+            if (isTask || isResource || isProjectTeam || isMisc) {
+                tr.classList.add('metadata-row-clickable');
+                tr.addEventListener('click', () => {
+                    if (isTask) {
+                        showLessonsMetadataManageTaskDetails(row);
+                    } else if (isResource) {
+                        showLessonsMetadataManageResourceDetails(row);
+                    } else if (isProjectTeam) {
+                        showLessonsMetadataManageTeamDetails(row);
+                    } else {
+                        showLessonsMetadataManageMiscDetails(row);
+                    }
+                });
+            }
 
             const tdType = document.createElement('td');
             tdType.textContent = row.metadata_type || '';
@@ -2725,7 +2829,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const { data: rows, error } = await supabase
                 .from('lessons_learned_metadata_list')
-                .select('id, metadata_type, metadata')
+                .select('id, metadata_type, metadata, metadata_source')
                 .eq('organization_id', organizationId)
                 .eq('project_id', projectId)
                 .order('id', { ascending: true })
@@ -2749,6 +2853,126 @@ document.addEventListener("DOMContentLoaded", () => {
             lessonsMetadataManageStatus.classList.add('upload-message--error');
             lessonsMetadataManageRowsCache = [];
         }
+    }
+
+    function showLessonsMetadataManageTaskDetails(metadataRow) {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageTaskDetailsPanel');
+        const statusEl = document.getElementById('lessonsMetadataManageTaskDetailsStatus');
+        const bodyEl = document.getElementById('lessonsMetadataManageTaskDetailsBody');
+        if (!detailPanel || !statusEl || !bodyEl) return;
+
+        if (managePanel) managePanel.style.display = 'none';
+        detailPanel.style.display = '';
+        detailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading task details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsTaskDetails(metadataRow, { statusEl, bodyEl })
+            .catch((err) => {
+                console.error('Error loading manage task details:', err);
+                statusEl.textContent = 'Failed to load task details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideLessonsMetadataManageTaskDetails() {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageTaskDetailsPanel');
+        if (detailPanel) detailPanel.style.display = 'none';
+        if (managePanel) managePanel.style.display = '';
+    }
+
+    function showLessonsMetadataManageResourceDetails(metadataRow) {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageResourceDetailsPanel');
+        const statusEl = document.getElementById('lessonsMetadataManageResourceDetailsStatus');
+        const bodyEl = document.getElementById('lessonsMetadataManageResourceDetailsBody');
+        if (!detailPanel || !statusEl || !bodyEl) return;
+
+        if (managePanel) managePanel.style.display = 'none';
+        detailPanel.style.display = '';
+        detailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading resource details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsResourceDetails(metadataRow, { statusEl, bodyEl })
+            .catch((err) => {
+                console.error('Error loading manage resource details:', err);
+                statusEl.textContent = 'Failed to load resource details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideLessonsMetadataManageResourceDetails() {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageResourceDetailsPanel');
+        if (detailPanel) detailPanel.style.display = 'none';
+        if (managePanel) managePanel.style.display = '';
+    }
+
+    function showLessonsMetadataManageTeamDetails(metadataRow) {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageTeamDetailsPanel');
+        const statusEl = document.getElementById('lessonsMetadataManageTeamDetailsStatus');
+        const bodyEl = document.getElementById('lessonsMetadataManageTeamDetailsBody');
+        if (!detailPanel || !statusEl || !bodyEl) return;
+
+        if (managePanel) managePanel.style.display = 'none';
+        detailPanel.style.display = '';
+        detailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading team details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsTeamDetails(metadataRow, { statusEl, bodyEl })
+            .catch((err) => {
+                console.error('Error loading manage team details:', err);
+                statusEl.textContent = 'Failed to load team details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideLessonsMetadataManageTeamDetails() {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageTeamDetailsPanel');
+        if (detailPanel) detailPanel.style.display = 'none';
+        if (managePanel) managePanel.style.display = '';
+    }
+
+    function showLessonsMetadataManageMiscDetails(metadataRow) {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageMiscDetailsPanel');
+        const statusEl = document.getElementById('lessonsMetadataManageMiscDetailsStatus');
+        const bodyEl = document.getElementById('lessonsMetadataManageMiscDetailsBody');
+        if (!detailPanel || !statusEl || !bodyEl) return;
+
+        if (managePanel) managePanel.style.display = 'none';
+        detailPanel.style.display = '';
+        detailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        statusEl.textContent = 'Loading miscellaneous details...';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        bodyEl.innerHTML = '';
+
+        loadSearchProjectsMiscDetails(metadataRow, { statusEl, bodyEl })
+            .catch((err) => {
+                console.error('Error loading manage miscellaneous details:', err);
+                statusEl.textContent = 'Failed to load miscellaneous details.';
+                statusEl.classList.add('upload-message--error');
+            });
+    }
+
+    function hideLessonsMetadataManageMiscDetails() {
+        const managePanel = document.getElementById('lessonsMetadataManagePanel');
+        const detailPanel = document.getElementById('lessonsMetadataManageMiscDetailsPanel');
+        if (detailPanel) detailPanel.style.display = 'none';
+        if (managePanel) managePanel.style.display = '';
     }
 
     async function loadOrgProjectsForProjectDetailsManageDropdown() {
@@ -5329,9 +5553,9 @@ const projectFormHTML = `
         }
     }
 
-    async function loadSearchProjectsTaskDetails(metadataRow) {
-        const statusEl = document.getElementById('searchProjectsTaskDetailsStatus');
-        const bodyEl = document.getElementById('searchProjectsTaskDetailsBody');
+    async function loadSearchProjectsTaskDetails(metadataRow, options = {}) {
+        const statusEl = options.statusEl || document.getElementById('searchProjectsTaskDetailsStatus');
+        const bodyEl = options.bodyEl || document.getElementById('searchProjectsTaskDetailsBody');
         if (!statusEl || !bodyEl) return;
 
         if (!organizationId) {
@@ -5370,7 +5594,7 @@ const projectFormHTML = `
 
             const predecessorNames = await loadSearchProjectsTaskPredecessorNames(task);
             const wbsParentName = await loadSearchProjectsWbsParentName(task);
-            renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName);
+            renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName, bodyEl);
             statusEl.textContent = '';
             statusEl.classList.remove('upload-message--error');
         } catch (err) {
@@ -5424,10 +5648,9 @@ const projectFormHTML = `
         }
     }
 
-    function renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName) {
-        const bodyEl = document.getElementById('searchProjectsTaskDetailsBody');
-        if (!bodyEl) return;
-
+    function renderSearchProjectsTaskDetails(task, predecessorNames, wbsParentName, bodyEl = null) {
+        const target = bodyEl || document.getElementById('searchProjectsTaskDetailsBody');
+        if (!target) return;
         const items = [];
         const addItem = (label, value) => {
             if (value == null || value === '') return;
@@ -5459,7 +5682,7 @@ const projectFormHTML = `
         addItem('Notes', task.notes);
 
         if (items.length === 0) {
-            bodyEl.textContent = 'No task details available.';
+            target.textContent = 'No task details available.';
             return;
         }
 
@@ -5483,13 +5706,13 @@ const projectFormHTML = `
             list.appendChild(row);
         });
 
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(list);
+        target.innerHTML = '';
+        target.appendChild(list);
     }
 
-    async function loadSearchProjectsResourceDetails(metadataRow) {
-        const statusEl = document.getElementById('searchProjectsResourceDetailsStatus');
-        const bodyEl = document.getElementById('searchProjectsResourceDetailsBody');
+    async function loadSearchProjectsResourceDetails(metadataRow, options = {}) {
+        const statusEl = options.statusEl || document.getElementById('searchProjectsResourceDetailsStatus');
+        const bodyEl = options.bodyEl || document.getElementById('searchProjectsResourceDetailsBody');
         if (!statusEl || !bodyEl) return;
 
         if (!organizationId) {
@@ -5527,7 +5750,7 @@ const projectFormHTML = `
             }
 
             const assignedTasks = await loadSearchProjectsResourceAssignedTasks(resource);
-            renderSearchProjectsResourceDetails(resource, assignedTasks);
+            renderSearchProjectsResourceDetails(resource, assignedTasks, bodyEl);
             statusEl.textContent = '';
             statusEl.classList.remove('upload-message--error');
         } catch (err) {
@@ -5584,9 +5807,9 @@ const projectFormHTML = `
         }
     }
 
-    function renderSearchProjectsResourceDetails(resource, assignedTasks) {
-        const bodyEl = document.getElementById('searchProjectsResourceDetailsBody');
-        if (!bodyEl) return;
+    function renderSearchProjectsResourceDetails(resource, assignedTasks, bodyEl = null) {
+        const target = bodyEl || document.getElementById('searchProjectsResourceDetailsBody');
+        if (!target) return;
 
         const items = [];
         const addItem = (label, value) => {
@@ -5606,7 +5829,7 @@ const projectFormHTML = `
         }
 
         if (items.length === 0) {
-            bodyEl.textContent = 'No resource details available.';
+            target.textContent = 'No resource details available.';
             return;
         }
 
@@ -5630,13 +5853,13 @@ const projectFormHTML = `
             list.appendChild(row);
         });
 
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(list);
+        target.innerHTML = '';
+        target.appendChild(list);
     }
 
-    async function loadSearchProjectsTeamDetails(metadataRow) {
-        const statusEl = document.getElementById('searchProjectsTeamDetailsStatus');
-        const bodyEl = document.getElementById('searchProjectsTeamDetailsBody');
+    async function loadSearchProjectsTeamDetails(metadataRow, options = {}) {
+        const statusEl = options.statusEl || document.getElementById('searchProjectsTeamDetailsStatus');
+        const bodyEl = options.bodyEl || document.getElementById('searchProjectsTeamDetailsBody');
         if (!statusEl || !bodyEl) return;
 
         if (!organizationId) {
@@ -5675,7 +5898,7 @@ const projectFormHTML = `
 
             const parentName = await loadSearchProjectsTeamParentName(team);
             const subTeamNames = await loadSearchProjectsTeamSubTeams(team);
-            renderSearchProjectsTeamDetails(team, parentName, subTeamNames);
+            renderSearchProjectsTeamDetails(team, parentName, subTeamNames, bodyEl);
             statusEl.textContent = '';
             statusEl.classList.remove('upload-message--error');
         } catch (err) {
@@ -5742,9 +5965,9 @@ const projectFormHTML = `
         }
     }
 
-    function renderSearchProjectsTeamDetails(team, parentName, subTeamNames) {
-        const bodyEl = document.getElementById('searchProjectsTeamDetailsBody');
-        if (!bodyEl) return;
+    function renderSearchProjectsTeamDetails(team, parentName, subTeamNames, bodyEl = null) {
+        const target = bodyEl || document.getElementById('searchProjectsTeamDetailsBody');
+        if (!target) return;
 
         const items = [];
         const addItem = (label, value) => {
@@ -5765,7 +5988,7 @@ const projectFormHTML = `
         }
 
         if (items.length === 0) {
-            bodyEl.textContent = 'No team details available.';
+            target.textContent = 'No team details available.';
             return;
         }
 
@@ -5789,13 +6012,13 @@ const projectFormHTML = `
             list.appendChild(row);
         });
 
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(list);
+        target.innerHTML = '';
+        target.appendChild(list);
     }
 
-    async function loadSearchProjectsMiscDetails(metadataRow) {
-        const statusEl = document.getElementById('searchProjectsMiscDetailsStatus');
-        const bodyEl = document.getElementById('searchProjectsMiscDetailsBody');
+    async function loadSearchProjectsMiscDetails(metadataRow, options = {}) {
+        const statusEl = options.statusEl || document.getElementById('searchProjectsMiscDetailsStatus');
+        const bodyEl = options.bodyEl || document.getElementById('searchProjectsMiscDetailsBody');
         if (!statusEl || !bodyEl) return;
 
         if (!organizationId) {
@@ -5834,7 +6057,7 @@ const projectFormHTML = `
 
             const parentName = await loadSearchProjectsMiscParentName(misc);
             const subItemNames = await loadSearchProjectsMiscSubItems(misc);
-            renderSearchProjectsMiscDetails(misc, parentName, subItemNames);
+            renderSearchProjectsMiscDetails(misc, parentName, subItemNames, bodyEl);
             statusEl.textContent = '';
             statusEl.classList.remove('upload-message--error');
         } catch (err) {
@@ -5901,9 +6124,9 @@ const projectFormHTML = `
         }
     }
 
-    function renderSearchProjectsMiscDetails(misc, parentName, subItemNames) {
-        const bodyEl = document.getElementById('searchProjectsMiscDetailsBody');
-        if (!bodyEl) return;
+    function renderSearchProjectsMiscDetails(misc, parentName, subItemNames, bodyEl = null) {
+        const target = bodyEl || document.getElementById('searchProjectsMiscDetailsBody');
+        if (!target) return;
 
         const items = [];
         const addItem = (label, value) => {
@@ -5924,7 +6147,7 @@ const projectFormHTML = `
         }
 
         if (items.length === 0) {
-            bodyEl.textContent = 'No miscellaneous details available.';
+            target.textContent = 'No miscellaneous details available.';
             return;
         }
 
@@ -5948,8 +6171,8 @@ const projectFormHTML = `
             list.appendChild(row);
         });
 
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(list);
+        target.innerHTML = '';
+        target.appendChild(list);
     }
 
     async function refreshSearchProjectsTeamMembers() {
