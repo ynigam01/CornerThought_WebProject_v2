@@ -238,6 +238,21 @@ function normalizeComparable(value) {
     return String(value).trim();
 }
 
+async function syncAssignmentNames({ supabase, organization_id, project_id, lessonsListId, newName }) {
+    if (!lessonsListId) return 0;
+    const { data, error } = await supabase
+        .from('project_team_member_assignments')
+        .update({ assignment: newName })
+        .eq('organization_id', organization_id)
+        .eq('project_id', project_id)
+        .eq('lessons_learned_metadata_list_id', lessonsListId)
+        .select('id');
+    if (error) {
+        throw new Error(error.message || 'Failed updating assignment names.');
+    }
+    return (data || []).length;
+}
+
 /**
  * Update an Excel Project Team List in Supabase (match by Team ID).
  *
@@ -328,6 +343,7 @@ export async function updateProjectTeamListExcelToSupabase({
     let updatedCount = 0;
     let unchangedCount = 0;
     let syncedNames = 0;
+    let syncedAssignments = 0;
 
     const newTeams = [];
 
@@ -397,6 +413,15 @@ export async function updateProjectTeamListExcelToSupabase({
                 if (metaErr) {
                     throw new Error(metaErr.message || 'Failed updating lessons learned metadata name.');
                 }
+
+                const assignmentCount = await syncAssignmentNames({
+                    supabase,
+                    organization_id,
+                    project_id,
+                    lessonsListId: listId,
+                    newName: changes.name.to
+                });
+                syncedAssignments += assignmentCount;
 
                 syncedNames += 1;
             }
@@ -477,7 +502,8 @@ export async function updateProjectTeamListExcelToSupabase({
         },
         unchanged: unchangedCount,
         skipped,
-        synced_names: syncedNames
+        synced_names: syncedNames,
+        synced_assignments: syncedAssignments
     };
 }
 

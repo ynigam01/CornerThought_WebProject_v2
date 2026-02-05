@@ -4,7 +4,7 @@ import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 import { parseMsProjectTxt, importMsProjectTxtToSupabase } from './ms-project-txt-parser.js';
 import { updateMsProjectXmlToSupabase } from './ms-project-xml-update.js';
 import { importProjectTeamListExcelToSupabase, updateProjectTeamListExcelToSupabase } from './excel-project-team-importer.js';
-import { importProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
+import { importProjectMiscListExcelToSupabase, updateProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
 import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
 
 // Require login: redirect to user-login if no session is present
@@ -646,6 +646,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <option value="excel_project_team_list_new">Excel Project Team List - New</option>
                         <option value="excel_project_team_list_update">Excel Project Team List - Update</option>
                         <option value="excel_project_misc_list_new">Excel Project Miscellaneous List - New</option>
+                        <option value="excel_project_misc_list_update">Excel Project Miscellaneous List - Update</option>
                     </select>
                 </div>
                 <div class="form-group" id="lessonsMetadataUploadGroup" style="display: none;">
@@ -778,6 +779,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else if (value === 'excel_project_misc_list_new') {
                     lessonsMetadataUploadGroup.style.display = '';
                     if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = 'none';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.xlsx,.xls';
+                    if (fileLabel) fileLabel.textContent = 'Upload Excel File';
+                    if (lessonsMetadataDeleteExistingXmlButton) lessonsMetadataDeleteExistingXmlButton.style.display = '';
+                    if (lessonsMetadataDeleteExistingTeamListButton) lessonsMetadataDeleteExistingTeamListButton.style.display = 'none';
+                    setHint('Please upload an Excel file with headers: Item ID, Item, Description, Parent Item ID.');
+                } else if (value === 'excel_project_misc_list_update') {
+                    lessonsMetadataUploadGroup.style.display = '';
+                    if (lessonsMetadataUpdateActionsGroup) lessonsMetadataUpdateActionsGroup.style.display = '';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     if (lessonsMetadataFileInput) lessonsMetadataFileInput.accept = '.xlsx,.xls';
                     if (fileLabel) fileLabel.textContent = 'Upload Excel File';
@@ -1094,8 +1104,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const isExcelTeamListNew = selectedType === 'excel_project_team_list_new';
                 const isExcelTeamListUpdate = selectedType === 'excel_project_team_list_update';
                 const isExcelMiscListNew = selectedType === 'excel_project_misc_list_new';
+                const isExcelMiscListUpdate = selectedType === 'excel_project_misc_list_update';
 
-                if (!isMsProjectNew && !isMsProjectUpdate && !isExcelTeamListNew && !isExcelTeamListUpdate && !isExcelMiscListNew) {
+                if (!isMsProjectNew && !isMsProjectUpdate && !isExcelTeamListNew && !isExcelTeamListUpdate && !isExcelMiscListNew && !isExcelMiscListUpdate) {
                     lessonsMetadataStatus.textContent = 'Please select an input data file type that supports uploads.';
                     lessonsMetadataStatus.classList.add('upload-message--error');
                     return;
@@ -1142,7 +1153,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
 
-                if (isExcelMiscListNew) {
+                if (isExcelMiscListNew || isExcelMiscListUpdate) {
                     if (!isExcel) {
                         lessonsMetadataStatus.textContent = 'Invalid file type. Please upload an Excel file (.xlsx, .xls).';
                         lessonsMetadataStatus.classList.add('upload-message--error');
@@ -1271,12 +1282,14 @@ document.addEventListener("DOMContentLoaded", () => {
                         const unchanged = result && result.unchanged ? result.unchanged : 0;
                         const skipped = result && result.skipped ? result.skipped : 0;
                         const synced = result && result.synced_names ? result.synced_names : 0;
+                        const assignmentSynced = result && result.synced_assignments ? result.synced_assignments : 0;
 
                         lessonsMetadataStatus.textContent =
                             `Updated "${name}". Updated ${updated.project_teams_excel || 0} teams, ` +
                             `inserted ${inserted.project_teams_excel || 0} new teams, ` +
                             `unchanged ${unchanged}, skipped ${skipped}. ` +
-                            `Synced ${synced} team name${synced === 1 ? '' : 's'} in metadata.`;
+                            `Synced ${synced} team name${synced === 1 ? '' : 's'} in metadata and ` +
+                            `${assignmentSynced} assignment name${assignmentSynced === 1 ? '' : 's'}.`;
                         lessonsMetadataStatus.classList.add('upload-message--success');
                         if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     } else if (isExcelMiscListNew) {
@@ -1295,6 +1308,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         lessonsMetadataStatus.textContent =
                             `Imported "${name}". Inserted ${insertedMisc} miscellaneous rows and ${insertedMeta} metadata rows.`;
+                        lessonsMetadataStatus.classList.add('upload-message--success');
+                        if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
+                    } else if (isExcelMiscListUpdate) {
+                        const result = await updateProjectMiscListExcelToSupabase({
+                            supabase,
+                            file,
+                            context,
+                            chunkSize: 250,
+                            onProgress
+                        });
+
+                        const updated = result && result.updated ? result.updated : {};
+                        const inserted = result && result.inserted ? result.inserted : {};
+                        const unchanged = result && result.unchanged ? result.unchanged : 0;
+                        const skipped = result && result.skipped ? result.skipped : 0;
+                        const synced = result && result.synced_names ? result.synced_names : 0;
+                        const assignmentSynced = result && result.synced_assignments ? result.synced_assignments : 0;
+
+                        lessonsMetadataStatus.textContent =
+                            `Updated "${name}". Updated ${updated.project_miscellaneous_excel || 0} items, ` +
+                            `inserted ${inserted.project_miscellaneous_excel || 0} new items, ` +
+                            `unchanged ${unchanged}, skipped ${skipped}. ` +
+                            `Synced ${synced} item name${synced === 1 ? '' : 's'} in metadata and ` +
+                            `${assignmentSynced} assignment name${assignmentSynced === 1 ? '' : 's'}.`;
                         lessonsMetadataStatus.classList.add('upload-message--success');
                         if (lessonsMetadataFileInput) lessonsMetadataFileInput.value = '';
                     } else {
