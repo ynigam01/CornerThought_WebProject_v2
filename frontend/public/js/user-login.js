@@ -1,7 +1,7 @@
 // Prototype user login: verify email exists in 'users' table, accept any non-empty password
 import { supabase } from './supabase-client.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+function initUserLogin() {
     const form = document.getElementById('userLoginForm');
     const emailEl = document.getElementById('loginEmail');
     const pwdEl = document.getElementById('loginPassword');
@@ -83,6 +83,12 @@ document.addEventListener('DOMContentLoaded', () => {
             setLoading(false);
         }
     });
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initUserLogin);
+} else {
+    initUserLogin();
+}
 
 

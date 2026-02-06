@@ -869,6 +869,9 @@ export async function updateMsProjectXmlToSupabase({
     const missingTasks = taskDetails.filter(row => row && row.uid && !parsedTaskUids.has(String(row.uid)));
     const missingResources = resourceDetails.filter(row => row && row.uid && !parsedResourceUids.has(String(row.uid)));
     const missingAssignments = existingAssignments.filter(row => row && row.uid && !parsedAssignmentUids.has(String(row.uid)));
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ms-project-xml-update.js:missing-summary',message:'Missing counts after XML parse',data:{tasks:missingTasks.length,resources:missingResources.length,assignments:missingAssignments.length,parsedTaskUids:parsedTaskUids.size,parsedResourceUids:parsedResourceUids.size},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
 
     const missingTaskListIds = missingTasks.map(r => r.lessons_learned_metadata_list_id).filter(v => v != null);
     const missingResourceListIds = missingResources.map(r => r.lessons_learned_metadata_list_id).filter(v => v != null);
@@ -880,6 +883,44 @@ export async function updateMsProjectXmlToSupabase({
         project_id,
         chunkSize
     });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ms-project-xml-update.js:used-ids',message:'Used metadata list ids for missing tasks/resources',data:{missingTaskListIds:missingTaskListIds.length,missingResourceListIds:missingResourceListIds.length,usedIds:usedIds.size},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+
+    let removedAssignments = 0;
+    let keptAssignments = 0;
+    const missingAssignmentIds = Array.from(
+        new Set([...missingTaskListIds, ...missingResourceListIds].map(v => String(v)))
+    );
+    if (missingAssignmentIds.length) {
+        const assignmentChunks = chunkArray(missingAssignmentIds, chunkSize);
+        for (const chunk of assignmentChunks) {
+            const deletable = chunk.filter(id => !usedIds.has(String(id)));
+            const keep = chunk.filter(id => usedIds.has(String(id)));
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ms-project-xml-update.js:assignment-delete-check',message:'Assignment delete check for chunk',data:{chunkSize:chunk.length,deletable:deletable.length,keep:keep.length,deletableSample:deletable.slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3'})}).catch(()=>{});
+            // #endregion
+
+            if (deletable.length) {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ms-project-xml-update.js:assignment-delete',message:'Deleting project_team_member_assignments by metadata list ids',data:{count:deletable.length,firstIds:deletable.slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3'})}).catch(()=>{});
+                // #endregion
+                const { data, error } = await supabase
+                    .from('project_team_member_assignments')
+                    .delete()
+                    .eq('organization_id', organization_id)
+                    .eq('project_id', project_id)
+                    .in('lessons_learned_metadata_list_id', deletable)
+                    .select('id');
+                if (error) throw new Error(error.message || 'Failed deleting project team member assignments.');
+                removedAssignments += (data || []).length;
+            }
+
+            if (keep.length) {
+                keptAssignments += keep.length;
+            }
+        }
+    }
 
     const deletableTasks = [];
     const protectedTasks = [];
@@ -924,6 +965,9 @@ export async function updateMsProjectXmlToSupabase({
         });
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ms-project-xml-update.js:deletable-summary',message:'Deletable vs protected tasks/resources',data:{deletableTasks:deletableTasks.length,protectedTasks:protectedTasks.length,deletableResources:deletableResources.length,protectedResources:protectedResources.length},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
     if (deletableTasks.length) {
         const listIds = deletableTasks.map(r => r.lessons_learned_metadata_list_id).filter(v => v != null);
         const chunks = chunkArray(listIds, chunkSize);
@@ -1010,6 +1054,11 @@ export async function updateMsProjectXmlToSupabase({
     summaryLines.push(
         `Assignments: updated ${summary.updatedAssignments.length}, added ${summary.insertedAssignments.length}, deleted ${summary.deletedAssignments.length}.`
     );
+    if (removedAssignments || keptAssignments) {
+        summaryLines.push(
+            `Assignments removed for missing items: ${removedAssignments}; kept because tagged: ${keptAssignments}.`
+        );
+    }
 
     const detailLimit = 25;
     if (summary.updatedTasks.length) {
