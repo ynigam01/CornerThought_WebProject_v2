@@ -780,9 +780,9 @@ body {
 .lesson-detail-card {
     background-color: #ffffff;
     border-radius: 22px;
-    border: 2px solid #243447;
+    border: none;
     padding: 22px 26px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
 }
 
 .lesson-detail-actions {
@@ -908,11 +908,11 @@ body {
 }
 
 .lesson-fpc-highlight {
-    background-color: #cfefff; /* light blue */
+    background-color: #d9f2c7; /* light green */
 }
 
 .lesson-fpc-default {
-    background-color: #d9f2c7; /* light green */
+    background-color: #cfefff; /* light blue */
 }
 
 /* === User Portal Search Projects list === */
