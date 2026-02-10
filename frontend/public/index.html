@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CornerThought - Organizational Tool</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
     <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -20,33 +21,52 @@
     </nav>
 </header>
 
-<main class="content-area">
-    <h1>Welcome to CornerThought</h1>
-    <p>Your lessons learned platform.</p>
-
-    <section class="public-search">
-        <h2>Search Public Lessons Learned</h2>
-        <p class="public-search-hint">
-            Search by keywords that appear in lesson metadata tags (for example, <em>climate</em>, <em>stakeholder</em>, or <em>supply chain</em>).
-        </p>
-        <form id="lessonsSearchForm" class="lessons-search-form">
-            <input
-                type="text"
-                id="lessonsSearchInput"
-                class="search-input"
-                placeholder="Search lessons by keyword…"
-                aria-label="Search lessons learned"
-                autocomplete="off"
-            >
-            <button type="submit" class="search-button">Search Lessons</button>
-            <button type="button" id="searchProjectsButton" class="search-button secondary-search-button">Search Projects</button>
-            <button type="button" class="search-button secondary-search-button">Advanced Search</button>
+<main class="public-search-shell" id="publicSearchLayout">
+    <aside class="public-search-panel" id="advancedSearchPanel" aria-hidden="true">
+        <form class="advanced-search-form" aria-label="Advanced search filters">
+            <div class="advanced-search-field">
+                <label for="advancedIndustry">Industry</label>
+                <select id="advancedIndustry" name="industry">
+                    <option value="">Select industry</option>
+                </select>
+            </div>
+            <div class="advanced-search-field">
+                <label for="advancedProjectType">Project Type</label>
+                <select id="advancedProjectType" name="projectType">
+                    <option value="">Select project type</option>
+                </select>
+            </div>
         </form>
-        <p id="lessonsSearchStatus" class="search-status" aria-live="polite"></p>
-        <div id="lessonsResultsContainer" class="lessons-results"></div>
-    </section>
+    </aside>
+    <div class="content-area public-search-card">
+        <h1>Welcome to CornerThought</h1>
+        <p>Your lessons learned platform.</p>
+
+        <section class="public-search">
+            <h2>Search Public Lessons Learned</h2>
+            <p class="public-search-hint">
+                Search by keywords that appear in lesson metadata tags (for example, <em>climate</em>, <em>stakeholder</em>, or <em>supply chain</em>).
+            </p>
+            <form id="lessonsSearchForm" class="lessons-search-form">
+                <input
+                    type="text"
+                    id="lessonsSearchInput"
+                    class="search-input"
+                    placeholder="Search lessons by keyword…"
+                    aria-label="Search lessons learned"
+                    autocomplete="off"
+                >
+                <button type="submit" class="search-button">Search Lessons</button>
+                <button type="button" id="searchProjectsButton" class="search-button secondary-search-button">Search Projects</button>
+                <button type="button" id="advancedSearchButton" class="search-button" aria-expanded="false">Advanced Search</button>
+            </form>
+            <p id="lessonsSearchStatus" class="search-status" aria-live="polite"></p>
+            <div id="lessonsResultsContainer" class="lessons-results"></div>
+        </section>
+    </div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
 <script src="js/main.js"></script>
 <script type="module" src="js/index-search.js"></script>
 </body>

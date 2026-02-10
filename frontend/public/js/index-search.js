@@ -55,7 +55,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('lessonsSearchForm');
   const input = document.getElementById('lessonsSearchInput');
   const projectsButton = document.getElementById('searchProjectsButton');
+  const advancedButton = document.getElementById('advancedSearchButton');
+  const layout = document.getElementById('publicSearchLayout');
+  const advancedPanel = document.getElementById('advancedSearchPanel');
+  const industrySelect = document.getElementById('advancedIndustry');
+  const projectTypeSelect = document.getElementById('advancedProjectType');
   const searchButton = form ? form.querySelector('button[type="submit"]') : null;
+  let publicProjectTypes = [];
+  let industryChoices = null;
+  let projectTypeChoices = null;
 
   if (!form || !input) {
     // If elements aren't present, quietly exit.
@@ -133,6 +141,158 @@ document.addEventListener('DOMContentLoaded', () => {
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H4',location:'index-search.js:109',message:'search lessons button clicked',data:{},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
+    });
+  }
+
+  if (advancedButton && layout && advancedPanel) {
+    advancedButton.addEventListener('click', () => {
+      const isOpen = layout.classList.toggle('is-advanced-open');
+      advancedButton.setAttribute('aria-expanded', String(isOpen));
+      advancedPanel.setAttribute('aria-hidden', String(!isOpen));
+    });
+  }
+
+  function buildChoicesList(items, emptyLabel) {
+    if (!items.length) {
+      return [{ value: '', label: emptyLabel, disabled: true, selected: true }];
+    }
+    return items;
+  }
+
+  function fillSelect(selectEl, items, placeholderLabel, emptyLabel) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = placeholderLabel;
+    selectEl.appendChild(placeholder);
+
+    if (!items.length && emptyLabel) {
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = emptyLabel;
+      emptyOption.disabled = true;
+      selectEl.appendChild(emptyOption);
+      return;
+    }
+
+    items.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.value;
+      option.textContent = item.label;
+      selectEl.appendChild(option);
+    });
+  }
+
+  function initChoices(selectEl, placeholderLabel) {
+    if (!selectEl || typeof Choices === 'undefined') {
+      return null;
+    }
+    return new Choices(selectEl, {
+      searchEnabled: true,
+      shouldSort: false,
+      placeholder: true,
+      placeholderValue: placeholderLabel,
+      searchPlaceholderValue: 'Type to search...',
+      allowHTML: false,
+    });
+  }
+
+  function setChoicesOptions(choicesInstance, items, emptyLabel) {
+    if (!choicesInstance) return;
+    const list = buildChoicesList(items, emptyLabel);
+    choicesInstance.setChoices(list, 'value', 'label', true);
+  }
+
+  function normalizeIndustry(value) {
+    if (!value) return '';
+    return String(value).trim();
+  }
+
+  function getDistinctIndustries(rows) {
+    const set = new Set();
+    (rows || []).forEach((row) => {
+      const industry = normalizeIndustry(row?.industry);
+      if (industry) {
+        set.add(industry);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  function updateIndustryOptions() {
+    const industries = getDistinctIndustries(publicProjectTypes).map((industry) => ({
+      value: industry,
+      label: industry,
+    }));
+
+    if (industryChoices) {
+      setChoicesOptions(industryChoices, industries, 'No industries available');
+    } else {
+      fillSelect(industrySelect, industries, 'Select industry', 'No industries available');
+    }
+  }
+
+  function updateProjectTypeOptions(selectedIndustry) {
+    const filtered = selectedIndustry
+      ? publicProjectTypes.filter(
+          (row) => normalizeIndustry(row?.industry) === normalizeIndustry(selectedIndustry)
+        )
+      : publicProjectTypes;
+
+    const projectTypes = (filtered || [])
+      .map((row) => ({
+        value: row?.id != null ? String(row.id) : '',
+        label: row?.project_type ? String(row.project_type) : 'Unnamed project type',
+      }))
+      .filter((item) => item.value || item.label);
+
+    if (projectTypeChoices) {
+      setChoicesOptions(projectTypeChoices, projectTypes, 'No public project types available');
+      projectTypeChoices.removeActiveItems();
+    } else {
+      fillSelect(
+        projectTypeSelect,
+        projectTypes,
+        'Select project type',
+        'No public project types available'
+      );
+    }
+  }
+
+  async function loadPublicProjectTypes() {
+    if (!industrySelect || !projectTypeSelect) return;
+    try {
+      const { data, error } = await supabase
+        .from('project_type')
+        .select('id, project_type, industry')
+        .eq('is_public', true)
+        .order('project_type', { ascending: true });
+
+      if (error) {
+        console.error('Error loading public project types:', error);
+        publicProjectTypes = [];
+      } else {
+        publicProjectTypes = Array.isArray(data) ? data : [];
+      }
+
+      updateIndustryOptions();
+      updateProjectTypeOptions('');
+    } catch (err) {
+      console.error('Unexpected error loading public project types:', err);
+      publicProjectTypes = [];
+      updateIndustryOptions();
+      updateProjectTypeOptions('');
+    }
+  }
+
+  if (industrySelect && projectTypeSelect) {
+    industryChoices = initChoices(industrySelect, 'Select industry');
+    projectTypeChoices = initChoices(projectTypeSelect, 'Select project type');
+    loadPublicProjectTypes();
+
+    industrySelect.addEventListener('change', () => {
+      updateProjectTypeOptions(industrySelect.value || '');
     });
   }
 });

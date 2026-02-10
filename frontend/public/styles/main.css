@@ -166,6 +166,66 @@ body {
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
     text-align: center;
 }
+.public-search-shell {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 20px 20px 40px;
+}
+
+.public-search-card {
+    width: min(960px, 100%);
+    margin: 0;
+}
+
+.public-search-panel {
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+    min-height: 320px;
+    transition: width 0.2s ease, opacity 0.2s ease;
+}
+
+.public-search-shell.is-advanced-open {
+    justify-content: flex-start;
+}
+
+.public-search-shell.is-advanced-open .public-search-panel {
+    width: 260px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.advanced-search-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+}
+
+.advanced-search-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.advanced-search-field label {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.advanced-search-field select {
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+    background-color: #f4f7f6;
+    color: #555;
+}
 .content-area h1 {
     color: #2c3e50;
     font-size: 36px;
