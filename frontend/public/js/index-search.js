@@ -300,7 +300,9 @@ function renderResults(results, term) {
   lastTermCache = term;
 
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H4',location:'index-search.js:227',message:'renderResults',data:{count:results.length},timestamp:Date.now()})}).catch(()=>{});
+  const resultProjectNameCount = results.filter((item) => !!item?.projectName).length;
+  const resultProjectTypeCount = results.filter((item) => !!item?.projectType).length;
+  fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H10',location:'index-search.js:227',message:'renderResults',data:{count:results.length,projectNameCount:resultProjectNameCount,projectTypeCount:resultProjectTypeCount},timestamp:Date.now()})}).catch(()=>{});
   // #endregion
 
   results.forEach((item) => {
@@ -517,12 +519,19 @@ async function resolveLegacyLessonIds(result) {
 }
 
 async function fetchLessonDetail(lessonId) {
-  const [lessonResp, causesResp, impactsResp, fpcResp] = await Promise.all([
-    supabase
-      .from('lessons_learned')
-      .select('id, title, category')
-      .eq('id', lessonId)
-      .single(),
+  const lessonResp = await supabase
+    .from('lessons_learned')
+    .select('id, title, category, project_id, project_type_id')
+    .eq('id', lessonId)
+    .single();
+
+  if (lessonResp.error) throw lessonResp.error;
+
+  const lesson = lessonResp.data || {};
+  const projectId = lesson.project_id ?? null;
+  let projectTypeId = lesson.project_type_id ?? null;
+
+  const [causesResp, impactsResp, fpcResp, metadataResp, projectResp] = await Promise.all([
     supabase
       .from('lessons_learned_causes')
       .select('id, cause')
@@ -535,18 +544,49 @@ async function fetchLessonDetail(lessonId) {
       .from('future_project_considerations')
       .select('id, fpc, lessons_learned_cause_id, lessons_learned_impact_id')
       .eq('lessons_learned_id', lessonId),
+    supabase
+      .from('lessons_learned_metadata')
+      .select('metadata')
+      .eq('lessons_learned_id', lessonId),
+    projectId
+      ? supabase
+          .from('projects')
+          .select('project_id, project_name, project_type_id')
+          .eq('project_id', projectId)
+          .single()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
-  if (lessonResp.error) throw lessonResp.error;
   if (causesResp.error) throw causesResp.error;
   if (impactsResp.error) throw impactsResp.error;
   if (fpcResp.error) throw fpcResp.error;
+  if (metadataResp.error) throw metadataResp.error;
+  if (projectResp.error) throw projectResp.error;
+
+  const project = projectResp.data || null;
+  if (!projectTypeId && project?.project_type_id) {
+    projectTypeId = project.project_type_id;
+  }
+
+  let projectType = null;
+  if (projectTypeId) {
+    const projectTypeResp = await supabase
+      .from('project_type')
+      .select('id, project_type')
+      .eq('id', projectTypeId)
+      .single();
+    if (projectTypeResp.error) throw projectTypeResp.error;
+    projectType = projectTypeResp.data || null;
+  }
 
   return {
-    lesson: lessonResp.data,
+    lesson,
     causes: Array.isArray(causesResp.data) ? causesResp.data : [],
     impacts: Array.isArray(impactsResp.data) ? impactsResp.data : [],
     fpcs: Array.isArray(fpcResp.data) ? fpcResp.data : [],
+    metadata: Array.isArray(metadataResp.data) ? metadataResp.data : [],
+    project,
+    projectType,
   };
 }
 
@@ -557,6 +597,9 @@ function renderLessonDetail(detail, resultMeta) {
   container.innerHTML = '';
 
   const lesson = detail.lesson || {};
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H9',location:'index-search.js:559',message:'renderLessonDetail data',data:{resultProjectName:resultMeta?.projectName||null,resultProjectType:resultMeta?.projectType||null,lessonProjectId:lesson.project_id??null,projectName:detail?.project?.project_name||null,projectType:detail?.projectType?.project_type||null,metadataCount:Array.isArray(detail?.metadata)?detail.metadata.length:null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const categoryRaw = String(lesson.category || '').toLowerCase();
   const categoryLabel =
     categoryRaw === 'success' ? 'Success' : categoryRaw === 'issue' ? 'Issue' : 'Lesson';
@@ -616,12 +659,91 @@ function renderLessonDetail(detail, resultMeta) {
     sectionClass: 'lesson-detail-impact-card',
   });
 
+  const projectMetaBlock = buildProjectMetaBlock(detail);
+
   card.appendChild(title);
   card.appendChild(causesSection);
   card.appendChild(impactsSection);
+  if (projectMetaBlock) {
+    card.appendChild(projectMetaBlock);
+  }
 
   container.appendChild(actions);
   container.appendChild(card);
+}
+
+function buildProjectMetaBlock(detail) {
+  const projectName = detail?.project?.project_name || '';
+  const projectType = detail?.projectType?.project_type || '';
+  const metadataValues = (Array.isArray(detail?.metadata) ? detail.metadata : [])
+    .map((row) => normalizeMetadataValue(row?.metadata))
+    .filter((value) => value);
+
+  const hasProjectType = !!projectType;
+  const hasMetadata = metadataValues.length > 0;
+
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H8',location:'index-search.js:664',message:'buildProjectMetaBlock data',data:{hasProjectName:!!projectName,projectName:projectName||null,projectType:projectType||null,metadataCount:metadataValues.length,projectId:detail?.project?.project_id||null,lessonProjectId:detail?.lesson?.project_id||null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
+  if (!projectName && !hasProjectType && !hasMetadata) {
+    return null;
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'lesson-detail-project-meta';
+
+  if (projectName) {
+    const projectRow = document.createElement('div');
+    projectRow.className = 'lesson-detail-project-row';
+    projectRow.innerHTML = `<span class="lesson-detail-project-label">Project:</span> ${escapeHtml(
+      projectName
+    )}`;
+    wrapper.appendChild(projectRow);
+  }
+
+  if (hasProjectType) {
+    const typeRow = document.createElement('div');
+    typeRow.className = 'lesson-detail-project-row';
+    typeRow.innerHTML = `<span class="lesson-detail-project-label">Project Type:</span> ${escapeHtml(
+      projectType
+    )}`;
+    wrapper.appendChild(typeRow);
+  }
+
+  if (hasMetadata) {
+    const metadataRow = document.createElement('div');
+    metadataRow.className = 'lesson-detail-project-row';
+    metadataRow.innerHTML = `<span class="lesson-detail-project-label">Metadata:</span> ${escapeHtml(
+      metadataValues.join(', ')
+    )}`;
+    wrapper.appendChild(metadataRow);
+  }
+
+  return wrapper;
+}
+
+function normalizeMetadataValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeMetadataValue(item)).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    if (typeof value.metadata === 'string') return value.metadata.trim();
+    if (typeof value.value === 'string') return value.value.trim();
+    const primitiveValues = Object.values(value)
+      .map((item) => normalizeMetadataValue(item))
+      .filter(Boolean);
+    if (primitiveValues.length) return primitiveValues.join(', ');
+    try {
+      return JSON.stringify(value);
+    } catch (err) {
+      return '';
+    }
+  }
+  return '';
 }
 
 function buildExpandableSection({

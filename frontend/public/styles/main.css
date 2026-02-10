@@ -805,6 +805,24 @@ body {
     background-color: #5a6268;
 }
 
+.lesson-detail-project-meta {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #1f2a36;
+}
+
+.lesson-detail-project-row {
+    margin-top: 8px;
+}
+
+.lesson-detail-project-row:first-child {
+    margin-top: 0;
+}
+
+.lesson-detail-project-label {
+    font-weight: 700;
+}
+
 .lesson-detail-title {
     font-size: 18px;
     margin-bottom: 14px;
