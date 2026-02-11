@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { InferenceClient } = require('@huggingface/inference');
+const { getTopMetadataTermsForProjectType } = require('./same-metadata-tracker');
 
 // Load env vars (reuse .env.backfill for now)
 dotenv.config({ path: '.env.backfill' });
@@ -53,6 +54,42 @@ app.use(express.static(path.join(__dirname, 'frontend', 'public')));
 // Simple health check
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+// GET /api/project-type-metadata-top?projectTypeId=...
+app.get('/api/project-type-metadata-top', async (req, res) => {
+  try {
+    const projectTypeId = String(req.query?.projectTypeId || '').trim();
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-1',hypothesisId:'H12',location:'server.js:/api/project-type-metadata-top:start',message:'metadata API called',data:{projectTypeId,hasProjectTypeId:!!projectTypeId},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    if (!projectTypeId) {
+      return res.status(400).json({ error: 'projectTypeId is required' });
+    }
+
+    const items = await getTopMetadataTermsForProjectType({
+      supabase,
+      projectTypeId,
+      limit: 10,
+    });
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-1',hypothesisId:'H13',location:'server.js:/api/project-type-metadata-top:success',message:'metadata API returning success',data:{projectTypeId,itemCount:Array.isArray(items)?items.length:null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+
+    return res.json({ projectTypeId, items });
+  } catch (err) {
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-1',hypothesisId:'H15',location:'server.js:/api/project-type-metadata-top:error',message:'metadata API threw error',data:{errorMessage:err?.message||'unknown',errorCode:err?.code||null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    console.error('Unexpected error in /api/project-type-metadata-top:', err);
+    return res.status(500).json({ error: 'Unable to load metadata terms' });
+  }
 });
 
 // POST /api/search-projects

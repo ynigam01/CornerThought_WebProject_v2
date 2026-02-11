@@ -60,10 +60,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const advancedPanel = document.getElementById('advancedSearchPanel');
   const industrySelect = document.getElementById('advancedIndustry');
   const projectTypeSelect = document.getElementById('advancedProjectType');
+  const metadataTopTermsStatus = document.getElementById('metadataTopTermsStatus');
+  const metadataTopTermsList = document.getElementById('metadataTopTermsList');
   const searchButton = form ? form.querySelector('button[type="submit"]') : null;
   let publicProjectTypes = [];
   let industryChoices = null;
   let projectTypeChoices = null;
+  let metadataTopTermsRequestId = 0;
 
   if (!form || !input) {
     // If elements aren't present, quietly exit.
@@ -279,6 +282,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'No public project types available'
       );
     }
+
+    clearMetadataTopTerms('Select a project type to view top metadata terms.');
   }
 
   function getSelectedProjectTypeId() {
@@ -291,6 +296,88 @@ document.addEventListener('DOMContentLoaded', () => {
       return raw || '';
     }
     return projectTypeSelect.value || '';
+  }
+
+  function clearMetadataTopTerms(statusMessage) {
+    if (metadataTopTermsStatus) {
+      metadataTopTermsStatus.textContent =
+        statusMessage || 'Select a project type to view top metadata terms.';
+    }
+    if (metadataTopTermsList) {
+      metadataTopTermsList.innerHTML = '';
+    }
+  }
+
+  function renderMetadataTopTerms(items) {
+    if (!metadataTopTermsStatus || !metadataTopTermsList) return;
+    metadataTopTermsList.innerHTML = '';
+
+    if (!Array.isArray(items) || !items.length) {
+      metadataTopTermsStatus.textContent = 'No metadata terms found for this project type.';
+      return;
+    }
+
+    metadataTopTermsStatus.textContent = `Top ${items.length} metadata term${
+      items.length === 1 ? '' : 's'
+    } for this project type:`;
+
+    items.forEach((item) => {
+      const li = document.createElement('li');
+      const term = item?.term || '';
+      const exactCount = Number(item?.exactCount || 0);
+      const closeCount = Number(item?.closeCount || 0);
+      li.innerHTML = `${escapeHtml(term)} <span class="advanced-metadata-term-counts">(exact: ${exactCount}, close: ${closeCount})</span>`;
+      metadataTopTermsList.appendChild(li);
+    });
+  }
+
+  async function loadMetadataTopTerms(projectTypeId) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-2',hypothesisId:'H16',location:'index-search.js:loadMetadataTopTerms:start',message:'metadata top terms request started',data:{projectTypeId:projectTypeId||'',windowOrigin:window.location.origin,windowHref:window.location.href},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!projectTypeId) {
+      clearMetadataTopTerms('Select a project type to view top metadata terms.');
+      return;
+    }
+
+    if (metadataTopTermsStatus) {
+      metadataTopTermsStatus.textContent = 'Loading top metadata terms...';
+    }
+    if (metadataTopTermsList) {
+      metadataTopTermsList.innerHTML = '';
+    }
+
+    metadataTopTermsRequestId += 1;
+    const currentRequestId = metadataTopTermsRequestId;
+    try {
+      const requestUrl = `/api/project-type-metadata-top?projectTypeId=${encodeURIComponent(projectTypeId)}`;
+      const response = await fetch(requestUrl);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-2',hypothesisId:'H12',location:'index-search.js:loadMetadataTopTerms:response',message:'metadata endpoint response received',data:{projectTypeId,status:response.status,ok:response.ok,requestUrl,resolvedUrl:new URL(requestUrl,window.location.origin).toString()},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (!response.ok) {
+        throw new Error(`Metadata request failed with status ${response.status}`);
+      }
+
+      const payload = await response.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-1',hypothesisId:'H13',location:'index-search.js:loadMetadataTopTerms:payload',message:'metadata endpoint payload parsed',data:{projectTypeId,itemCount:Array.isArray(payload?.items)?payload.items.length:null,keys:payload?Object.keys(payload):[]},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (currentRequestId !== metadataTopTermsRequestId) {
+        return;
+      }
+      renderMetadataTopTerms(payload?.items || []);
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-run-1',hypothesisId:'H14',location:'index-search.js:loadMetadataTopTerms:error',message:'metadata endpoint request failed',data:{projectTypeId,errorMessage:error?.message||'unknown'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (currentRequestId !== metadataTopTermsRequestId) {
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.error('Error loading top metadata terms:', error);
+      clearMetadataTopTerms('Unable to load metadata terms for this project type.');
+    }
   }
 
   async function searchLessonsByProjectType(projectTypeId, term) {
@@ -430,6 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
     industryChoices = initChoices(industrySelect, 'All industries');
     projectTypeChoices = initChoices(projectTypeSelect, 'All project types');
     loadPublicProjectTypes();
+    clearMetadataTopTerms('Select a project type to view top metadata terms.');
 
     industrySelect.addEventListener('change', () => {
       updateProjectTypeOptions(industrySelect.value || '');
@@ -438,6 +526,7 @@ document.addEventListener('DOMContentLoaded', () => {
     projectTypeSelect.addEventListener('change', async () => {
       const projectTypeId = getSelectedProjectTypeId();
       const term = (input?.value || '').trim();
+      loadMetadataTopTerms(projectTypeId);
 
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H5',location:'index-search.js:319',message:'projectType change',data:{projectTypeValue:projectTypeId,projectTypeChoicesValue:projectTypeChoices?projectTypeChoices.getValue(true):null,term},timestamp:Date.now()})}).catch(()=>{});

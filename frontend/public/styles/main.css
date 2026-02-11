@@ -226,6 +226,42 @@ body {
     background-color: #f4f7f6;
     color: #555;
 }
+
+.advanced-metadata-tracker-field {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid #e6e9ec;
+}
+
+.advanced-metadata-tracker-title {
+    margin: 0;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.advanced-metadata-tracker-status {
+    margin: 4px 0 8px;
+    color: #5f6b76;
+    font-size: 13px;
+}
+
+.advanced-metadata-tracker-list {
+    margin: 0;
+    padding-left: 18px;
+    max-height: 220px;
+    overflow-y: auto;
+    color: #2f3f4f;
+    font-size: 13px;
+}
+
+.advanced-metadata-tracker-list li {
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+.advanced-metadata-term-counts {
+    color: #6b7680;
+}
 .content-area h1 {
     color: #2c3e50;
     font-size: 36px;
