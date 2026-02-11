@@ -93,14 +93,25 @@ document.addEventListener('DOMContentLoaded', () => {
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:72',message:'searchLessons start',data:{termLength:term.length},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      const results = await searchLessons(term);
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:74',message:'searchLessons results',data:{count:Array.isArray(results)?results.length:null},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H1',location:'index-search.js:78',message:'submit search branch',data:{hasProjectTypeSelect:!!projectTypeSelect,projectTypeValue:projectTypeSelect?projectTypeSelect.value:'',projectTypeChoicesValue:projectTypeChoices?projectTypeChoices.getValue(true):null,term},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
-      renderResults(results, term);
+      const projectTypeId = getSelectedProjectTypeId();
+      if (projectTypeId) {
+        await searchLessonsByProjectType(projectTypeId, term);
+      } else {
+        const results = await searchLessons(term);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:74',message:'searchLessons results',data:{count:Array.isArray(results)?results.length:null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        renderResults(results, term);
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Error searching lessons:', error);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H4',location:'index-search.js:104',message:'submit search error',data:{errorMessage:error?.message||'unknown'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:80',message:'searchLessons error',data:{errorMessage:error?.message||'unknown'},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
@@ -152,11 +163,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function buildChoicesList(items, emptyLabel) {
+  function buildChoicesList(items, noSelectionLabel, emptyLabel) {
+    const list = [{ value: '', label: noSelectionLabel, selected: true }];
     if (!items.length) {
-      return [{ value: '', label: emptyLabel, disabled: true, selected: true }];
+      if (emptyLabel) {
+        list.push({ value: '__no_options__', label: emptyLabel, disabled: true });
+      }
+      return list;
     }
-    return items;
+    return list.concat(items);
   }
 
   function fillSelect(selectEl, items, placeholderLabel, emptyLabel) {
@@ -198,9 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function setChoicesOptions(choicesInstance, items, emptyLabel) {
+  function setChoicesOptions(choicesInstance, items, noSelectionLabel, emptyLabel) {
     if (!choicesInstance) return;
-    const list = buildChoicesList(items, emptyLabel);
+    const list = buildChoicesList(items, noSelectionLabel, emptyLabel);
     choicesInstance.setChoices(list, 'value', 'label', true);
   }
 
@@ -227,9 +242,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }));
 
     if (industryChoices) {
-      setChoicesOptions(industryChoices, industries, 'No industries available');
+      setChoicesOptions(industryChoices, industries, 'All industries', 'No industries available');
     } else {
-      fillSelect(industrySelect, industries, 'Select industry', 'No industries available');
+      fillSelect(industrySelect, industries, 'All industries', 'No industries available');
     }
   }
 
@@ -248,15 +263,140 @@ document.addEventListener('DOMContentLoaded', () => {
       .filter((item) => item.value || item.label);
 
     if (projectTypeChoices) {
-      setChoicesOptions(projectTypeChoices, projectTypes, 'No public project types available');
+      setChoicesOptions(
+        projectTypeChoices,
+        projectTypes,
+        'All project types',
+        'No public project types available'
+      );
       projectTypeChoices.removeActiveItems();
+      projectTypeSelect.value = '';
     } else {
       fillSelect(
         projectTypeSelect,
         projectTypes,
-        'Select project type',
+        'All project types',
         'No public project types available'
       );
+    }
+  }
+
+  function getSelectedProjectTypeId() {
+    if (!projectTypeSelect) return '';
+    if (projectTypeChoices) {
+      const raw = projectTypeChoices.getValue(true);
+      if (Array.isArray(raw)) {
+        return raw[0] || '';
+      }
+      return raw || '';
+    }
+    return projectTypeSelect.value || '';
+  }
+
+  async function searchLessonsByProjectType(projectTypeId, term) {
+    if (!projectTypeId) return;
+
+    const trimmedTerm = (term || '').trim();
+    try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:251',message:'projectType search start',data:{projectTypeId,termLength:trimmedTerm.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      const { data: lessonRows, error: lessonError } = await supabase
+        .from('lessons_learned')
+        .select('id')
+        .eq('project_type_id', projectTypeId)
+        .is('organization_id', null);
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index-search.js:260',message:'projectType lesson ids response',data:{hasError:!!lessonError,errorMessage:lessonError?.message||null,rowCount:Array.isArray(lessonRows)?lessonRows.length:null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+
+      if (lessonError) {
+        console.error('Error loading lessons for project type:', lessonError);
+        setStatus('Unable to load lessons for the selected project type.');
+        clearResults();
+        return;
+      }
+
+      const lessonIds = (lessonRows || []).map((row) => row?.id).filter((id) => id != null);
+
+      if (!lessonIds.length) {
+        setStatus('No public lessons found for the selected project type.');
+        clearResults();
+        return;
+      }
+
+      const extendedSelect = `
+        metadata_text,
+        lesson_title,
+        lesson_category,
+        lessons_learned_id,
+        fpc_id,
+        future_project_consideration,
+        lessons_learned_cause_id,
+        lessons_learned_impact_id,
+        project_name,
+        project_type,
+        industry
+      `;
+      const legacySelect = `
+        metadata_text,
+        lesson_title,
+        lesson_category,
+        future_project_consideration,
+        project_name,
+        project_type,
+        industry
+      `;
+
+      let query = supabase.from(SEARCH_VIEW).select(extendedSelect).in('lessons_learned_id', lessonIds);
+
+      if (trimmedTerm) {
+        query = query.ilike('metadata_text', `%${trimmedTerm}%`);
+      }
+
+      let { data, error } = await query;
+      if (error) {
+        const message = String(error?.message || '');
+        const isMissingColumn =
+          message.includes('does not exist') &&
+          (message.includes('fpc_id') ||
+            message.includes('lessons_learned_cause_id') ||
+            message.includes('lessons_learned_impact_id') ||
+            message.includes('lessons_learned_id'));
+        if (isMissingColumn) {
+          let fallbackQuery = supabase
+            .from(SEARCH_VIEW)
+            .select(legacySelect)
+            .in('lessons_learned_id', lessonIds);
+          if (trimmedTerm) {
+            fallbackQuery = fallbackQuery.ilike('metadata_text', `%${trimmedTerm}%`);
+          }
+          const fallback = await fallbackQuery;
+          data = fallback.data;
+          error = fallback.error;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H3',location:'index-search.js:324',message:'projectType fallback view response',data:{hasError:!!error,errorMessage:error?.message||null,rowCount:Array.isArray(data)?data.length:null},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+        }
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H3',location:'index-search.js:297',message:'projectType search view response',data:{hasError:!!error,errorMessage:error?.message||null,rowCount:Array.isArray(data)?data.length:null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (error) {
+        console.error('Error loading lesson search rows:', error);
+        setStatus('Something went wrong while loading lessons.');
+        clearResults();
+        return;
+      }
+
+      const results = Array.isArray(data) ? data.map((row) => normalizeResultRow(row)) : [];
+      const statusTerm = trimmedTerm || 'selected project type';
+      renderResults(results, statusTerm);
+    } catch (err) {
+      console.error('Unexpected error loading lessons:', err);
+      setStatus('Something went wrong while loading lessons.');
+      clearResults();
     }
   }
 
@@ -287,12 +427,43 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (industrySelect && projectTypeSelect) {
-    industryChoices = initChoices(industrySelect, 'Select industry');
-    projectTypeChoices = initChoices(projectTypeSelect, 'Select project type');
+    industryChoices = initChoices(industrySelect, 'All industries');
+    projectTypeChoices = initChoices(projectTypeSelect, 'All project types');
     loadPublicProjectTypes();
 
     industrySelect.addEventListener('change', () => {
       updateProjectTypeOptions(industrySelect.value || '');
+    });
+
+    projectTypeSelect.addEventListener('change', async () => {
+      const projectTypeId = getSelectedProjectTypeId();
+      const term = (input?.value || '').trim();
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H5',location:'index-search.js:319',message:'projectType change',data:{projectTypeValue:projectTypeId,projectTypeChoicesValue:projectTypeChoices?projectTypeChoices.getValue(true):null,term},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+
+      if (!projectTypeId) {
+        if (term) {
+          setStatus('Searching…');
+          try {
+            const results = await searchLessons(term);
+            renderResults(results, term);
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error('Error searching lessons:', error);
+            setStatus('Something went wrong while searching. Please try again.');
+            clearResults();
+          }
+        } else {
+          clearResults();
+          setStatus('');
+        }
+        return;
+      }
+
+      setStatus('Searching…');
+      await searchLessonsByProjectType(projectTypeId, term);
     });
   }
 });
@@ -351,6 +522,9 @@ async function searchLessons(term) {
         .ilike('metadata_text', `%${term}%`);
       data = fallback.data;
       error = fallback.error;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H6',location:'index-search.js:191',message:'searchLessons fallback response',data:{hasError:!!error,errorMessage:error?.message||null,rowCount:Array.isArray(data)?data.length:null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
     }
   }
 
