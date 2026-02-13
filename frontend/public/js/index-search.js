@@ -477,7 +477,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const results = Array.isArray(data) ? data.map((row) => normalizeResultRow(row)) : [];
+      const results = dedupeResults(
+        Array.isArray(data) ? data.map((row) => normalizeResultRow(row)) : []
+      );
       const statusTerm = trimmedTerm || 'selected project type';
       renderResults(results, statusTerm);
     } catch (err) {
@@ -623,7 +625,7 @@ async function searchLessons(term) {
     return [];
   }
 
-  return data.map((row) => normalizeResultRow(row));
+  return dedupeResults(data.map((row) => normalizeResultRow(row)));
 }
 
 /**
@@ -674,6 +676,39 @@ function normalizeResultRow(row) {
     fpcCauseId: row.lessons_learned_cause_id ?? null,
     fpcImpactId: row.lessons_learned_impact_id ?? null,
   };
+}
+
+function buildResultDedupKey(item) {
+  const lessonId = item?.lessonsLearnedId ?? '';
+  const fpcId = item?.fpcId ?? '';
+
+  // Prefer stable ids when they exist.
+  if (lessonId || fpcId) {
+    return `lesson:${lessonId}|fpc:${fpcId}`;
+  }
+
+  // Fallback for legacy rows that may not include ids.
+  return [
+    (item?.futureProjectConsideration || '').trim().toLowerCase(),
+    (item?.issueOrSuccessText || '').trim().toLowerCase(),
+    (item?.categoryLabel || '').trim().toLowerCase(),
+    (item?.projectName || '').trim().toLowerCase(),
+    (item?.projectType || '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function dedupeResults(results) {
+  const seen = new Set();
+  const unique = [];
+
+  (results || []).forEach((item) => {
+    const key = buildResultDedupKey(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(item);
+  });
+
+  return unique;
 }
 
 /**
