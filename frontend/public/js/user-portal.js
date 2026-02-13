@@ -4863,7 +4863,8 @@ const projectFormHTML = `
         renderSearchProjectsModule({
             title: 'My Projects',
             listLoader: loadMyProjectsForUser,
-            emptyMessage: 'No projects assigned to you.'
+            emptyMessage: 'No projects assigned to you.',
+            enableProjectWorkspace: true
         });
     }
 
@@ -4886,14 +4887,28 @@ const projectFormHTML = `
         const {
             title = 'Search Projects',
             listLoader = loadOrganizationProjectsForSearch,
-            emptyMessage = 'No projects found for your organization.'
+            emptyMessage = 'No projects found for your organization.',
+            enableProjectWorkspace = false
         } = options;
+        const workspaceEnabled = Boolean(enableProjectWorkspace);
 
         searchProjectsListEmptyMessage = emptyMessage;
+        searchProjectsWorkspaceEnabled = workspaceEnabled;
+        searchProjectsSelectedProject = null;
 
         // Re-render from scratch each time we enter this route.
         searchView.innerHTML = `
-            <h1>${title}</h1>
+            <h1 id="searchProjectsPageTitle">${title}</h1>
+            ${workspaceEnabled ? `
+                <div id="myProjectsWorkspacePanel" class="project-types-panel my-projects-submodule-panel" style="display: none;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="myProjectsLessonsCategoriesSelect">Lessons Learned Categories</label>
+                        <select id="myProjectsLessonsCategoriesSelect" aria-label="Lessons Learned Categories">
+                            <option value="">No categories available yet</option>
+                        </select>
+                    </div>
+                </div>
+            ` : ''}
             <div id="searchProjectsMain">
                 <div id="searchProjectsPanel" class="project-types-panel">
                     <p class="subtitle" style="margin: 0 0 10px;">Search by project name</p>
@@ -5246,6 +5261,7 @@ const projectFormHTML = `
     let searchProjectsCacheLoaded = false;
     let searchProjectsCacheLoading = false;
     let searchProjectsSelectedProject = null;
+    let searchProjectsWorkspaceEnabled = false;
     let searchProjectsMetadataRowsCache = [];
 
     async function loadOrganizationProjectsForSearch() {
@@ -5401,12 +5417,29 @@ const projectFormHTML = `
         setSearchProjectsListStatus('');
 
         filtered.forEach((p) => {
+            const projectId = p && p.project_id != null ? String(p.project_id) : '';
+            const selectedProjectId =
+                searchProjectsSelectedProject && searchProjectsSelectedProject.project_id != null
+                    ? String(searchProjectsSelectedProject.project_id)
+                    : '';
             const li = document.createElement('li');
             li.className = 'search-projects-list-item';
+            if (projectId && selectedProjectId && projectId === selectedProjectId) {
+                li.classList.add('row-selected');
+            }
             const nameSpan = document.createElement('span');
             nameSpan.className = 'search-projects-list-name';
             nameSpan.textContent = p && p.project_name ? p.project_name : '(Unnamed Project)';
 
+            li.addEventListener('click', () => {
+                if (searchProjectsWorkspaceEnabled) {
+                    showMyProjectsWorkspace(p);
+                } else {
+                    showSearchProjectsDetails(p);
+                }
+            });
+
+            li.appendChild(nameSpan);
             const detailsBtn = document.createElement('button');
             detailsBtn.type = 'button';
             detailsBtn.className = 'secondary-button search-projects-details-button';
@@ -5414,13 +5447,40 @@ const projectFormHTML = `
             detailsBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                showSearchProjectsDetails(p);
+                if (searchProjectsWorkspaceEnabled) {
+                    showMyProjectsWorkspace(p);
+                } else {
+                    showSearchProjectsDetails(p);
+                }
             });
-
-            li.appendChild(nameSpan);
             li.appendChild(detailsBtn);
             listEl.appendChild(li);
         });
+    }
+
+    function showMyProjectsWorkspace(project) {
+        const panel = document.getElementById('myProjectsWorkspacePanel');
+        const pageTitleEl = document.getElementById('searchProjectsPageTitle');
+        const main = document.getElementById('searchProjectsMain');
+        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+        if (!panel) return;
+
+        const name = project && project.project_name ? project.project_name : '(Unnamed Project)';
+        searchProjectsSelectedProject = project || null;
+
+        if (pageTitleEl) {
+            pageTitleEl.textContent = name;
+        }
+
+        if (categoriesSelect) {
+            categoriesSelect.innerHTML = '<option value="">No categories available yet</option>';
+            categoriesSelect.value = '';
+        }
+
+        if (main) main.style.display = 'none';
+        panel.style.display = 'block';
+        updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     function updateSearchProjectsMetadataTypeOptions(rows) {

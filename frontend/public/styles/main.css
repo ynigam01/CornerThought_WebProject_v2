@@ -1035,6 +1035,10 @@ body {
 }
 
 /* === User Portal Search Projects list === */
+#myProjectsWorkspacePanel.my-projects-submodule-panel {
+    max-width: 100%;
+}
+
 #searchProjectsListWrap {
     margin-top: 14px;
     margin-bottom: 16px;
@@ -1070,6 +1074,11 @@ body {
 .search-projects-list-item:hover {
     background-color: #f3f7ff;
     transform: translateX(4px);
+}
+
+.search-projects-list-item.row-selected {
+    background-color: #e7f6ec;
+    box-shadow: inset 3px 0 0 #27ae60;
 }
 
 .search-projects-list-name {
