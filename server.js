@@ -7,7 +7,10 @@ const dotenv = require('dotenv');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { InferenceClient } = require('@huggingface/inference');
-const { getTopMetadataTermsForProjectType } = require('./same-metadata-tracker');
+const {
+  getTopMetadataTermsForProjectType,
+  getMatchingLessonIdsForProjectTypeMetadataTerm,
+} = require('./same-metadata-tracker');
 
 // Load env vars (reuse .env.backfill for now)
 dotenv.config({ path: '.env.backfill' });
@@ -47,6 +50,7 @@ async function getEmbedding(text) {
 
 const app = express();
 app.use(express.json());
+const SEARCH_VIEW = 'public_lessons_search';
 
 // Serve static frontend files from frontend/public
 app.use(express.static(path.join(__dirname, 'frontend', 'public')));
@@ -89,6 +93,107 @@ app.get('/api/project-type-metadata-top', async (req, res) => {
     // #endregion
     console.error('Unexpected error in /api/project-type-metadata-top:', err);
     return res.status(500).json({ error: 'Unable to load metadata terms' });
+  }
+});
+
+// GET /api/project-type-metadata-search?projectTypeId=...&term=...
+app.get('/api/project-type-metadata-search', async (req, res) => {
+  try {
+    const projectTypeId = String(req.query?.projectTypeId || '').trim();
+    const term = String(req.query?.term || '').trim();
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H3',location:'server.js:/api/project-type-metadata-search:start',message:'metadata term search API called',data:{projectTypeId,termLength:term.length,hasProjectTypeId:!!projectTypeId},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    if (!projectTypeId || !term) {
+      return res.status(400).json({ error: 'projectTypeId and term are required' });
+    }
+
+    const lessonIds = await getMatchingLessonIdsForProjectTypeMetadataTerm({
+      supabase,
+      projectTypeId,
+      term,
+    });
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H4',location:'server.js:/api/project-type-metadata-search:lessonIds',message:'metadata term helper returned lesson ids',data:{projectTypeId,lessonIdsCount:Array.isArray(lessonIds)?lessonIds.length:null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+
+    if (!lessonIds.length) {
+      return res.json({ projectTypeId, term, results: [] });
+    }
+
+    const extendedSelect = `
+      metadata_text,
+      lesson_title,
+      lesson_category,
+      lessons_learned_id,
+      fpc_id,
+      future_project_consideration,
+      lessons_learned_cause_id,
+      lessons_learned_impact_id,
+      project_name,
+      project_type,
+      industry
+    `;
+    const legacySelect = `
+      metadata_text,
+      lesson_title,
+      lesson_category,
+      future_project_consideration,
+      project_name,
+      project_type,
+      industry
+    `;
+
+    let { data, error } = await supabase
+      .from(SEARCH_VIEW)
+      .select(extendedSelect)
+      .in('lessons_learned_id', lessonIds);
+
+    if (error) {
+      const message = String(error?.message || '');
+      const isMissingColumn =
+        message.includes('does not exist') &&
+        (message.includes('fpc_id') ||
+          message.includes('lessons_learned_cause_id') ||
+          message.includes('lessons_learned_impact_id') ||
+          message.includes('lessons_learned_id'));
+      if (isMissingColumn) {
+        const fallback = await supabase
+          .from(SEARCH_VIEW)
+          .select(legacySelect)
+          .in('lessons_learned_id', lessonIds);
+        data = fallback.data;
+        error = fallback.error;
+      }
+    }
+
+    if (error) {
+      console.error('Error loading metadata term search rows:', error);
+      // #region agent log
+      if (typeof fetch === 'function') {
+        fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H5',location:'server.js:/api/project-type-metadata-search:viewError',message:'metadata term search view query failed',data:{errorMessage:error?.message||'unknown',errorCode:error?.code||null},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+      return res.status(500).json({ error: 'Unable to search metadata term results' });
+    }
+
+    return res.json({
+      projectTypeId,
+      term,
+      results: Array.isArray(data) ? data : [],
+    });
+  } catch (err) {
+    console.error('Unexpected error in /api/project-type-metadata-search:', err);
+    // #region agent log
+    if (typeof fetch === 'function') {
+      fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H5',location:'server.js:/api/project-type-metadata-search:catch',message:'metadata term search API threw',data:{errorMessage:err?.message||'unknown',errorCode:err?.code||null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    return res.status(500).json({ error: 'Unable to search metadata term results' });
   }
 });
 

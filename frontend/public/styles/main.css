@@ -259,6 +259,29 @@ body {
     line-height: 1.35;
 }
 
+.advanced-metadata-tracker-list li[role="button"] {
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 2px 4px;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.advanced-metadata-tracker-list li[role="button"]:hover {
+    background-color: #eaf4ff;
+    color: #1f5fa8;
+    transform: translateX(2px);
+}
+
+.advanced-metadata-tracker-list li[role="button"]:focus-visible {
+    outline: 2px solid #3498db;
+    outline-offset: 1px;
+    background-color: #eaf4ff;
+}
+
+.advanced-metadata-tracker-list li[role="button"]:active {
+    transform: translateX(1px);
+}
+
 .advanced-metadata-term-counts {
     color: #6b7680;
 }

@@ -203,8 +203,92 @@ async function getTopMetadataTermsForProjectType({ supabase, projectTypeId, limi
   return rankMetadataTerms(allTerms, limit);
 }
 
+async function getMatchingLessonIdsForProjectTypeMetadataTerm({
+  supabase,
+  projectTypeId,
+  term,
+}) {
+  const normalizedProjectTypeId = normalizeWhitespace(projectTypeId);
+  const normalizedTargetTerm = normalizeTerm(term);
+  // #region agent log
+  if (typeof fetch === 'function') {
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H4',location:'same-metadata-tracker.js:getMatchingLessonIdsForProjectTypeMetadataTerm:start',message:'metadata term helper start',data:{projectTypeId:normalizedProjectTypeId,term:normalizedTargetTerm,hasProjectTypeId:!!normalizedProjectTypeId,hasTerm:!!normalizedTargetTerm},timestamp:Date.now()})}).catch(()=>{});
+  }
+  // #endregion
+  if (!normalizedProjectTypeId || !normalizedTargetTerm) {
+    return [];
+  }
+
+  const { data: lessonRows, error: lessonError } = await supabase
+    .from('lessons_learned')
+    .select('id')
+    .eq('project_type_id', normalizedProjectTypeId)
+    .is('organization_id', null);
+
+  if (lessonError) {
+    throw lessonError;
+  }
+
+  const lessonIds = (lessonRows || []).map((row) => row?.id).filter((id) => id != null);
+  // #region agent log
+  if (typeof fetch === 'function') {
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H4',location:'same-metadata-tracker.js:getMatchingLessonIdsForProjectTypeMetadataTerm:lessons',message:'metadata term helper loaded lessons for project type',data:{projectTypeId:normalizedProjectTypeId,lessonIdsCount:lessonIds.length},timestamp:Date.now()})}).catch(()=>{});
+  }
+  // #endregion
+  if (!lessonIds.length) {
+    return [];
+  }
+
+  const { data: metadataRows, error: metadataError } = await supabase
+    .from('lessons_learned_metadata')
+    .select('lessons_learned_id, metadata')
+    .in('lessons_learned_id', lessonIds);
+
+  if (metadataError) {
+    throw metadataError;
+  }
+
+  const targetStemSet = toStemSet(normalizedTargetTerm);
+  const stemCache = new Map();
+  const matchedLessonIds = new Set();
+
+  (metadataRows || []).forEach((row) => {
+    const lessonId = row?.lessons_learned_id;
+    if (lessonId == null) return;
+
+    const terms = extractMetadataTerms(row?.metadata);
+    for (const candidateTerm of terms) {
+      if (!candidateTerm) continue;
+      if (candidateTerm === normalizedTargetTerm) {
+        matchedLessonIds.add(lessonId);
+        break;
+      }
+
+      let candidateStemSet = stemCache.get(candidateTerm);
+      if (!candidateStemSet) {
+        candidateStemSet = toStemSet(candidateTerm);
+        stemCache.set(candidateTerm, candidateStemSet);
+      }
+
+      if (isCloseMatch(targetStemSet, candidateStemSet)) {
+        matchedLessonIds.add(lessonId);
+        break;
+      }
+    }
+  });
+
+  const matched = Array.from(matchedLessonIds);
+  // #region agent log
+  if (typeof fetch === 'function') {
+    fetch('http://127.0.0.1:7242/ingest/3f684587-b61e-4851-8662-761311dbc082',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'debug-metadata-click-1',hypothesisId:'H4',location:'same-metadata-tracker.js:getMatchingLessonIdsForProjectTypeMetadataTerm:matched',message:'metadata term helper matched lessons',data:{projectTypeId:normalizedProjectTypeId,matchedCount:matched.length},timestamp:Date.now()})}).catch(()=>{});
+  }
+  // #endregion
+  return matched;
+}
+
 module.exports = {
   getTopMetadataTermsForProjectType,
+  getMatchingLessonIdsForProjectTypeMetadataTerm,
   _internal: {
     normalizeTerm,
     extractMetadataTerms,
