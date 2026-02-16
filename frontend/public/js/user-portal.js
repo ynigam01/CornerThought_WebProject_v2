@@ -5447,11 +5447,7 @@ const projectFormHTML = `
             detailsBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (searchProjectsWorkspaceEnabled) {
-                    showMyProjectsWorkspace(p);
-                } else {
-                    showSearchProjectsDetails(p);
-                }
+                showSearchProjectsDetails(p);
             });
             li.appendChild(detailsBtn);
             listEl.appendChild(li);
