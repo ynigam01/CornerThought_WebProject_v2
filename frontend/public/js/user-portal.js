@@ -5262,6 +5262,7 @@ const projectFormHTML = `
     let searchProjectsCacheLoading = false;
     let searchProjectsSelectedProject = null;
     let searchProjectsWorkspaceEnabled = false;
+    let myProjectsLessonsCategoriesRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
 
     async function loadOrganizationProjectsForSearch() {
@@ -5458,7 +5459,6 @@ const projectFormHTML = `
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
         const main = document.getElementById('searchProjectsMain');
-        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
         if (!panel) return;
 
         const name = project && project.project_name ? project.project_name : '(Unnamed Project)';
@@ -5468,15 +5468,118 @@ const projectFormHTML = `
             pageTitleEl.textContent = name;
         }
 
-        if (categoriesSelect) {
-            categoriesSelect.innerHTML = '<option value="">No categories available yet</option>';
-            categoriesSelect.value = '';
-        }
-
         if (main) main.style.display = 'none';
         panel.style.display = 'block';
         updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        loadMyProjectsLessonsCategories(project);
+    }
+
+    async function loadMyProjectsLessonsCategories(project) {
+        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+        if (!categoriesSelect) return;
+
+        const setSingleOption = (text) => {
+            categoriesSelect.innerHTML = '';
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = text;
+            categoriesSelect.appendChild(option);
+            categoriesSelect.value = '';
+        };
+
+        const projectId = project && project.project_id != null ? project.project_id : null;
+        const userId = ctUser && ctUser.id != null ? ctUser.id : null;
+        if (!organizationId || projectId == null || userId == null) {
+            setSingleOption('No categories available yet');
+            return;
+        }
+
+        const requestToken = ++myProjectsLessonsCategoriesRequestToken;
+        setSingleOption('Loading categories...');
+
+        try {
+            const { data, error } = await supabase
+                .from('project_team_member_assignments')
+                .select('lessons_learned_metadata_list_id, assignment, assignment_type')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .eq('user_id', userId)
+                .limit(5000);
+
+            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+
+            if (error) {
+                console.error('Error loading My Projects lessons categories:', error);
+                setSingleOption('Failed to load categories');
+                return;
+            }
+
+            const rows = Array.isArray(data) ? data : [];
+            if (rows.length === 0) {
+                setSingleOption('No categories available yet');
+                return;
+            }
+
+            const sortedRows = rows.slice().sort((a, b) => {
+                const typeA = String((a && a.assignment_type) || 'Uncategorized').trim().toLowerCase();
+                const typeB = String((b && b.assignment_type) || 'Uncategorized').trim().toLowerCase();
+                if (typeA !== typeB) return typeA.localeCompare(typeB);
+                const nameA = String((a && a.assignment) || '').trim().toLowerCase();
+                const nameB = String((b && b.assignment) || '').trim().toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+
+            categoriesSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select a category';
+            categoriesSelect.appendChild(placeholder);
+
+            let currentGroupLabel = '';
+            let currentGroupEl = null;
+            const seenValues = new Set();
+
+            sortedRows.forEach((row) => {
+                const assignmentTypeRaw = row && row.assignment_type ? String(row.assignment_type).trim() : '';
+                const assignmentType = assignmentTypeRaw || 'Uncategorized';
+                const assignmentRaw = row && row.assignment ? String(row.assignment).trim() : '';
+                const assignmentValue =
+                    row && row.lessons_learned_metadata_list_id != null
+                        ? String(row.lessons_learned_metadata_list_id)
+                        : assignmentRaw;
+                const assignmentLabel = assignmentRaw || 'Unlabeled assignment';
+
+                if (!assignmentValue) return;
+                const dedupeKey = `${assignmentType}::${assignmentValue}::${assignmentLabel}`;
+                if (seenValues.has(dedupeKey)) return;
+                seenValues.add(dedupeKey);
+
+                if (assignmentType !== currentGroupLabel) {
+                    currentGroupLabel = assignmentType;
+                    currentGroupEl = document.createElement('optgroup');
+                    currentGroupEl.label = assignmentType;
+                    categoriesSelect.appendChild(currentGroupEl);
+                }
+
+                if (!currentGroupEl) return;
+                const option = document.createElement('option');
+                option.value = assignmentValue;
+                option.textContent = assignmentLabel;
+                currentGroupEl.appendChild(option);
+            });
+
+            if (categoriesSelect.options.length <= 1) {
+                setSingleOption('No categories available yet');
+                return;
+            }
+
+            categoriesSelect.value = '';
+        } catch (err) {
+            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+            console.error('Unexpected error loading My Projects lessons categories:', err);
+            setSingleOption('Failed to load categories');
+        }
     }
 
     function updateSearchProjectsMetadataTypeOptions(rows) {
