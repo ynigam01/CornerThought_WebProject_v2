@@ -4907,6 +4907,30 @@ const projectFormHTML = `
                             <option value="">No categories available yet</option>
                         </select>
                     </div>
+                    <div class="my-projects-secondary-filters" style="margin-top: 14px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="myProjectsSortBySelect">Sort By:</label>
+                            <select id="myProjectsSortBySelect" aria-label="Sort By">
+                                <option value="created_latest">Created - Latest</option>
+                                <option value="created_oldest">Created - Oldest</option>
+                                <option value="updated_latest">Updated - Latest</option>
+                                <option value="updated_oldest">Updated - Oldest</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="myProjectsStatusSelect">Status:</label>
+                            <select id="myProjectsStatusSelect" aria-label="Status">
+                                <option value="for_review">For Review</option>
+                                <option value="under_review">Under Review</option>
+                                <option value="workshop">Workshop</option>
+                                <option value="completed">Completed</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div id="myProjectsLessonsResultsPanel" class="project-types-panel" style="display: none;">
+                    <div id="myProjectsLessonsStatus" class="upload-message" aria-live="polite"></div>
+                    <div id="myProjectsLessonsResults" class="my-projects-lessons-results" style="margin-top: 12px;"></div>
                 </div>
             ` : ''}
             <div id="searchProjectsMain">
@@ -5263,6 +5287,7 @@ const projectFormHTML = `
     let searchProjectsSelectedProject = null;
     let searchProjectsWorkspaceEnabled = false;
     let myProjectsLessonsCategoriesRequestToken = 0;
+    let myProjectsLessonsResultsRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
 
     async function loadOrganizationProjectsForSearch() {
@@ -5459,6 +5484,7 @@ const projectFormHTML = `
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
         const main = document.getElementById('searchProjectsMain');
+        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
         if (!panel) return;
 
         const name = project && project.project_name ? project.project_name : '(Unnamed Project)';
@@ -5470,9 +5496,18 @@ const projectFormHTML = `
 
         if (main) main.style.display = 'none';
         panel.style.display = 'block';
+        setMyProjectsLessonsResultsPanelVisible(false);
         updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
         panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (categoriesSelect && !categoriesSelect.dataset.myProjectsLessonsWired) {
+            categoriesSelect.addEventListener('change', () => {
+                const selectedMetadataId = categoriesSelect.value || '';
+                loadMyProjectsLessonsForSelectedCategory(searchProjectsSelectedProject, selectedMetadataId);
+            });
+            categoriesSelect.dataset.myProjectsLessonsWired = 'true';
+        }
         loadMyProjectsLessonsCategories(project);
+        loadMyProjectsLessonsForSelectedCategory(project, '');
     }
 
     async function loadMyProjectsLessonsCategories(project) {
@@ -5579,6 +5614,138 @@ const projectFormHTML = `
             if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
             console.error('Unexpected error loading My Projects lessons categories:', err);
             setSingleOption('Failed to load categories');
+        }
+    }
+
+    function setMyProjectsLessonsStatus(message, isError = false) {
+        const statusEl = document.getElementById('myProjectsLessonsStatus');
+        if (!statusEl) return;
+        statusEl.textContent = message || '';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        if (!message) return;
+        statusEl.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+    }
+
+    function setMyProjectsLessonsResultsPanelVisible(visible) {
+        const panel = document.getElementById('myProjectsLessonsResultsPanel');
+        if (!panel) return;
+        panel.style.display = visible ? 'block' : 'none';
+    }
+
+    function renderMyProjectsLessonsCards(rows) {
+        const resultsEl = document.getElementById('myProjectsLessonsResults');
+        if (!resultsEl) return;
+        resultsEl.innerHTML = '';
+
+        if (!Array.isArray(rows) || rows.length === 0) return;
+
+        rows.forEach((row) => {
+            const categoryRaw = row && row.category ? String(row.category).trim() : '';
+            const categoryLower = categoryRaw.toLowerCase();
+            const categoryDisplay = categoryRaw
+                ? categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1)
+                : 'Issue';
+            const title = row && row.title ? String(row.title).trim() : '(Untitled)';
+
+            const card = document.createElement('div');
+            card.className = 'my-projects-lesson-card';
+            if (categoryLower === 'success') {
+                card.classList.add('my-projects-lesson-card--success');
+            } else {
+                card.classList.add('my-projects-lesson-card--issue');
+            }
+
+            const label = document.createElement('strong');
+            label.textContent = `${categoryDisplay}: `;
+            card.appendChild(label);
+            card.appendChild(document.createTextNode(title));
+
+            resultsEl.appendChild(card);
+        });
+    }
+
+    async function loadMyProjectsLessonsForSelectedCategory(project, selectedMetadataId) {
+        const resultsEl = document.getElementById('myProjectsLessonsResults');
+        if (!resultsEl) return;
+        resultsEl.innerHTML = '';
+
+        const projectId = project && project.project_id != null ? project.project_id : null;
+        if (!organizationId || projectId == null) {
+            setMyProjectsLessonsStatus('Unable to determine organization or project.', true);
+            return;
+        }
+
+        const metadataId = String(selectedMetadataId || '').trim();
+        if (!metadataId) {
+            setMyProjectsLessonsResultsPanelVisible(false);
+            setMyProjectsLessonsStatus('');
+            return;
+        }
+
+        const requestToken = ++myProjectsLessonsResultsRequestToken;
+        setMyProjectsLessonsResultsPanelVisible(true);
+        setMyProjectsLessonsStatus('Loading lessons learned...');
+
+        try {
+            const { data: metadataLinks, error: linkErr } = await supabase
+                .from('lessons_learned_metadata')
+                .select('lessons_learned_id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .eq('lessons_learned_metadata_list_id', metadataId)
+                .limit(5000);
+
+            if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+
+            if (linkErr) {
+                console.error('Error loading lessons metadata links for My Projects:', linkErr);
+                setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
+                return;
+            }
+
+            const lessonIds = Array.from(
+                new Set(
+                    (metadataLinks || [])
+                        .map((row) => row && row.lessons_learned_id)
+                        .filter((id) => id != null)
+                )
+            );
+
+            if (lessonIds.length === 0) {
+                setMyProjectsLessonsStatus('No issues or successes found for this category.');
+                return;
+            }
+
+            const { data: lessonRows, error: lessonErr } = await supabase
+                .from('lessons_learned')
+                .select('id, title, category')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .in('id', lessonIds)
+                .order('id', { ascending: false });
+
+            if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+
+            if (lessonErr) {
+                console.error('Error loading lessons for My Projects category:', lessonErr);
+                setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
+                return;
+            }
+
+            const lessons = Array.isArray(lessonRows) ? lessonRows : [];
+            if (lessons.length === 0) {
+                setMyProjectsLessonsStatus('No issues or successes found for this category.');
+                return;
+            }
+
+            renderMyProjectsLessonsCards(lessons);
+            setMyProjectsLessonsStatus(
+                `Showing ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} for this category.`
+            );
+        } catch (err) {
+            if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+            console.error('Unexpected error loading lessons for My Projects category:', err);
+            setMyProjectsLessonsStatus('An unexpected error occurred while loading lessons.', true);
         }
     }
 

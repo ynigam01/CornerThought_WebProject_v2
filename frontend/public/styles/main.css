@@ -1118,6 +1118,36 @@ body {
     line-height: 1.2;
 }
 
+.my-projects-lessons-results {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.my-projects-secondary-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 320px) minmax(180px, 320px);
+    gap: 24px;
+    align-items: end;
+}
+
+.my-projects-lesson-card {
+    padding: 14px 18px;
+    border-radius: 12px;
+    border: 1px solid #e6e6e6;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    font-size: 0.98rem;
+    line-height: 1.5;
+}
+
+.my-projects-lesson-card--issue {
+    background-color: #fdecea; /* light red */
+}
+
+.my-projects-lesson-card--success {
+    background-color: #e7f6e9; /* light green */
+}
+
 .metadata-row-clickable {
     cursor: pointer;
 }
