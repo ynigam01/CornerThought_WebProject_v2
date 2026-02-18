@@ -1978,8 +1978,23 @@ body {
     border: 1px solid #e9ecef;
 }
 
+#addDataView .display-area {
+    width: 100%;
+    max-width: 1160px;
+    padding: 0;
+    background-color: transparent;
+    border: none;
+}
+
+.issue-success-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 28px;
+    margin-bottom: 16px;
+}
+
 .issue-success-entry {
-    margin-bottom: 10px;
+    margin-bottom: 0;
     padding: 10px;
     background-color: white;
     border-radius: 6px;
@@ -1987,6 +2002,8 @@ body {
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     transition: all 0.2s ease;
     cursor: pointer;
+    flex: 1;
+    min-width: 0;
 }
 
 .issue-success-entry:hover {
@@ -2055,6 +2072,101 @@ body {
 
 .delete-entry-button:active {
     transform: scale(0.95);
+}
+
+.entry-attachments-panel {
+    width: 300px;
+    flex-shrink: 0;
+}
+
+.entry-attachment-dropzone {
+    width: 100%;
+    min-height: 220px;
+    border: 2px solid #1f1f1f;
+    border-radius: 4px;
+    background: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px;
+    box-sizing: border-box;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.entry-attachment-dropzone:hover {
+    background-color: #f8fbff;
+}
+
+.entry-attachment-dropzone.drag-over {
+    border-color: #2d9cdb;
+    background-color: #eaf4ff;
+}
+
+.entry-attachment-dropzone-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.entry-attachment-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #1f1f1f;
+}
+
+.entry-attachment-icon {
+    font-size: 3rem;
+    color: #2d9cdb;
+}
+
+.entry-attachment-subtitle {
+    font-size: 0.85rem;
+    color: #666;
+}
+
+.entry-attachments-status {
+    margin-top: 8px;
+    min-height: 18px;
+    font-size: 0.82rem;
+}
+
+.entry-attachments-list {
+    margin: 8px 0 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.entry-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #333;
+    padding: 4px 0;
+    border-bottom: 1px solid #ececec;
+}
+
+.entry-attachment-item:last-child {
+    border-bottom: none;
+}
+
+.entry-attachment-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.entry-attachment-remove {
+    border: none;
+    background: transparent;
+    color: #cc0000;
+    cursor: pointer;
+    font-weight: bold;
+    line-height: 1;
 }
 
 /* === Collapsible Forms === */
@@ -2536,6 +2648,18 @@ body {
     .toolbar .add-data-button {
         padding: 6px 12px;
         font-size: 14px;
+    }
+
+    .issue-success-row {
+        flex-direction: column;
+    }
+
+    .entry-attachments-panel {
+        width: 100%;
+    }
+
+    .entry-attachment-dropzone {
+        min-height: 180px;
     }
 }
 

@@ -149,6 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataMetadataEntry = null;
     let saveLessonsButton = null;
     let saveLessonsStatus = null;
+    const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -3765,6 +3766,9 @@ const projectFormHTML = `
     // Function to add Issue/Success entry to display area
     function addIssueSuccessEntry(type, text) {
         const displayArea = getActiveDisplayArea();
+        const entryRow = document.createElement("div");
+        entryRow.className = "issue-success-row";
+
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
         entry.dataset.type = type;
@@ -3776,7 +3780,7 @@ const projectFormHTML = `
                 entry.dataset.projectTypeId = addDataSelectedProject.project_type_id;
             }
         }
-        
+
         // Create the main content with edit/delete buttons
         const mainContent = document.createElement("div");
         mainContent.className = "entry-main-content";
@@ -3793,7 +3797,6 @@ const projectFormHTML = `
                 </button>
             </div>
         `;
-        
         entry.appendChild(mainContent);
         
         // Add containers for all sub-items
@@ -3832,14 +3835,73 @@ const projectFormHTML = `
         entry.appendChild(actionsContainer);
         entry.appendChild(lessonsContainer);
         entry.appendChild(metadataContainer);
-        displayArea.appendChild(entry);
-        
+
+        const attachmentsPanel = document.createElement("div");
+        attachmentsPanel.className = "entry-attachments-panel";
+        attachmentsPanel.innerHTML = `
+            <div class="entry-attachment-dropzone" role="button" tabindex="0">
+                <div class="entry-attachment-dropzone-inner">
+                    <div class="entry-attachment-title">Add Attachments</div>
+                    <i class="fas fa-cloud-upload-alt entry-attachment-icon" aria-hidden="true"></i>
+                    <div class="entry-attachment-subtitle">Click or drag files here</div>
+                </div>
+            </div>
+            <input type="file" class="entry-attachment-input" multiple style="display: none;">
+            <div class="entry-attachments-status upload-message" aria-live="polite"></div>
+            <ul class="entry-attachments-list"></ul>
+        `;
+
+        entryRow.appendChild(entry);
+        entryRow.appendChild(attachmentsPanel);
+        displayArea.appendChild(entryRow);
+
         // Store references to the lists for this entry
         entry.causesList = causesContainer.querySelector('.sub-item-list');
         entry.impactsList = impactsContainer.querySelector('.sub-item-list');
         entry.actionsList = actionsContainer.querySelector('.sub-item-list');
         entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
         entry.metadataList = metadataContainer.querySelector('.sub-item-list');
+        entry.attachments = [];
+        entry.attachmentsListEl = attachmentsPanel.querySelector('.entry-attachments-list');
+        entry.attachmentsStatusEl = attachmentsPanel.querySelector('.entry-attachments-status');
+
+        const attachmentInput = attachmentsPanel.querySelector('.entry-attachment-input');
+        const attachmentDropzone = attachmentsPanel.querySelector('.entry-attachment-dropzone');
+
+        if (attachmentDropzone && attachmentInput) {
+            attachmentDropzone.addEventListener('click', () => {
+                attachmentInput.click();
+            });
+            attachmentDropzone.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    attachmentInput.click();
+                }
+            });
+            attachmentInput.addEventListener('change', (e) => {
+                appendFilesToEntryAttachments(entry, e.target && e.target.files ? e.target.files : []);
+                attachmentInput.value = '';
+            });
+            ['dragenter', 'dragover'].forEach(eventName => {
+                attachmentDropzone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    attachmentDropzone.classList.add('drag-over');
+                });
+            });
+            ['dragleave', 'drop'].forEach(eventName => {
+                attachmentDropzone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    attachmentDropzone.classList.remove('drag-over');
+                });
+            });
+            attachmentDropzone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files : [];
+                appendFilesToEntryAttachments(entry, files);
+            });
+        }
+        renderEntryAttachments(entry);
         
         // Add event listener for the delete button
         const deleteButton = mainContent.querySelector('.delete-entry-button');
@@ -3852,10 +3914,12 @@ const projectFormHTML = `
                 entry.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
                 entry.style.opacity = '0';
                 entry.style.transform = 'translateX(-20px)';
+                attachmentsPanel.style.transition = 'opacity 0.3s ease';
+                attachmentsPanel.style.opacity = '0';
                 
                 // Remove the entry after animation completes
                 setTimeout(() => {
-                    entry.remove();
+                    entryRow.remove();
                 }, 300);
             }
         });
@@ -4058,6 +4122,137 @@ const projectFormHTML = `
         }
     }
 
+    function normalizeAttachmentInputFiles(fileLikeList) {
+        if (!fileLikeList) return [];
+        const fileArray = Array.from(fileLikeList).filter(Boolean);
+        const dedupeWithinSelection = new Set();
+        const normalized = [];
+        fileArray.forEach(file => {
+            if (!(file instanceof File)) return;
+            const key = [file.name || '', file.size || 0, file.lastModified || 0, file.type || ''].join('::');
+            if (dedupeWithinSelection.has(key)) return;
+            dedupeWithinSelection.add(key);
+            normalized.push(file);
+        });
+        return normalized;
+    }
+
+    function splitAttachmentFilesByValidity(files) {
+        const acceptedFiles = [];
+        const rejectedFiles = [];
+        files.forEach(file => {
+            if (!file) return;
+            if (Number(file.size || 0) <= 0) {
+                rejectedFiles.push({ file, reason: 'empty' });
+                return;
+            }
+            if (Number(file.size || 0) > MAX_ATTACHMENT_FILE_BYTES) {
+                rejectedFiles.push({ file, reason: 'maxSize' });
+                return;
+            }
+            acceptedFiles.push(file);
+        });
+        return { acceptedFiles, rejectedFiles };
+    }
+
+    function formatAttachmentSize(sizeInBytes) {
+        const size = Number(sizeInBytes || 0);
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+        return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function setEntryAttachmentStatus(entry, message, isError = false) {
+        const statusEl = entry && entry.attachmentsStatusEl;
+        if (!statusEl) return;
+        statusEl.textContent = message || '';
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        if (message) {
+            statusEl.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+        }
+    }
+
+    function renderEntryAttachments(entry) {
+        if (!entry || !entry.attachmentsListEl) return;
+        const listEl = entry.attachmentsListEl;
+        const files = Array.isArray(entry.attachments) ? entry.attachments : [];
+        listEl.innerHTML = '';
+
+        if (!files.length) return;
+
+        files.forEach((file, index) => {
+            const li = document.createElement('li');
+            li.className = 'entry-attachment-item';
+
+            const label = document.createElement('span');
+            label.className = 'entry-attachment-label';
+            label.textContent = `${file.name || 'attachment'} (${formatAttachmentSize(file.size)})`;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'entry-attachment-remove';
+            removeBtn.textContent = '✕';
+            removeBtn.title = 'Remove attachment';
+            removeBtn.addEventListener('click', () => {
+                if (!Array.isArray(entry.attachments)) return;
+                entry.attachments.splice(index, 1);
+                renderEntryAttachments(entry);
+                if (!entry.attachments.length) {
+                    setEntryAttachmentStatus(entry, '');
+                }
+            });
+
+            li.appendChild(label);
+            li.appendChild(removeBtn);
+            listEl.appendChild(li);
+        });
+    }
+
+    function appendFilesToEntryAttachments(entry, incomingFiles) {
+        if (!entry) return;
+        const normalizedFiles = normalizeAttachmentInputFiles(incomingFiles);
+        if (!normalizedFiles.length) return;
+
+        const { acceptedFiles, rejectedFiles } = splitAttachmentFilesByValidity(normalizedFiles);
+        if (!Array.isArray(entry.attachments)) {
+            entry.attachments = [];
+        }
+        if (acceptedFiles.length) {
+            entry.attachments.push(...acceptedFiles);
+        }
+        renderEntryAttachments(entry);
+
+        if (rejectedFiles.length) {
+            const firstRejected = rejectedFiles[0];
+            const rejectedName = firstRejected.file && firstRejected.file.name ? firstRejected.file.name : 'Attachment';
+            const reasonText = firstRejected.reason === 'maxSize'
+                ? `is larger than 10 MB`
+                : 'is empty and cannot be uploaded';
+            const extraText = rejectedFiles.length > 1
+                ? ` (${rejectedFiles.length - 1} more file${rejectedFiles.length - 1 === 1 ? '' : 's'} also rejected)`
+                : '';
+            setEntryAttachmentStatus(entry, `${rejectedName} ${reasonText}${extraText}.`, true);
+            return;
+        }
+
+        if (acceptedFiles.length) {
+            setEntryAttachmentStatus(
+                entry,
+                `Added ${acceptedFiles.length} attachment${acceptedFiles.length === 1 ? '' : 's'}.`,
+                false
+            );
+        }
+    }
+
+    function arrayBufferToPgBytea(arrayBuffer) {
+        const bytes = new Uint8Array(arrayBuffer);
+        let hex = '';
+        for (let i = 0; i < bytes.length; i += 1) {
+            hex += bytes[i].toString(16).padStart(2, '0');
+        }
+        return `\\x${hex}`;
+    }
+
     function getEntrySubItems(entry, type) {
         if (!entry) return [];
         const list = entry.querySelector(`.sub-item-container[data-type="${type}"] .sub-item-list`);
@@ -4211,6 +4406,37 @@ const projectFormHTML = `
                             project_type_id: projectTypeId
                         })));
                     if (error) throw new Error(error.message || 'Failed to save metadata.');
+                }
+
+                const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+                if (attachments.length) {
+                    for (const file of attachments) {
+                        const fileName = file && file.name ? file.name : 'attachment';
+                        const fileSize = Number(file && file.size ? file.size : 0);
+                        if (!fileSize) {
+                            continue;
+                        }
+                        if (fileSize > MAX_ATTACHMENT_FILE_BYTES) {
+                            throw new Error(`Attachment "${fileName}" exceeds the 10 MB limit.`);
+                        }
+
+                        const fileBuffer = await file.arrayBuffer();
+                        const { error } = await supabase
+                            .from('lessons_learned_attachments')
+                            .insert({
+                                lessons_learned_id: lessonId,
+                                project_id: projectId,
+                                organization_id: orgId,
+                                created_by: userId,
+                                file_data: arrayBufferToPgBytea(fileBuffer),
+                                file_name: fileName,
+                                content_type: file.type || 'application/octet-stream'
+                            });
+
+                        if (error) {
+                            throw new Error(error.message || `Failed to save attachment "${fileName}".`);
+                        }
+                    }
                 }
             }
 

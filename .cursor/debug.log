@@ -231,3 +231,5 @@
 {"runId":"pre-fix","hypothesisId":"H3","location":"index-search.js:324","message":"projectType fallback view response","data":{"hasError":false,"errorMessage":null,"rowCount":422},"timestamp":1771301853422}
 {"runId":"pre-fix","hypothesisId":"H3","location":"index-search.js:297","message":"projectType search view response","data":{"hasError":false,"errorMessage":null,"rowCount":422},"timestamp":1771301853422}
 {"runId":"pre-fix","hypothesisId":"H10","location":"index-search.js:227","message":"renderResults","data":{"count":142,"projectNameCount":0,"projectTypeCount":0},"timestamp":1771301853425}
+{"runId":"pre-fix","hypothesisId":"H1","location":"index-search.js:49","message":"DOMContentLoaded wired","data":{"hasForm":true,"hasInput":true},"timestamp":1771391721526}
+{"runId":"pre-fix","hypothesisId":"H1","location":"index-search.js:49","message":"DOMContentLoaded wired","data":{"hasForm":true,"hasInput":true},"timestamp":1771392195470}
