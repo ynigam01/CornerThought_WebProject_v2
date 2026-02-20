@@ -150,6 +150,14 @@ document.addEventListener("DOMContentLoaded", () => {
     let saveLessonsButton = null;
     let saveLessonsStatus = null;
     const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
+    const MANAGE_USER_ALLOWED_TYPES = [
+        'Administrator',
+        'Leadership',
+        'Project Manager',
+        'Subject Matter Expert',
+        'Team Member'
+    ];
+    let selectedOrgManageUserId = null;
 
     async function loadOrgProjectTypes() {
         if (!organizationId || orgProjectTypesLoaded) return;
@@ -3545,6 +3553,15 @@ const projectFormHTML = `
     addDataProjectModal = document.getElementById("addDataProjectModal");
     addDataMetadataModal = document.getElementById("addDataMetadataModal");
     const addUserModal = document.getElementById("addUserModal");
+    const editOrgUserModal = document.getElementById("editOrgUserModal");
+    const closeEditOrgUserModalButton = document.getElementById("closeEditOrgUserModal");
+    const cancelEditOrgUserButton = document.getElementById("cancelEditOrgUserButton");
+    const editOrgUserForm = document.getElementById("editOrgUserForm");
+    const editOrgUserNameInput = document.getElementById("editOrgUserName");
+    const editOrgUserEmailInput = document.getElementById("editOrgUserEmail");
+    const editOrgUserTypeSelect = document.getElementById("editOrgUserType");
+    const editOrgUserStatus = document.getElementById("editOrgUserStatus");
+    const saveEditOrgUserButton = document.getElementById("saveEditOrgUserButton");
     addDataProjectSelect = document.getElementById("addDataProjectSelect");
     addDataProjectConfirmButton = document.getElementById("confirmAddDataProject");
     addDataProjectCancelButton = document.getElementById("cancelAddDataProject");
@@ -3581,6 +3598,22 @@ const projectFormHTML = `
     }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
+    if (closeEditOrgUserModalButton) {
+        closeEditOrgUserModalButton.onclick = () => {
+            selectedOrgManageUserId = null;
+            if (editOrgUserForm && typeof editOrgUserForm.reset === 'function') editOrgUserForm.reset();
+            if (editOrgUserStatus) editOrgUserStatus.style.display = 'none';
+            if (editOrgUserModal) editOrgUserModal.classList.remove("show");
+        };
+    }
+    if (cancelEditOrgUserButton) {
+        cancelEditOrgUserButton.onclick = () => {
+            selectedOrgManageUserId = null;
+            if (editOrgUserForm && typeof editOrgUserForm.reset === 'function') editOrgUserForm.reset();
+            if (editOrgUserStatus) editOrgUserStatus.style.display = 'none';
+            if (editOrgUserModal) editOrgUserModal.classList.remove("show");
+        };
+    }
 
     // Attach searchable org project-type dropdown to the modal Create Project form
     const modalProjectTypeInput = document.getElementById('projectType');
@@ -3619,6 +3652,12 @@ const projectFormHTML = `
         addDataMetadataModal.classList.remove("show");
     }
     if (e.target === addUserModal) addUserModal.classList.remove("show");
+    if (editOrgUserModal && e.target === editOrgUserModal) {
+        selectedOrgManageUserId = null;
+        if (editOrgUserForm && typeof editOrgUserForm.reset === 'function') editOrgUserForm.reset();
+        if (editOrgUserStatus) editOrgUserStatus.style.display = 'none';
+        editOrgUserModal.classList.remove("show");
+    }
     };
 
     // Handle Add User form submission -> persist to Supabase 'users'
@@ -5751,7 +5790,9 @@ const projectFormHTML = `
 
         const projectId = project && project.project_id != null ? project.project_id : null;
         const userId = ctUser && ctUser.id != null ? ctUser.id : null;
-        if (!organizationId || projectId == null || userId == null) {
+        const currentUserType = ctUser && ctUser.usertype ? String(ctUser.usertype).trim().toLowerCase() : '';
+        const isProjectManager = currentUserType === 'project manager';
+        if (!organizationId || projectId == null || (!isProjectManager && userId == null)) {
             setSingleOption('No categories available yet');
             return;
         }
@@ -5760,23 +5801,79 @@ const projectFormHTML = `
         setSingleOption('Loading categories...');
 
         try {
-            const { data, error } = await supabase
-                .from('project_team_member_assignments')
-                .select('lessons_learned_metadata_list_id, assignment, assignment_type')
-                .eq('organization_id', organizationId)
-                .eq('project_id', projectId)
-                .eq('user_id', userId)
-                .limit(5000);
+            let rows = [];
 
-            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+            if (isProjectManager) {
+                const { data: metadataLinks, error: linkErr } = await supabase
+                    .from('lessons_learned_metadata')
+                    .select('lessons_learned_metadata_list_id')
+                    .eq('organization_id', organizationId)
+                    .eq('project_id', projectId)
+                    .limit(5000);
 
-            if (error) {
-                console.error('Error loading My Projects lessons categories:', error);
-                setSingleOption('Failed to load categories');
-                return;
+                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+
+                if (linkErr) {
+                    console.error('Error loading My Projects lessons categories for Project Manager:', linkErr);
+                    setSingleOption('Failed to load categories');
+                    return;
+                }
+
+                const metadataListIds = Array.from(
+                    new Set(
+                        (metadataLinks || [])
+                            .map((row) => row && row.lessons_learned_metadata_list_id)
+                            .filter((id) => id != null)
+                    )
+                );
+
+                if (metadataListIds.length === 0) {
+                    setSingleOption('No categories available yet');
+                    return;
+                }
+
+                const { data: metadataRows, error: metadataErr } = await supabase
+                    .from('lessons_learned_metadata_list')
+                    .select('id, metadata_type, metadata')
+                    .eq('organization_id', organizationId)
+                    .eq('project_id', projectId)
+                    .in('id', metadataListIds)
+                    .limit(5000);
+
+                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+
+                if (metadataErr) {
+                    console.error('Error loading metadata list rows for Project Manager categories:', metadataErr);
+                    setSingleOption('Failed to load categories');
+                    return;
+                }
+
+                rows = (metadataRows || []).map((row) => ({
+                    lessons_learned_metadata_list_id: row && row.id != null ? row.id : null,
+                    assignment: row && row.metadata != null ? String(row.metadata) : '',
+                    assignment_type: row && row.metadata_type != null ? String(row.metadata_type) : ''
+                }));
+            } else {
+                const { data, error } = await supabase
+                    .from('project_team_member_assignments')
+                    .select('lessons_learned_metadata_list_id, assignment, assignment_type')
+                    .eq('organization_id', organizationId)
+                    .eq('project_id', projectId)
+                    .eq('user_id', userId)
+                    .limit(5000);
+
+                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+
+                if (error) {
+                    console.error('Error loading My Projects lessons categories:', error);
+                    setSingleOption('Failed to load categories');
+                    return;
+                }
+
+                rows = Array.isArray(data) ? data : [];
             }
 
-            const rows = Array.isArray(data) ? data : [];
+            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
             if (rows.length === 0) {
                 setSingleOption('No categories available yet');
                 return;
@@ -7732,8 +7829,14 @@ const projectFormHTML = `
                 if (orgView) wireCreateProjectButtons(orgView);
 
                 // Manage Projects module within Organization Settings
+                const manageUsersBtn = document.getElementById('manageUsersButton');
                 const manageProjectsBtn = document.getElementById('manageProjectsButton');
                 const orgMainSummary = document.getElementById('orgMainSummary');
+                const orgManageUsersPanel = document.getElementById('orgManageUsersPanel');
+                const orgManageUsersBackButton = document.getElementById('orgManageUsersBackButton');
+                const orgManageUsersRefreshButton = document.getElementById('orgManageUsersRefreshButton');
+                const orgManageUsersStatus = document.getElementById('orgManageUsersStatus');
+                const orgManageUsersTableWrap = document.getElementById('orgManageUsersTableWrap');
                 const manageOrgTeamsButton = document.getElementById('manageOrgTeamsButton');
                 const orgTeamsPanel = document.getElementById('orgTeamsPanel');
                 const orgTeamsBackButton = document.getElementById('orgTeamsBackButton');
@@ -7819,6 +7922,139 @@ const projectFormHTML = `
                     if (kind === 'success') orgTeamsAssignStatus.classList.add('upload-message--success');
                     if (kind === 'error') orgTeamsAssignStatus.classList.add('upload-message--error');
                     orgTeamsAssignStatus.style.display = message ? '' : 'none';
+                }
+
+                function setOrgManageUsersStatus(message, kind = null) {
+                    if (!orgManageUsersStatus) return;
+                    orgManageUsersStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    orgManageUsersStatus.textContent = message || '';
+                    if (kind === 'success') orgManageUsersStatus.classList.add('upload-message--success');
+                    if (kind === 'error') orgManageUsersStatus.classList.add('upload-message--error');
+                    orgManageUsersStatus.style.display = message ? '' : 'none';
+                }
+
+                function setEditOrgUserStatus(message, kind = null) {
+                    if (!editOrgUserStatus) return;
+                    editOrgUserStatus.classList.remove('upload-message--success', 'upload-message--error');
+                    editOrgUserStatus.textContent = message || '';
+                    if (kind === 'success') editOrgUserStatus.classList.add('upload-message--success');
+                    if (kind === 'error') editOrgUserStatus.classList.add('upload-message--error');
+                    editOrgUserStatus.style.display = message ? '' : 'none';
+                }
+
+                function openEditOrgUserModal(userRow) {
+                    if (!userRow || !editOrgUserModal) return;
+                    selectedOrgManageUserId = userRow.id;
+                    if (editOrgUserNameInput) {
+                        editOrgUserNameInput.value = userRow.name || '';
+                    }
+                    if (editOrgUserEmailInput) {
+                        editOrgUserEmailInput.value = userRow.email || '';
+                    }
+                    if (editOrgUserTypeSelect) {
+                        const normalizedType = userRow.usertype === 'Company Administrator'
+                            ? 'Administrator'
+                            : (userRow.usertype || '');
+                        editOrgUserTypeSelect.value = MANAGE_USER_ALLOWED_TYPES.includes(normalizedType)
+                            ? normalizedType
+                            : '';
+                    }
+                    setEditOrgUserStatus('', null);
+                    editOrgUserModal.classList.add('show');
+                }
+
+                function renderOrgManageUsersTable(rows) {
+                    if (!orgManageUsersTableWrap) return;
+                    orgManageUsersTableWrap.innerHTML = '';
+
+                    if (!Array.isArray(rows) || rows.length === 0) {
+                        const empty = document.createElement('p');
+                        empty.textContent = 'No users found for your organization.';
+                        empty.style.marginTop = '10px';
+                        orgManageUsersTableWrap.appendChild(empty);
+                        return;
+                    }
+
+                    const table = document.createElement('table');
+                    table.className = 'organizations-table';
+
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    const th = document.createElement('th');
+                    th.textContent = 'Name';
+                    headRow.appendChild(th);
+                    thead.appendChild(headRow);
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+                    rows.forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'org-manage-users-row';
+                        tr.title = 'Click to edit this user';
+                        tr.tabIndex = 0;
+
+                        const td = document.createElement('td');
+                        td.textContent = row.name || '(No name)';
+                        tr.appendChild(td);
+
+                        const openEditor = () => openEditOrgUserModal(row);
+                        tr.addEventListener('click', openEditor);
+                        tr.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openEditor();
+                            }
+                        });
+                        tbody.appendChild(tr);
+                    });
+
+                    table.appendChild(tbody);
+                    orgManageUsersTableWrap.appendChild(table);
+                }
+
+                async function loadOrgManageUsersList() {
+                    if (!organizationId) {
+                        setOrgManageUsersStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                        if (orgManageUsersTableWrap) orgManageUsersTableWrap.innerHTML = '';
+                        return;
+                    }
+
+                    const orgId = Number(organizationId);
+                    if (!orgId || Number.isNaN(orgId)) {
+                        setOrgManageUsersStatus('Could not determine your organization. Please log out and log back in.', 'error');
+                        if (orgManageUsersTableWrap) orgManageUsersTableWrap.innerHTML = '';
+                        return;
+                    }
+
+                    setOrgManageUsersStatus('Loading users...', null);
+                    try {
+                        const { data, error } = await supabase
+                            .from('users')
+                            .select('id, name, email, usertype, organizationid')
+                            .eq('organizationid', orgId)
+                            .order('name', { ascending: true });
+
+                        if (error) {
+                            console.error('Error loading organization users for Manage Users:', error);
+                            setOrgManageUsersStatus('Failed to load users.', 'error');
+                            if (orgManageUsersTableWrap) orgManageUsersTableWrap.innerHTML = '';
+                            return;
+                        }
+
+                        const rows = (data || []).map(row => ({
+                            id: row && row.id != null ? row.id : null,
+                            name: row && row.name ? String(row.name).trim() : '',
+                            email: row && row.email ? String(row.email).trim() : '',
+                            usertype: row && row.usertype ? String(row.usertype).trim() : ''
+                        })).filter(row => row.id != null);
+
+                        renderOrgManageUsersTable(rows);
+                        setOrgManageUsersStatus(rows.length ? '' : 'No users found for your organization.', rows.length ? null : 'error');
+                    } catch (err) {
+                        console.error('Unexpected error loading organization users for Manage Users:', err);
+                        setOrgManageUsersStatus('An unexpected error occurred while loading users.', 'error');
+                        if (orgManageUsersTableWrap) orgManageUsersTableWrap.innerHTML = '';
+                    }
                 }
 
                 function normalizeOrgTeamsHeaderKey(value) {
@@ -8433,6 +8669,7 @@ const projectFormHTML = `
                     createNewAssetButton.onclick = (e) => {
                         if (e && e.preventDefault) e.preventDefault();
                         orgMainSummary.style.display = 'none';
+                        if (orgManageUsersPanel) orgManageUsersPanel.style.display = 'none';
                         if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
                         if (orgTeamsPanel) orgTeamsPanel.style.display = 'none';
                         orgAssetsPanel.style.display = '';
@@ -9021,10 +9258,99 @@ const projectFormHTML = `
                     });
                 }
 
+                if (manageUsersBtn && orgMainSummary && orgManageUsersPanel) {
+                    manageUsersBtn.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgMainSummary.style.display = 'none';
+                        if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
+                        if (orgTeamsPanel) orgTeamsPanel.style.display = 'none';
+                        if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
+                        orgManageUsersPanel.style.display = '';
+                        await loadOrgManageUsersList();
+                    };
+                }
+
+                if (orgManageUsersRefreshButton) {
+                    orgManageUsersRefreshButton.onclick = async (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        await loadOrgManageUsersList();
+                    };
+                }
+
+                if (orgManageUsersBackButton && orgMainSummary && orgManageUsersPanel) {
+                    orgManageUsersBackButton.onclick = (e) => {
+                        if (e && e.preventDefault) e.preventDefault();
+                        orgManageUsersPanel.style.display = 'none';
+                        orgMainSummary.style.display = '';
+                        setOrgManageUsersStatus('', null);
+                    };
+                }
+
+                if (editOrgUserForm) {
+                    editOrgUserForm.onsubmit = async (e) => {
+                        e.preventDefault();
+                        if (selectedOrgManageUserId == null) {
+                            setEditOrgUserStatus('No user selected.', 'error');
+                            return;
+                        }
+
+                        const name = editOrgUserNameInput ? String(editOrgUserNameInput.value || '').trim() : '';
+                        const email = editOrgUserEmailInput ? String(editOrgUserEmailInput.value || '').trim().toLowerCase() : '';
+                        const usertype = editOrgUserTypeSelect ? String(editOrgUserTypeSelect.value || '').trim() : '';
+                        const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+                        if (!name) {
+                            setEditOrgUserStatus('Name is required.', 'error');
+                            return;
+                        }
+                        if (!email || !validEmail) {
+                            setEditOrgUserStatus('Please provide a valid email address.', 'error');
+                            return;
+                        }
+                        if (!MANAGE_USER_ALLOWED_TYPES.includes(usertype)) {
+                            setEditOrgUserStatus('Please choose a valid user type.', 'error');
+                            return;
+                        }
+
+                        try {
+                            if (saveEditOrgUserButton) {
+                                saveEditOrgUserButton.disabled = true;
+                                saveEditOrgUserButton.textContent = 'Saving...';
+                            }
+                            setEditOrgUserStatus('', null);
+
+                            const { error } = await supabase
+                                .from('users')
+                                .update({ name, email, usertype })
+                                .eq('id', selectedOrgManageUserId)
+                                .eq('organizationid', organizationId);
+
+                            if (error) {
+                                console.error('Error updating organization user:', error);
+                                setEditOrgUserStatus('Failed to update user.', 'error');
+                                return;
+                            }
+
+                            if (editOrgUserModal) editOrgUserModal.classList.remove('show');
+                            await loadOrgManageUsersList();
+                            setOrgManageUsersStatus('User updated successfully.', 'success');
+                        } catch (err) {
+                            console.error('Unexpected error updating organization user:', err);
+                            setEditOrgUserStatus('An unexpected error occurred while saving.', 'error');
+                        } finally {
+                            if (saveEditOrgUserButton) {
+                                saveEditOrgUserButton.disabled = false;
+                                saveEditOrgUserButton.textContent = 'Save Changes';
+                            }
+                        }
+                    };
+                }
+
                 // Show the Manage Projects & Project Types module
                 if (manageProjectsBtn && orgMainSummary && orgProjectsPanel) {
                     manageProjectsBtn.onclick = () => {
                         orgMainSummary.style.display = 'none';
+                        if (orgManageUsersPanel) orgManageUsersPanel.style.display = 'none';
                         if (orgTeamsPanel) orgTeamsPanel.style.display = 'none';
                         if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
                         orgProjectsPanel.style.display = '';
@@ -9036,6 +9362,7 @@ const projectFormHTML = `
                     manageOrgTeamsButton.onclick = async (e) => {
                         if (e && e.preventDefault) e.preventDefault();
                         orgMainSummary.style.display = 'none';
+                        if (orgManageUsersPanel) orgManageUsersPanel.style.display = 'none';
                         if (orgProjectsPanel) orgProjectsPanel.style.display = 'none';
                         if (orgAssetsPanel) orgAssetsPanel.style.display = 'none';
                         orgTeamsPanel.style.display = '';

@@ -110,6 +110,22 @@
                         </div>
                     </div>
 
+                    <!-- Manage Users module (shown when user clicks Manage Users) -->
+                    <div id="orgManageUsersPanel" class="project-types-panel" style="display: none;">
+                        <div class="project-types-panel-header">
+                            <div>
+                                <h3>Manage Users</h3>
+                                <p class="subtitle">Select a user in your organization to edit profile details.</p>
+                            </div>
+                            <div class="project-types-panel-header-actions">
+                                <button type="button" id="orgManageUsersRefreshButton" class="secondary-button">Refresh List</button>
+                                <button type="button" id="orgManageUsersBackButton" class="secondary-button">Go Back</button>
+                            </div>
+                        </div>
+                        <div id="orgManageUsersStatus" class="upload-message" style="display: none;"></div>
+                        <div id="orgManageUsersTableWrap" style="margin-top: 12px;"></div>
+                    </div>
+
                     <!-- Manage Organizational Teams module (shown when user clicks Manage Organizational Teams) -->
                     <div id="orgTeamsPanel" class="project-types-panel" style="display: none;">
                         <div class="project-types-panel-header">
@@ -294,6 +310,40 @@
                 <button class="cancel-edit-button" id="cancelEdit">Cancel</button>
                 <button class="save-edit-button" id="saveEdit">Change</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Edit Organization User Modal -->
+    <div class="modal modal--center" id="editOrgUserModal">
+        <div class="modal-content" style="max-width: 520px;">
+            <button class="close-button" id="closeEditOrgUserModal">&times;</button>
+            <h3>Edit User</h3>
+            <form id="editOrgUserForm">
+                <div class="input-group">
+                    <label for="editOrgUserName">Name</label>
+                    <input type="text" id="editOrgUserName" required>
+                </div>
+                <div class="input-group">
+                    <label for="editOrgUserEmail">Email</label>
+                    <input type="email" id="editOrgUserEmail" required>
+                </div>
+                <div class="input-group">
+                    <label for="editOrgUserType">User Type</label>
+                    <select id="editOrgUserType" required>
+                        <option value="">Select a user type</option>
+                        <option value="Administrator">Administrator</option>
+                        <option value="Leadership">Leadership</option>
+                        <option value="Project Manager">Project Manager</option>
+                        <option value="Subject Matter Expert">Subject Matter Expert</option>
+                        <option value="Team Member">Team Member</option>
+                    </select>
+                </div>
+                <div id="editOrgUserStatus" class="upload-message" style="display: none;"></div>
+                <div class="modal-actions">
+                    <button type="button" id="cancelEditOrgUserButton">Cancel</button>
+                    <button type="submit" id="saveEditOrgUserButton">Save Changes</button>
+                </div>
+            </form>
         </div>
     </div>
 

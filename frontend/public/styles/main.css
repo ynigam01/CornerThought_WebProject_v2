@@ -1203,6 +1203,15 @@ body {
     background-color: #f5f5f5;
 }
 
+.organizations-table tbody tr.org-manage-users-row {
+    cursor: pointer;
+}
+
+.organizations-table tbody tr.org-manage-users-row:focus {
+    outline: 2px solid #2d9cdb;
+    outline-offset: -2px;
+}
+
 .organizations-table tbody tr.row-selected {
     background-color: #e7f6ec;
 }
@@ -1676,6 +1685,45 @@ body {
 
 .add-data-metadata-modal .choices {
     width: 100%;
+}
+
+/* Edit User modal spacing */
+#editOrgUserModal .modal-content {
+    padding: 28px 34px 22px;
+    box-sizing: border-box;
+}
+
+#editOrgUserModal h3 {
+    margin: 0 0 18px;
+    padding-right: 44px; /* keep title clear of close button */
+}
+
+#editOrgUserForm {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+#editOrgUserForm .input-group {
+    margin-bottom: 0;
+}
+
+#editOrgUserForm .input-group label {
+    margin-bottom: 8px;
+}
+
+#editOrgUserForm .modal-actions {
+    margin-top: 10px;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+#editOrgUserForm .modal-actions button {
+    margin-left: 0;
+}
+
+#editOrgUserStatus {
+    margin-top: 2px;
 }
 
 .modal-actions button[type="submit"] {
