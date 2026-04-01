@@ -5745,11 +5745,12 @@ const projectFormHTML = `
         });
     }
 
-    function showMyProjectsWorkspace(project) {
+    async function showMyProjectsWorkspace(project) {
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
         const main = document.getElementById('searchProjectsMain');
         const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+        const statusSelect = document.getElementById('myProjectsStatusSelect');
         if (!panel) return;
 
         const name = project && project.project_name ? project.project_name : '(Unnamed Project)';
@@ -5771,7 +5772,14 @@ const projectFormHTML = `
             });
             categoriesSelect.dataset.myProjectsLessonsWired = 'true';
         }
-        loadMyProjectsLessonsCategories(project);
+        if (statusSelect && !statusSelect.dataset.myProjectsLessonsWired) {
+            statusSelect.addEventListener('change', () => {
+                const selectedMetadataId = categoriesSelect ? categoriesSelect.value || '' : '';
+                loadMyProjectsLessonsForSelectedCategory(searchProjectsSelectedProject, selectedMetadataId);
+            });
+            statusSelect.dataset.myProjectsLessonsWired = 'true';
+        }
+        await loadMyProjectsLessonsCategories(project);
         loadMyProjectsLessonsForSelectedCategory(project, '');
     }
 
@@ -5955,6 +5963,58 @@ const projectFormHTML = `
         panel.style.display = visible ? 'block' : 'none';
     }
 
+    function normalizeMyProjectsReviewValue(value) {
+        return String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/_/g, ' ');
+    }
+
+    function renderMyProjectsLessonsGroupedByCategory(groups) {
+        const resultsEl = document.getElementById('myProjectsLessonsResults');
+        if (!resultsEl) return;
+        resultsEl.innerHTML = '';
+
+        if (!Array.isArray(groups) || groups.length === 0) return;
+
+        groups.forEach((group) => {
+            if (!group || !Array.isArray(group.lessons) || group.lessons.length === 0) return;
+
+            const section = document.createElement('section');
+            const heading = document.createElement('h3');
+            heading.textContent = group.label || 'Unlabeled Category';
+            heading.style.margin = '2px 0 10px';
+            heading.style.fontSize = '1rem';
+            heading.style.color = '#2c3e50';
+            section.appendChild(heading);
+
+            group.lessons.forEach((row) => {
+                const categoryRaw = row && row.category ? String(row.category).trim() : '';
+                const categoryLower = categoryRaw.toLowerCase();
+                const categoryDisplay = categoryRaw
+                    ? categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1)
+                    : 'Issue';
+                const title = row && row.title ? String(row.title).trim() : '(Untitled)';
+
+                const card = document.createElement('div');
+                card.className = 'my-projects-lesson-card';
+                if (categoryLower === 'success') {
+                    card.classList.add('my-projects-lesson-card--success');
+                } else {
+                    card.classList.add('my-projects-lesson-card--issue');
+                }
+
+                const label = document.createElement('strong');
+                label.textContent = `${categoryDisplay}: `;
+                card.appendChild(label);
+                card.appendChild(document.createTextNode(title));
+                section.appendChild(card);
+            });
+
+            resultsEl.appendChild(section);
+        });
+    }
+
     function renderMyProjectsLessonsCards(rows) {
         const resultsEl = document.getElementById('myProjectsLessonsResults');
         if (!resultsEl) return;
@@ -6000,8 +6060,139 @@ const projectFormHTML = `
 
         const metadataId = String(selectedMetadataId || '').trim();
         if (!metadataId) {
-            setMyProjectsLessonsResultsPanelVisible(false);
-            setMyProjectsLessonsStatus('');
+            const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+            const allCategoryOptions = categoriesSelect
+                ? Array.from(categoriesSelect.querySelectorAll('option'))
+                    .map((option) => ({
+                        id: String(option && option.value ? option.value : '').trim(),
+                        label: String(option && option.textContent ? option.textContent : '').trim()
+                    }))
+                    .filter((item) => item.id)
+                : [];
+
+            if (allCategoryOptions.length === 0) {
+                setMyProjectsLessonsResultsPanelVisible(false);
+                setMyProjectsLessonsStatus('No categories available yet.');
+                return;
+            }
+
+            const requestToken = ++myProjectsLessonsResultsRequestToken;
+            setMyProjectsLessonsResultsPanelVisible(true);
+            setMyProjectsLessonsStatus('Loading lessons learned...');
+
+            try {
+                const categoryIds = allCategoryOptions.map((item) => item.id);
+                const categoryLabelById = new Map(allCategoryOptions.map((item) => [item.id, item.label]));
+
+                const { data: metadataLinks, error: linkErr } = await supabase
+                    .from('lessons_learned_metadata')
+                    .select('lessons_learned_id, lessons_learned_metadata_list_id')
+                    .eq('organization_id', organizationId)
+                    .eq('project_id', projectId)
+                    .in('lessons_learned_metadata_list_id', categoryIds)
+                    .limit(5000);
+
+                if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+
+                if (linkErr) {
+                    console.error('Error loading lessons metadata links for My Projects:', linkErr);
+                    setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
+                    return;
+                }
+
+                const links = Array.isArray(metadataLinks) ? metadataLinks : [];
+                const lessonIds = Array.from(
+                    new Set(
+                        links
+                            .map((row) => row && row.lessons_learned_id)
+                            .filter((id) => id != null)
+                    )
+                );
+
+                if (lessonIds.length === 0) {
+                    setMyProjectsLessonsStatus('No issues or successes found for your assigned categories.');
+                    return;
+                }
+
+                const { data: lessonRows, error: lessonErr } = await supabase
+                    .from('lessons_learned')
+                    .select('id, title, category, review')
+                    .eq('organization_id', organizationId)
+                    .eq('project_id', projectId)
+                    .in('id', lessonIds)
+                    .order('id', { ascending: false });
+
+                if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+
+                if (lessonErr) {
+                    console.error('Error loading lessons for My Projects categories:', lessonErr);
+                    setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
+                    return;
+                }
+
+                const statusSelect = document.getElementById('myProjectsStatusSelect');
+                const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
+                const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
+                    if (!selectedStatus) return true;
+                    return normalizeMyProjectsReviewValue(row && row.review) === selectedStatus;
+                });
+
+                if (lessons.length === 0) {
+                    setMyProjectsLessonsStatus('No issues or successes found for the selected status.');
+                    return;
+                }
+
+                const lessonById = new Map();
+                lessons.forEach((lesson) => {
+                    if (lesson && lesson.id != null) {
+                        lessonById.set(String(lesson.id), lesson);
+                    }
+                });
+
+                const groupedRowsByCategory = new Map();
+                const seenByCategory = new Map();
+                links.forEach((link) => {
+                    const metadataListId = link && link.lessons_learned_metadata_list_id != null
+                        ? String(link.lessons_learned_metadata_list_id)
+                        : '';
+                    const lessonId = link && link.lessons_learned_id != null ? String(link.lessons_learned_id) : '';
+                    if (!metadataListId || !lessonId) return;
+
+                    const lesson = lessonById.get(lessonId);
+                    if (!lesson) return;
+
+                    if (!groupedRowsByCategory.has(metadataListId)) groupedRowsByCategory.set(metadataListId, []);
+                    if (!seenByCategory.has(metadataListId)) seenByCategory.set(metadataListId, new Set());
+                    const seenIds = seenByCategory.get(metadataListId);
+                    if (seenIds && seenIds.has(lessonId)) return;
+                    if (seenIds) seenIds.add(lessonId);
+
+                    groupedRowsByCategory.get(metadataListId).push(lesson);
+                });
+
+                const orderedGroups = allCategoryOptions
+                    .map((item) => ({
+                        id: item.id,
+                        label: categoryLabelById.get(item.id) || 'Unlabeled Category',
+                        lessons: groupedRowsByCategory.get(item.id) || []
+                    }))
+                    .filter((group) => group.lessons.length > 0);
+
+                if (orderedGroups.length === 0) {
+                    setMyProjectsLessonsStatus('No issues or successes found for your assigned categories.');
+                    return;
+                }
+
+                renderMyProjectsLessonsGroupedByCategory(orderedGroups);
+                const displayedCount = orderedGroups.reduce((sum, group) => sum + group.lessons.length, 0);
+                setMyProjectsLessonsStatus(
+                    `Showing ${displayedCount} lesson${displayedCount === 1 ? '' : 's'} across ${orderedGroups.length} categor${orderedGroups.length === 1 ? 'y' : 'ies'}.`
+                );
+            } catch (err) {
+                if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+                console.error('Unexpected error loading lessons for My Projects categories:', err);
+                setMyProjectsLessonsStatus('An unexpected error occurred while loading lessons.', true);
+            }
             return;
         }
 
@@ -6041,7 +6232,7 @@ const projectFormHTML = `
 
             const { data: lessonRows, error: lessonErr } = await supabase
                 .from('lessons_learned')
-                .select('id, title, category')
+                .select('id, title, category, review')
                 .eq('organization_id', organizationId)
                 .eq('project_id', projectId)
                 .in('id', lessonIds)
@@ -6055,9 +6246,14 @@ const projectFormHTML = `
                 return;
             }
 
-            const lessons = Array.isArray(lessonRows) ? lessonRows : [];
+            const statusSelect = document.getElementById('myProjectsStatusSelect');
+            const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
+            const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
+                if (!selectedStatus) return true;
+                return normalizeMyProjectsReviewValue(row && row.review) === selectedStatus;
+            });
             if (lessons.length === 0) {
-                setMyProjectsLessonsStatus('No issues or successes found for this category.');
+                setMyProjectsLessonsStatus('No issues or successes found for this category and status.');
                 return;
             }
 
