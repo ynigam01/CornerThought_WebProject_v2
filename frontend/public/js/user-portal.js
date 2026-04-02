@@ -3462,6 +3462,11 @@ const projectFormHTML = `
                         <input type="text" id="lessons" placeholder="Enter a lesson...">
                         <button type="button" class="add-lesson-button">Add</button>
                     </div>
+                    <div class="input-group" id="notesSection" style="display: none;">
+                        <label for="notes">Notes</label>
+                        <input type="text" id="notes" placeholder="Enter a note...">
+                        <button type="button" class="add-note-button">Add</button>
+                    </div>
             </form>
             </div>
         </div>
@@ -3789,6 +3794,7 @@ const projectFormHTML = `
         document.getElementById("impactsSection").style.display = "block";
         document.getElementById("actionsSection").style.display = "block";
         document.getElementById("lessonsSection").style.display = "block";
+        document.getElementById("notesSection").style.display = "block";
         // Keep the form open - don't close it
     }
 
@@ -3863,6 +3869,12 @@ const projectFormHTML = `
         lessonsContainer.style.display = "none";
         lessonsContainer.innerHTML = '<div class="sub-item-header"><strong>Lessons Learned:</strong></div><ul class="sub-item-list"></ul>';
 
+        const notesContainer = document.createElement("div");
+        notesContainer.className = "sub-item-container";
+        notesContainer.dataset.type = "notes";
+        notesContainer.style.display = "none";
+        notesContainer.innerHTML = '<div class="sub-item-header"><strong>Notes:</strong></div><ul class="sub-item-list"></ul>';
+
         const metadataContainer = document.createElement("div");
         metadataContainer.className = "sub-item-container";
         metadataContainer.dataset.type = "metadata";
@@ -3873,6 +3885,7 @@ const projectFormHTML = `
         entry.appendChild(impactsContainer);
         entry.appendChild(actionsContainer);
         entry.appendChild(lessonsContainer);
+        entry.appendChild(notesContainer);
         entry.appendChild(metadataContainer);
 
         const attachmentsPanel = document.createElement("div");
@@ -3899,6 +3912,7 @@ const projectFormHTML = `
         entry.impactsList = impactsContainer.querySelector('.sub-item-list');
         entry.actionsList = actionsContainer.querySelector('.sub-item-list');
         entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
+        entry.notesList = notesContainer.querySelector('.sub-item-list');
         entry.metadataList = metadataContainer.querySelector('.sub-item-list');
         entry.attachments = [];
         entry.attachmentsListEl = attachmentsPanel.querySelector('.entry-attachments-list');
@@ -4029,6 +4043,16 @@ const projectFormHTML = `
             addSubItemEntry('lessons', lessonText);
             // Reset the lessons field
             document.getElementById("lessons").value = "";
+        }
+    };
+
+    // Handle Add Note button click
+    document.querySelector(".add-note-button").onclick = () => {
+        const noteText = document.getElementById("notes").value.trim();
+        if (noteText) {
+            addSubItemEntry('notes', noteText);
+            // Reset the notes field
+            document.getElementById("notes").value = "";
         }
     };
 
@@ -4426,6 +4450,20 @@ const projectFormHTML = `
                     if (error) throw new Error(error.message || 'Failed to save lessons learned items.');
                 }
 
+                const notes = getEntrySubItems(entry, 'notes');
+                if (notes.length) {
+                    const { error } = await supabase
+                        .from('lessons_learned_notes')
+                        .insert(notes.map(notesText => ({
+                            lessons_learned_id: lessonId,
+                            notes: notesText,
+                            created_by: userId,
+                            organization_id: orgId,
+                            project_id: projectId
+                        })));
+                    if (error) throw new Error(error.message || 'Failed to save notes.');
+                }
+
                 const metadataItems = Array.isArray(entry.metadataItems) ? entry.metadataItems : [];
                 if (metadataItems.length) {
                     const { error } = await supabase
@@ -4505,11 +4543,13 @@ const projectFormHTML = `
         document.getElementById("impactsSection").style.display = "none";
         document.getElementById("actionsSection").style.display = "none";
         document.getElementById("lessonsSection").style.display = "none";
+        document.getElementById("notesSection").style.display = "none";
         // Reset all fields
         document.getElementById("causes").value = "";
         document.getElementById("impacts").value = "";
         document.getElementById("actions").value = "";
         document.getElementById("lessons").value = "";
+        document.getElementById("notes").value = "";
     }
 
     // Collapsible form functionality
@@ -4934,6 +4974,7 @@ const projectFormHTML = `
         document.getElementById("impactsSection").style.display = "block";
         document.getElementById("actionsSection").style.display = "block";
         document.getElementById("lessonsSection").style.display = "block";
+        document.getElementById("notesSection").style.display = "block";
         location.hash = 'adddata';
         setTimeout(() => {
             addDataModal.classList.add('show');
