@@ -8081,8 +8081,9 @@ const projectFormHTML = `
                 let assetDetailsSelectedAssetName = null;
                 let assetDetailsSelectedProjectId = null;
                 let assetDetailsSelectedProjectName = null;
+                let assetDetailsSelectedProjectTypeId = null;
                 let assetDetailsAssetsById = new Map();   // asset_id -> asset_name
-                let assetDetailsProjectsById = new Map(); // project_id -> project_name
+                let assetDetailsProjectsById = new Map(); // project_id -> { name, project_type_id }
 
                 let orgAssetDetailsAssetChoices = null;
                 let orgAssetDetailsProjectChoices = null;
@@ -8903,12 +8904,12 @@ const projectFormHTML = `
                     // Reset options
                     orgAssetDetailsProjectSelect.innerHTML = '<option value=\"\">Select Project</option><option value=\"na\">N/A</option>';
                     assetDetailsProjectsById = new Map();
-                    assetDetailsProjectsById.set('na', 'N/A');
+                    assetDetailsProjectsById.set('na', { name: 'N/A', project_type_id: null });
 
                     try {
                         const { data, error } = await supabase
                             .from('projects')
-                            .select('project_id, project_name')
+                            .select('project_id, project_name, project_type_id')
                             .eq('organization_id', orgId)
                             .order('project_name', { ascending: true });
 
@@ -8937,7 +8938,8 @@ const projectFormHTML = `
                             ...rows.map(row => {
                                 const idStr = String(row.project_id);
                                 const name = row.project_name || `Project ${idStr}`;
-                                assetDetailsProjectsById.set(idStr, name);
+                                const projectTypeId = row.project_type_id == null ? null : row.project_type_id;
+                                assetDetailsProjectsById.set(idStr, { name, project_type_id: projectTypeId });
                                 return { value: idStr, label: name };
                             })
                         ];
@@ -8976,11 +8978,12 @@ const projectFormHTML = `
                 function getAssetComponentsProjectFields() {
                     // N/A or blank -> nulls
                     if (!assetDetailsSelectedProjectId || !assetDetailsSelectedProjectName) {
-                        return { project_id: null, project: null };
+                        return { project_id: null, project: null, project_type_id: null };
                     }
                     return {
                         project_id: assetDetailsSelectedProjectId,
-                        project: assetDetailsSelectedProjectName
+                        project: assetDetailsSelectedProjectName,
+                        project_type_id: assetDetailsSelectedProjectTypeId
                     };
                 }
 
@@ -9005,6 +9008,7 @@ const projectFormHTML = `
                         assetDetailsSelectedAssetName = null;
                         assetDetailsSelectedProjectId = null;
                         assetDetailsSelectedProjectName = null;
+                        assetDetailsSelectedProjectTypeId = null;
                         await loadOrgAssetsForAssetDetails();
                         await loadOrgProjectsForAssetDetails();
                     });
@@ -9054,10 +9058,13 @@ const projectFormHTML = `
                         if (!val || val === 'na') {
                             assetDetailsSelectedProjectId = null;
                             assetDetailsSelectedProjectName = null;
+                            assetDetailsSelectedProjectTypeId = null;
                             return;
                         }
                         assetDetailsSelectedProjectId = Number(val);
-                        assetDetailsSelectedProjectName = assetDetailsProjectsById.get(val) || null;
+                        const projectInfo = assetDetailsProjectsById.get(val) || null;
+                        assetDetailsSelectedProjectName = projectInfo && projectInfo.name ? projectInfo.name : null;
+                        assetDetailsSelectedProjectTypeId = projectInfo ? projectInfo.project_type_id : null;
                     });
                 }
 
@@ -9129,7 +9136,8 @@ const projectFormHTML = `
                                 asset_id: assetDetailsSelectedAssetId,
                                 asset_name: assetDetailsSelectedAssetName,
                                 project_id: projectFields.project_id,
-                                project: projectFields.project
+                                project: projectFields.project,
+                                project_type_id: projectFields.project_type_id
                             };
 
                             const result = await importAssetGeneralExcelToSupabase({
@@ -9144,8 +9152,20 @@ const projectFormHTML = `
 
                             const compCount = result && result.inserted ? result.inserted.asset_components : 0;
                             const depCount = result && result.inserted ? result.inserted.asset_component_dependencies : 0;
+                            const metadataCount = result && result.inserted ? (result.inserted.lessons_learned_metadata_list || 0) : 0;
+                            const metadataSync = result && result.metadata_sync ? result.metadata_sync : null;
+                            let metadataMessage = `Inserted ${metadataCount} asset component metadata rows.`;
+                            if (metadataSync && metadataSync.skipped) {
+                                if (metadataSync.skip_reason === 'project_not_selected') {
+                                    metadataMessage = 'Skipped asset component metadata rows because project is N/A.';
+                                } else if (metadataSync.skip_reason === 'existing_project_asset_component_metadata') {
+                                    metadataMessage = 'Skipped asset component metadata rows because this project already has asset component metadata.';
+                                } else if (metadataSync.skip_reason === 'no_component_names_found') {
+                                    metadataMessage = 'Skipped asset component metadata rows because no Component Name values were found.';
+                                }
+                            }
                             setOrgAssetDetailsStatus(
-                                `Upload complete. Inserted ${compCount} asset components and ${depCount} dependencies.`,
+                                `Upload complete. Inserted ${compCount} asset components and ${depCount} dependencies. ${metadataMessage}`,
                                 'success'
                             );
                         } catch (err) {

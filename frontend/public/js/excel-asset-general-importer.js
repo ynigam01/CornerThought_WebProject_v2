@@ -233,6 +233,7 @@ function parseDependenciesSheetRows(rows) {
  * @param {string} params.context.asset_name
  * @param {number|null} params.context.project_id
  * @param {string|null} params.context.project
+ * @param {number|string|null} params.context.project_type_id
  * @param {(msg: string) => void} [params.onProgress]
  * @param {number} [params.chunkSize]
  * @returns {Promise<object>} Summary counts
@@ -254,6 +255,7 @@ export async function importAssetGeneralExcelToSupabase({
     const asset_name = context.asset_name;
     const project_id = context.project_id == null ? null : context.project_id;
     const project = context.project == null ? null : context.project;
+    const project_type_id = context.project_type_id == null ? null : context.project_type_id;
 
     if (organization_id == null || created_by == null || asset_id == null || !asset_name) {
         throw new Error('Missing required context: organization_id, created_by, asset_id, asset_name.');
@@ -274,7 +276,83 @@ export async function importAssetGeneralExcelToSupabase({
     const parsedComponents = parseAssetComponentsSheetRows(componentsRows);
     const parsedDeps = parseDependenciesSheetRows(depsRows);
 
-    const componentInserts = parsedComponents.map(r => ({
+    const metadataSync = {
+        inserted: 0,
+        skipped: false,
+        skip_reason: null
+    };
+    const metadataIdByComponentRowIndex = new Map();
+
+    if (project_id == null) {
+        metadataSync.skipped = true;
+        metadataSync.skip_reason = 'project_not_selected';
+    } else {
+        const { data: existingMetadataRows, error: existingMetadataErr } = await supabase
+            .from('lessons_learned_metadata_list')
+            .select('id, metadata')
+            .eq('organization_id', organization_id)
+            .eq('project_id', project_id)
+            .eq('metadata_type', 'asset component');
+
+        if (existingMetadataErr) {
+            throw new Error(`Failed checking existing asset component metadata: ${existingMetadataErr.message || String(existingMetadataErr)}`);
+        }
+
+        if (Array.isArray(existingMetadataRows) && existingMetadataRows.length > 0) {
+            metadataSync.skipped = true;
+            metadataSync.skip_reason = 'existing_project_asset_component_metadata';
+            const existingByName = new Map();
+            existingMetadataRows.forEach(row => {
+                const key = toTrimmedStringOrEmpty(row.metadata);
+                if (!key || existingByName.has(key)) return;
+                existingByName.set(key, row.id);
+            });
+            parsedComponents.forEach((componentRow, rowIndex) => {
+                const key = toTrimmedStringOrEmpty(componentRow.component_name);
+                if (!key) return;
+                const metadataId = existingByName.get(key);
+                if (metadataId != null) {
+                    metadataIdByComponentRowIndex.set(rowIndex, metadataId);
+                }
+            });
+        } else {
+            const metadataRowsWithRowIndex = parsedComponents
+                .map((row, rowIndex) => ({ rowIndex, componentName: toNullIfEmpty(row.component_name) }))
+                .filter(entry => !!entry.componentName);
+            const metadataRows = metadataRowsWithRowIndex.map(entry => ({
+                    metadata_source: 'asset excel sheet',
+                    metadata: entry.componentName,
+                    metadata_type: 'asset component',
+                    created_by,
+                    organization_id,
+                    project_id,
+                    project_type_id
+                }));
+
+            if (metadataRows.length === 0) {
+                metadataSync.skipped = true;
+                metadataSync.skip_reason = 'no_component_names_found';
+            } else {
+                const insertedMetadata = await insertChunked({
+                    supabase,
+                    table: 'lessons_learned_metadata_list',
+                    rows: metadataRows,
+                    chunkSize,
+                    onProgress,
+                    label: 'Saving asset component metadata'
+                });
+                metadataSync.inserted = insertedMetadata.length;
+                metadataRowsWithRowIndex.forEach((entry, idx) => {
+                    const metadataRow = insertedMetadata[idx];
+                    if (metadataRow && metadataRow.id != null) {
+                        metadataIdByComponentRowIndex.set(entry.rowIndex, metadataRow.id);
+                    }
+                });
+            }
+        }
+    }
+
+    const componentInserts = parsedComponents.map((r, idx) => ({
         organization_id,
         asset_id,
         created_by,
@@ -287,7 +365,8 @@ export async function importAssetGeneralExcelToSupabase({
         criticality: r.criticality,
         original: true,
         project: project,
-        project_id: project_id
+        project_id: project_id,
+        lessons_learned_metadata_list_id: metadataIdByComponentRowIndex.get(idx) || null
     }));
 
     const insertedComponents = await insertChunked({
@@ -321,8 +400,10 @@ export async function importAssetGeneralExcelToSupabase({
     return {
         inserted: {
             asset_components: insertedComponents.length,
-            asset_component_dependencies: insertedDeps.length
+            asset_component_dependencies: insertedDeps.length,
+            lessons_learned_metadata_list: metadataSync.inserted
         },
+        metadata_sync: metadataSync,
         sheets: {
             components: componentsSheetName,
             dependencies: depsSheetName
