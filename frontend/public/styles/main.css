@@ -1148,6 +1148,250 @@ body {
     background-color: #e7f6e9; /* light green */
 }
 
+/* === My Projects: expandable organizational lesson structure === */
+.my-projects-lesson-wrap {
+    margin-bottom: 14px;
+}
+
+.my-projects-lesson-card--clickable {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.my-projects-lesson-card--clickable:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.my-projects-lesson-card--clickable:focus {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.my-projects-lesson-full-view {
+    width: 100%;
+    max-width: 100%;
+}
+
+.my-projects-lesson-full-view-actions {
+    justify-content: flex-start;
+    margin-bottom: 12px;
+}
+
+.my-projects-lesson-full-view-mount {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Full-page lesson: use entire main column (header + sidebar untouched) */
+#searchView.search-view--lesson-fullscreen > *:not(#myProjectsLessonFullView) {
+    display: none !important;
+}
+
+#searchView.search-view--lesson-fullscreen #myProjectsLessonFullView {
+    display: block !important;
+}
+
+.org-lesson-full-page-card {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.org-lesson-detail-shell {
+    background-color: #f8fafc;
+    border-radius: 18px;
+    padding: 16px 18px 20px;
+    border: 1px solid #e2e8f0;
+}
+
+.org-lesson-detail-loading {
+    padding: 16px;
+    color: #475569;
+    font-size: 14px;
+}
+
+.org-lesson-notes-section {
+    background-color: #ffffff;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-top: 16px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+    border: 1px solid #e5e7eb;
+}
+
+.org-lesson-notes-section h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.org-lesson-notes-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.org-lesson-notes-list li {
+    margin: 0;
+    padding: 10px 12px;
+    background-color: #f9fafb;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #374151;
+    white-space: pre-wrap;
+}
+
+.org-lesson-unassigned-section {
+    background: linear-gradient(180deg, #e9ecef 0%, #dee2e6 100%);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-top: 16px;
+    border: 1px dashed #95a1ad;
+}
+
+.org-lesson-unassigned-section h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #343a40;
+}
+
+.org-lesson-unassigned-hint {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #495057;
+    line-height: 1.4;
+}
+
+.org-lesson-unassigned-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.org-lesson-unassign-receiver {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px dashed #868e96;
+    background-color: rgba(255, 255, 255, 0.35);
+}
+
+.org-lesson-draggable-card {
+    flex: 1 1 220px;
+    max-width: 100%;
+    background-color: #ced4da;
+    border: 1px solid #adb5bd;
+    border-radius: 11px;
+    padding: 10px 12px;
+    cursor: grab;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #212529;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.org-lesson-draggable-card:active {
+    cursor: grabbing;
+}
+
+.org-lesson-draggable-card--nested {
+    flex: none;
+    width: 100%;
+    background-color: #e7f5ff;
+    border-color: #74c0fc;
+}
+
+.org-lesson-draggable-card--nested.org-lesson-draggable-card--fpc {
+    background-color: #ebfbee;
+    border-color: #8ce99a;
+}
+
+.org-lesson-kind-badge {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #495057;
+    margin-bottom: 6px;
+}
+
+.org-lesson-assigned-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+}
+
+.org-lesson-drop-hint {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 8px;
+    font-style: italic;
+}
+
+.org-lesson-item-body.is-org-lesson-drag-over,
+.org-lesson-unassign-receiver.is-org-lesson-drag-over {
+    outline: 2px dashed #0d6efd;
+    outline-offset: 2px;
+    background-color: rgba(13, 110, 253, 0.06);
+}
+
+.org-lesson-footer {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+.org-lesson-footer h4 {
+    margin: 12px 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+}
+
+.org-lesson-footer h4:first-child {
+    margin-top: 0;
+}
+
+.org-lesson-footer-row {
+    margin-top: 8px;
+}
+
+.org-lesson-footer-label {
+    font-weight: 700;
+    margin-right: 6px;
+}
+
+.org-lesson-attachment-link {
+    display: inline-block;
+    margin-right: 16px;
+    margin-top: 4px;
+    color: #0b5ed7;
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 14px;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+}
+
+.org-lesson-attachment-link:hover {
+    color: #084298;
+}
+
 .metadata-row-clickable {
     cursor: pointer;
 }

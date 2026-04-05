@@ -6,6 +6,7 @@ import { updateMsProjectXmlToSupabase } from './ms-project-xml-update.js';
 import { importProjectTeamListExcelToSupabase, updateProjectTeamListExcelToSupabase } from './excel-project-team-importer.js';
 import { importProjectMiscListExcelToSupabase, updateProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
 import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
+import { createMyProjectsLessonWrap, mountLessonFullPage } from './my-projects-lesson-detail.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -5238,6 +5239,12 @@ const projectFormHTML = `
                     <div id="myProjectsLessonsStatus" class="upload-message" aria-live="polite"></div>
                     <div id="myProjectsLessonsResults" class="my-projects-lessons-results" style="margin-top: 12px;"></div>
                 </div>
+                <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
+                    <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
+                        <button type="button" id="myProjectsLessonFullViewBack" class="lesson-detail-back-button">Go back</button>
+                    </div>
+                    <div id="myProjectsLessonFullViewMount" class="my-projects-lesson-full-view-mount"></div>
+                </div>
             ` : ''}
             <div id="searchProjectsMain">
                 <div id="searchProjectsPanel" class="project-types-panel">
@@ -5402,6 +5409,15 @@ const projectFormHTML = `
                 <div id="searchProjectsProjectDetailsBody"></div>
             </div>
         `;
+
+        if (workspaceEnabled) {
+            const lessonFullBack = document.getElementById('myProjectsLessonFullViewBack');
+            if (lessonFullBack) {
+                lessonFullBack.addEventListener('click', () => {
+                    hideMyProjectsLessonFullView();
+                });
+            }
+        }
 
         const input = document.getElementById('searchProjectsInput');
         const MIN_TERM_LENGTH = 2;
@@ -6011,7 +6027,38 @@ const projectFormHTML = `
             .replace(/_/g, ' ');
     }
 
-    function renderMyProjectsLessonsGroupedByCategory(groups) {
+    function hideMyProjectsLessonFullView() {
+        const searchView = document.getElementById('searchView');
+        const mount = document.getElementById('myProjectsLessonFullViewMount');
+        if (searchView) {
+            searchView.classList.remove('search-view--lesson-fullscreen');
+        }
+        if (mount) {
+            mount.innerHTML = '';
+        }
+    }
+
+    function showMyProjectsLessonFullView(row, project) {
+        const searchView = document.getElementById('searchView');
+        const mount = document.getElementById('myProjectsLessonFullViewMount');
+        if (!searchView || !mount) return;
+        searchView.classList.add('search-view--lesson-fullscreen');
+        const mainEl = document.querySelector('.main-content');
+        if (mainEl) {
+            mainEl.scrollTo(0, 0);
+        }
+        void mountLessonFullPage(mount, row, project, {
+            supabase,
+            organizationId,
+            projectId: project && project.project_id,
+        }).then(() => {
+            document.getElementById('myProjectsLessonFullViewBack')?.focus();
+        }).catch(() => {
+            document.getElementById('myProjectsLessonFullViewBack')?.focus();
+        });
+    }
+
+    function renderMyProjectsLessonsGroupedByCategory(groups, project) {
         const resultsEl = document.getElementById('myProjectsLessonsResults');
         if (!resultsEl) return;
         resultsEl.innerHTML = '';
@@ -6030,33 +6077,18 @@ const projectFormHTML = `
             section.appendChild(heading);
 
             group.lessons.forEach((row) => {
-                const categoryRaw = row && row.category ? String(row.category).trim() : '';
-                const categoryLower = categoryRaw.toLowerCase();
-                const categoryDisplay = categoryRaw
-                    ? categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1)
-                    : 'Issue';
-                const title = row && row.title ? String(row.title).trim() : '(Untitled)';
-
-                const card = document.createElement('div');
-                card.className = 'my-projects-lesson-card';
-                if (categoryLower === 'success') {
-                    card.classList.add('my-projects-lesson-card--success');
-                } else {
-                    card.classList.add('my-projects-lesson-card--issue');
-                }
-
-                const label = document.createElement('strong');
-                label.textContent = `${categoryDisplay}: `;
-                card.appendChild(label);
-                card.appendChild(document.createTextNode(title));
-                section.appendChild(card);
+                section.appendChild(
+                    createMyProjectsLessonWrap(row, project, {
+                        onOpenLesson: () => showMyProjectsLessonFullView(row, project),
+                    })
+                );
             });
 
             resultsEl.appendChild(section);
         });
     }
 
-    function renderMyProjectsLessonsCards(rows) {
+    function renderMyProjectsLessonsCards(rows, project) {
         const resultsEl = document.getElementById('myProjectsLessonsResults');
         if (!resultsEl) return;
         resultsEl.innerHTML = '';
@@ -6064,27 +6096,11 @@ const projectFormHTML = `
         if (!Array.isArray(rows) || rows.length === 0) return;
 
         rows.forEach((row) => {
-            const categoryRaw = row && row.category ? String(row.category).trim() : '';
-            const categoryLower = categoryRaw.toLowerCase();
-            const categoryDisplay = categoryRaw
-                ? categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1)
-                : 'Issue';
-            const title = row && row.title ? String(row.title).trim() : '(Untitled)';
-
-            const card = document.createElement('div');
-            card.className = 'my-projects-lesson-card';
-            if (categoryLower === 'success') {
-                card.classList.add('my-projects-lesson-card--success');
-            } else {
-                card.classList.add('my-projects-lesson-card--issue');
-            }
-
-            const label = document.createElement('strong');
-            label.textContent = `${categoryDisplay}: `;
-            card.appendChild(label);
-            card.appendChild(document.createTextNode(title));
-
-            resultsEl.appendChild(card);
+            resultsEl.appendChild(
+                createMyProjectsLessonWrap(row, project, {
+                    onOpenLesson: () => showMyProjectsLessonFullView(row, project),
+                })
+            );
         });
     }
 
@@ -6224,7 +6240,7 @@ const projectFormHTML = `
                     return;
                 }
 
-                renderMyProjectsLessonsGroupedByCategory(orderedGroups);
+                renderMyProjectsLessonsGroupedByCategory(orderedGroups, project);
                 const displayedCount = orderedGroups.reduce((sum, group) => sum + group.lessons.length, 0);
                 setMyProjectsLessonsStatus(
                     `Showing ${displayedCount} lesson${displayedCount === 1 ? '' : 's'} across ${orderedGroups.length} categor${orderedGroups.length === 1 ? 'y' : 'ies'}.`
@@ -6298,7 +6314,7 @@ const projectFormHTML = `
                 return;
             }
 
-            renderMyProjectsLessonsCards(lessons);
+            renderMyProjectsLessonsCards(lessons, project);
             setMyProjectsLessonsStatus(
                 `Showing ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} for this category.`
             );
