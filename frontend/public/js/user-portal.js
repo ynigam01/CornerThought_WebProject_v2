@@ -5141,6 +5141,12 @@ const projectFormHTML = `
     function showHomeView() {
         // Remove org view if present, show home, hide search
         exitOrganizationSettings();
+        // #region agent log
+        (function(){
+            const sv=document.getElementById('searchView');
+            fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'B',location:'user-portal.js:showHomeView',message:'navigating away from search',data:{lessonFullscreen:!!(sv&&sv.classList.contains('search-view--lesson-fullscreen'))},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
+        })();
+        // #endregion
         show('#homeView');
         hide('#searchView');
         hide('#createView');
@@ -5191,6 +5197,7 @@ const projectFormHTML = `
     function renderSearchProjectsModule(options = {}) {
         const searchView = document.getElementById('searchView');
         if (!searchView) return;
+        hideMyProjectsLessonFullView();
         const {
             title = 'Search Projects',
             listLoader = loadOrganizationProjectsForSearch,
@@ -5198,6 +5205,10 @@ const projectFormHTML = `
             enableProjectWorkspace = false
         } = options;
         const workspaceEnabled = Boolean(enableProjectWorkspace);
+
+        // #region agent log
+        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'A',location:'user-portal.js:renderSearchProjectsModule',message:'before innerHTML replace',data:{lessonFullscreen:searchView.classList.contains('search-view--lesson-fullscreen'),workspaceEnabled},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
+        // #endregion
 
         searchProjectsListEmptyMessage = emptyMessage;
         searchProjectsWorkspaceEnabled = workspaceEnabled;
@@ -5409,6 +5420,10 @@ const projectFormHTML = `
                 <div id="searchProjectsProjectDetailsBody"></div>
             </div>
         `;
+
+        // #region agent log
+        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'A',location:'user-portal.js:renderSearchProjectsModule',message:'after innerHTML replace',data:{lessonFullscreen:searchView.classList.contains('search-view--lesson-fullscreen'),mountExists:!!document.getElementById('myProjectsLessonFullViewMount'),mountChildCount:(document.getElementById('myProjectsLessonFullViewMount')||{}).childElementCount??0},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
+        // #endregion
 
         if (workspaceEnabled) {
             const lessonFullBack = document.getElementById('myProjectsLessonFullViewBack');
@@ -6030,6 +6045,9 @@ const projectFormHTML = `
     function hideMyProjectsLessonFullView() {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
+        // #region agent log
+        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'B',location:'user-portal.js:hideMyProjectsLessonFullView',message:'exit fullscreen lesson',data:{hadFullscreen:!!(searchView&&searchView.classList.contains('search-view--lesson-fullscreen'))},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
+        // #endregion
         if (searchView) {
             searchView.classList.remove('search-view--lesson-fullscreen');
         }
@@ -6043,6 +6061,9 @@ const projectFormHTML = `
         const mount = document.getElementById('myProjectsLessonFullViewMount');
         if (!searchView || !mount) return;
         searchView.classList.add('search-view--lesson-fullscreen');
+        // #region agent log
+        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'A',location:'user-portal.js:showMyProjectsLessonFullView',message:'enter fullscreen lesson',data:{lessonFullscreen:searchView.classList.contains('search-view--lesson-fullscreen')},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
+        // #endregion
         const mainEl = document.querySelector('.main-content');
         if (mainEl) {
             mainEl.scrollTo(0, 0);
@@ -7764,6 +7785,8 @@ const projectFormHTML = `
     function renderGeneralSearchModule() {
         const searchView = document.getElementById('searchView');
         if (!searchView) return;
+
+        hideMyProjectsLessonFullView();
 
         searchView.innerHTML = `
             <h1>General Search</h1>
