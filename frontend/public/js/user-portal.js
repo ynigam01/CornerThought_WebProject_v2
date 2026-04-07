@@ -4526,7 +4526,7 @@ const projectFormHTML = `
         } finally {
             if (saveLessonsButton) {
                 saveLessonsButton.disabled = false;
-                saveLessonsButton.textContent = 'Save';
+                saveLessonsButton.textContent = 'Send for Review';
             }
         }
     }
@@ -5238,7 +5238,8 @@ const projectFormHTML = `
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="myProjectsStatusSelect">Status:</label>
                             <select id="myProjectsStatusSelect" aria-label="Status">
-                                <option value="for_review">For Review</option>
+                                <option value="draft">Draft</option>
+                                <option value="for_review" selected>For Review</option>
                                 <option value="under_review">Under Review</option>
                                 <option value="workshop">Workshop</option>
                                 <option value="completed">Completed</option>
