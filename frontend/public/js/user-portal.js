@@ -149,6 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataMetadataLoading = false;
     let addDataMetadataEntry = null;
     let saveLessonsButton = null;
+    let saveDraftButton = null;
     let saveLessonsStatus = null;
     const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
     const MANAGE_USER_ALLOWED_TYPES = [
@@ -3576,6 +3577,7 @@ const projectFormHTML = `
     addDataProjectNameEl = document.getElementById("addDataProjectName");
     addMetadataButton = document.getElementById("addMetadataButton");
     saveLessonsButton = document.getElementById("saveLessonsButton");
+    saveDraftButton = document.getElementById("saveDraftButton");
     addDataMetadataSelect = document.getElementById("addDataMetadataSelect");
     addDataMetadataStatus = document.getElementById("addDataMetadataStatus");
     addDataMetadataApplyButton = document.getElementById("applyAddDataMetadata");
@@ -4329,7 +4331,10 @@ const projectFormHTML = `
             .filter(Boolean);
     }
 
-    async function saveLessonsLearned() {
+    async function saveLessonsLearned(options = {}) {
+        const reviewForDb = options.review === 'draft' ? 'draft' : 'for review';
+        const isDraftSave = reviewForDb === 'draft';
+
         const displayArea = getActiveDisplayArea();
         if (!displayArea) {
             setSaveLessonsStatus('No entries to save.', true);
@@ -4355,10 +4360,14 @@ const projectFormHTML = `
         const orgId = ctUser.organizationid;
         const userId = ctUser.id;
 
-        setSaveLessonsStatus('Saving lessons learned...');
+        setSaveLessonsStatus(isDraftSave ? 'Saving draft...' : 'Saving lessons learned...');
         if (saveLessonsButton) {
             saveLessonsButton.disabled = true;
             saveLessonsButton.textContent = 'Saving...';
+        }
+        if (saveDraftButton) {
+            saveDraftButton.disabled = true;
+            saveDraftButton.textContent = 'Saving...';
         }
 
         try {
@@ -4374,7 +4383,7 @@ const projectFormHTML = `
                     .insert({
                         title,
                         category,
-                        review: 'for review',
+                        review: reviewForDb,
                         share: '',
                         created_by: userId,
                         organization_id: orgId,
@@ -4518,7 +4527,11 @@ const projectFormHTML = `
                 }
             }
 
-            setSaveLessonsStatus(`Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`);
+            setSaveLessonsStatus(
+                isDraftSave
+                    ? `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} as draft.`
+                    : `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`
+            );
             resetMainArea();
         } catch (err) {
             console.error('Error saving lessons learned:', err);
@@ -4527,6 +4540,10 @@ const projectFormHTML = `
             if (saveLessonsButton) {
                 saveLessonsButton.disabled = false;
                 saveLessonsButton.textContent = 'Send for Review';
+            }
+            if (saveDraftButton) {
+                saveDraftButton.disabled = false;
+                saveDraftButton.textContent = 'Save Draft';
             }
         }
     }
@@ -4610,7 +4627,13 @@ const projectFormHTML = `
 
     if (saveLessonsButton) {
         saveLessonsButton.addEventListener('click', () => {
-            saveLessonsLearned();
+            saveLessonsLearned({ review: 'for review' });
+        });
+    }
+
+    if (saveDraftButton) {
+        saveDraftButton.addEventListener('click', () => {
+            saveLessonsLearned({ review: 'draft' });
         });
     }
 
