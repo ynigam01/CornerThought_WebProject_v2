@@ -6069,9 +6069,6 @@ const projectFormHTML = `
     function hideMyProjectsLessonFullView() {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
-        // #region agent log
-        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'B',location:'user-portal.js:hideMyProjectsLessonFullView',message:'exit fullscreen lesson',data:{hadFullscreen:!!(searchView&&searchView.classList.contains('search-view--lesson-fullscreen'))},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
-        // #endregion
         if (searchView) {
             searchView.classList.remove('search-view--lesson-fullscreen');
         }
@@ -6085,17 +6082,32 @@ const projectFormHTML = `
         const mount = document.getElementById('myProjectsLessonFullViewMount');
         if (!searchView || !mount) return;
         searchView.classList.add('search-view--lesson-fullscreen');
-        // #region agent log
-        fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'A',location:'user-portal.js:showMyProjectsLessonFullView',message:'enter fullscreen lesson',data:{lessonFullscreen:searchView.classList.contains('search-view--lesson-fullscreen')},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
-        // #endregion
         const mainEl = document.querySelector('.main-content');
         if (mainEl) {
             mainEl.scrollTo(0, 0);
         }
+        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+        const selectedMetadataId = categoriesSelect ? categoriesSelect.value || '' : '';
+
         void mountLessonFullPage(mount, row, project, {
             supabase,
             organizationId,
             projectId: project && project.project_id,
+            userId: ctUser && ctUser.id != null ? ctUser.id : null,
+            projectTypeId:
+                project && project.project_type_id != null ? project.project_type_id : null,
+            onLessonReviewSaved: () => {
+                if (
+                    typeof searchProjectsWorkspaceEnabled !== 'undefined' &&
+                    searchProjectsWorkspaceEnabled &&
+                    searchProjectsSelectedProject
+                ) {
+                    loadMyProjectsLessonsForSelectedCategory(
+                        searchProjectsSelectedProject,
+                        selectedMetadataId
+                    );
+                }
+            },
         }).then(() => {
             document.getElementById('myProjectsLessonFullViewBack')?.focus();
         }).catch(() => {

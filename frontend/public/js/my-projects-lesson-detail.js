@@ -5,7 +5,7 @@
 
 let dragSourceEl = null;
 
-function pgByteaToUint8Array(value) {
+export function pgByteaToUint8Array(value) {
     if (value == null) return new Uint8Array(0);
     if (value instanceof ArrayBuffer) return new Uint8Array(value);
     if (ArrayBuffer.isView(value)) {
@@ -25,7 +25,7 @@ function pgByteaToUint8Array(value) {
     return new Uint8Array(0);
 }
 
-function formatMetadataRows(rows) {
+export function formatMetadataRows(rows) {
     const safe = Array.isArray(rows) ? rows : [];
     return safe
         .map((row) => {
@@ -88,7 +88,11 @@ export async function fetchLessonStructure(supabase, { organizationId, projectId
                 .select('id, fpc, lessons_learned_cause_id, lessons_learned_impact_id')
         ),
         filterLesson(supabase.from('lessons_learned_notes').select('id, notes')),
-        filterLesson(supabase.from('lessons_learned_metadata').select('metadata, metadata_type')),
+        filterLesson(
+            supabase
+                .from('lessons_learned_metadata')
+                .select('id, metadata, metadata_type, lessons_learned_metadata_list_id')
+        ),
         filterLesson(supabase.from('lessons_learned_attachments').select('id, file_name, content_type')),
     ]);
 
@@ -480,15 +484,30 @@ export function buildLessonPrimaryTitle(row) {
     return titleDiv;
 }
 
+export function isLessonDraftForEditing(row) {
+    return (
+        String(row && row.review ? row.review : '')
+            .trim()
+            .toLowerCase()
+            .replace(/_/g, ' ') === 'draft'
+    );
+}
+
 /**
  * Renders the full lesson into mountEl (caller provides back navigation outside this tree).
  * @param {HTMLElement} mountEl
- * @param {{ id?: unknown, category?: unknown, title?: unknown }} row
- * @param {{ project_id?: unknown }} project
- * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null }} ctx
+ * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown }} row
+ * @param {{ project_id?: unknown, project_type_id?: unknown }} project
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null, projectTypeId?: string|number|null, onLessonReviewSaved?: () => void }} ctx
  */
 export async function mountLessonFullPage(mountEl, row, project, ctx) {
     const { supabase, organizationId, projectId } = ctx;
+
+    if (isLessonDraftForEditing(row)) {
+        const { mountDraftLessonEditor } = await import('./my-projects-lesson-draft-editor.js');
+        return mountDraftLessonEditor(mountEl, row, project, ctx);
+    }
+
     mountEl.innerHTML = '';
 
     const card = document.createElement('article');
