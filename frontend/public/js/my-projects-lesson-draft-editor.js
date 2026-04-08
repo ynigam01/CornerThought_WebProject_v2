@@ -63,7 +63,7 @@ function openLessonDraftTextModal(opts) {
 
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
-        overlay.className = 'modal show lesson-draft-dialog';
+        overlay.className = 'modal show modal--center lesson-draft-dialog';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
 
@@ -1192,7 +1192,7 @@ async function openDraftMetadataModal({
     );
 
     const overlay = document.createElement('div');
-    overlay.className = 'modal show lesson-draft-dialog lesson-draft-metadata-modal';
+    overlay.className = 'modal show modal--center lesson-draft-dialog lesson-draft-metadata-modal';
     const content = document.createElement('div');
     content.className = 'modal-content add-data-metadata-modal-content lesson-draft-metadata-content';
 

@@ -6066,6 +6066,17 @@ const projectFormHTML = `
             .replace(/_/g, ' ');
     }
 
+    /** Draft lessons in My Projects are only visible to their creator (created_by). */
+    function myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, currentUserId) {
+        if (!selectedStatus) return true;
+        if (normalizeMyProjectsReviewValue(row && row.review) !== selectedStatus) return false;
+        if (selectedStatus === 'draft') {
+            if (currentUserId == null) return false;
+            return String(row && row.created_by) === String(currentUserId);
+        }
+        return true;
+    }
+
     function hideMyProjectsLessonFullView() {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
@@ -6228,13 +6239,20 @@ const projectFormHTML = `
                     return;
                 }
 
-                const { data: lessonRows, error: lessonErr } = await supabase
+                const statusSelect = document.getElementById('myProjectsStatusSelect');
+                const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
+                const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
+
+                let lessonQuery = supabase
                     .from('lessons_learned')
-                    .select('id, title, category, review')
+                    .select('id, title, category, review, created_by')
                     .eq('organization_id', organizationId)
                     .eq('project_id', projectId)
-                    .in('id', lessonIds)
-                    .order('id', { ascending: false });
+                    .in('id', lessonIds);
+                if (selectedStatus === 'draft' && myUserId != null) {
+                    lessonQuery = lessonQuery.eq('created_by', myUserId);
+                }
+                const { data: lessonRows, error: lessonErr } = await lessonQuery.order('id', { ascending: false });
 
                 if (requestToken !== myProjectsLessonsResultsRequestToken) return;
 
@@ -6244,12 +6262,9 @@ const projectFormHTML = `
                     return;
                 }
 
-                const statusSelect = document.getElementById('myProjectsStatusSelect');
-                const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
-                const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
-                    if (!selectedStatus) return true;
-                    return normalizeMyProjectsReviewValue(row && row.review) === selectedStatus;
-                });
+                const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) =>
+                    myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)
+                );
 
                 if (lessons.length === 0) {
                     setMyProjectsLessonsStatus('No issues or successes found for the selected status.');
@@ -6344,13 +6359,20 @@ const projectFormHTML = `
                 return;
             }
 
-            const { data: lessonRows, error: lessonErr } = await supabase
+            const statusSelect = document.getElementById('myProjectsStatusSelect');
+            const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
+            const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
+
+            let lessonQuerySingle = supabase
                 .from('lessons_learned')
-                .select('id, title, category, review')
+                .select('id, title, category, review, created_by')
                 .eq('organization_id', organizationId)
                 .eq('project_id', projectId)
-                .in('id', lessonIds)
-                .order('id', { ascending: false });
+                .in('id', lessonIds);
+            if (selectedStatus === 'draft' && myUserId != null) {
+                lessonQuerySingle = lessonQuerySingle.eq('created_by', myUserId);
+            }
+            const { data: lessonRows, error: lessonErr } = await lessonQuerySingle.order('id', { ascending: false });
 
             if (requestToken !== myProjectsLessonsResultsRequestToken) return;
 
@@ -6360,12 +6382,9 @@ const projectFormHTML = `
                 return;
             }
 
-            const statusSelect = document.getElementById('myProjectsStatusSelect');
-            const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
-            const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
-                if (!selectedStatus) return true;
-                return normalizeMyProjectsReviewValue(row && row.review) === selectedStatus;
-            });
+            const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) =>
+                myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)
+            );
             if (lessons.length === 0) {
                 setMyProjectsLessonsStatus('No issues or successes found for this category and status.');
                 return;

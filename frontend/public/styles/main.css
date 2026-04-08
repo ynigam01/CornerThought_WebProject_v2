@@ -1548,9 +1548,29 @@ body {
     background-color: #b91c1c !important;
 }
 
-.modal.lesson-draft-dialog .lesson-draft-dialog-content,
-.modal.lesson-draft-metadata-modal .lesson-draft-metadata-content {
-    max-width: 520px;
+/* Draft add/edit dialogs: viewport-centered overlay + inner padding */
+.modal.lesson-draft-dialog.show.modal--center,
+.modal.lesson-draft-metadata-modal.show.modal--center {
+    padding: 16px;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.lesson-draft-dialog.show.modal--center .lesson-draft-dialog-content,
+.modal.lesson-draft-metadata-modal.show.modal--center .lesson-draft-metadata-content {
+    width: min(520px, calc(100vw - 32px));
+    max-width: none;
+    margin-left: 0;
+    margin-top: 0;
+    padding: 22px 26px 24px;
+    box-sizing: border-box;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+}
+
+.modal.lesson-draft-metadata-modal.show.modal--center .lesson-draft-metadata-content {
+    width: min(560px, calc(100vw - 32px));
 }
 
 .lesson-draft-dialog .lesson-draft-dialog-header {
@@ -1558,7 +1578,8 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 4px;
 }
 
 .lesson-draft-dialog .lesson-draft-dialog-header h3 {
@@ -1575,32 +1596,57 @@ body {
     color: #64748b;
 }
 
+.lesson-draft-dialog .lesson-draft-dialog-body {
+    padding-top: 2px;
+}
+
 .lesson-draft-dialog .lesson-draft-dialog-body label {
     display: block;
     font-size: 13px;
     font-weight: 600;
     color: #475569;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 
 .lesson-draft-dialog .lesson-draft-textarea {
     width: 100%;
     box-sizing: border-box;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     font: inherit;
     font-size: 14px;
     resize: vertical;
-    min-height: 100px;
+    min-height: 120px;
 }
 
 .lesson-draft-dialog .lesson-draft-dialog-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 10px;
-    margin-top: 16px;
+    gap: 12px;
+    margin-top: 22px;
+    padding-top: 4px;
+}
+
+.lesson-draft-metadata-modal.show .subtitle {
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+
+.lesson-draft-metadata-modal.show .input-group {
+    margin-top: 4px;
+}
+
+.lesson-draft-metadata-modal.show .modal-actions {
+    margin-top: 20px;
+    padding-top: 6px;
+    gap: 12px;
+}
+
+.lesson-draft-metadata-modal.show .upload-message {
+    margin-top: 12px;
+    margin-bottom: 0;
 }
 
 .modal-header-row {
