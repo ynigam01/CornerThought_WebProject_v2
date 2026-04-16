@@ -656,7 +656,7 @@ export async function mountLessonFullPage(mountEl, row, project, ctx) {
  * @param {{ onOpenLesson?: (args: { row: typeof row, project: typeof project }) => void }} deps
  */
 export function createMyProjectsLessonWrap(row, project, deps) {
-    const { onOpenLesson } = deps;
+    const { onOpenLesson, useYellowHighlight } = deps;
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-lesson-wrap';
 
@@ -669,7 +669,9 @@ export function createMyProjectsLessonWrap(row, project, deps) {
 
     const card = document.createElement('div');
     card.className = 'my-projects-lesson-card my-projects-lesson-card--clickable';
-    if (categoryLower === 'success') {
+    if (useYellowHighlight) {
+        card.classList.add('my-projects-lesson-card--for-review-creator');
+    } else if (categoryLower === 'success') {
         card.classList.add('my-projects-lesson-card--success');
     } else {
         card.classList.add('my-projects-lesson-card--issue');

@@ -1148,6 +1148,11 @@ body {
     background-color: #e7f6e9; /* light green */
 }
 
+.my-projects-lesson-card--for-review-creator {
+    background-color: #fff8e6; /* light amber */
+    border-color: #f0e0b2;
+}
+
 /* === My Projects: expandable organizational lesson structure === */
 .my-projects-lesson-wrap {
     margin-bottom: 14px;
