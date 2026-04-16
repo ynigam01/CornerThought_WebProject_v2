@@ -135,3 +135,6 @@
 {"sessionId":"a193c2","hypothesisId":"B","location":"user-portal.js:showHomeView","message":"navigating away from search","data":{"lessonFullscreen":false},"timestamp":1775668872171,"runId":"pre-fix"}
 {"sessionId":"a193c2","hypothesisId":"A","location":"user-portal.js:renderSearchProjectsModule","message":"before innerHTML replace","data":{"lessonFullscreen":false,"workspaceEnabled":true},"timestamp":1775668873371,"runId":"pre-fix"}
 {"sessionId":"a193c2","hypothesisId":"A","location":"user-portal.js:renderSearchProjectsModule","message":"after innerHTML replace","data":{"lessonFullscreen":false,"mountExists":true,"mountChildCount":0},"timestamp":1775668873372,"runId":"pre-fix"}
+{"sessionId":"a193c2","hypothesisId":"B","location":"user-portal.js:showHomeView","message":"navigating away from search","data":{"lessonFullscreen":false},"timestamp":1775682712532,"runId":"pre-fix"}
+{"sessionId":"a193c2","hypothesisId":"A","location":"user-portal.js:renderSearchProjectsModule","message":"before innerHTML replace","data":{"lessonFullscreen":false,"workspaceEnabled":true},"timestamp":1775682716258,"runId":"pre-fix"}
+{"sessionId":"a193c2","hypothesisId":"A","location":"user-portal.js:renderSearchProjectsModule","message":"after innerHTML replace","data":{"lessonFullscreen":false,"mountExists":true,"mountChildCount":0},"timestamp":1775682716259,"runId":"pre-fix"}

@@ -5235,12 +5235,16 @@ const projectFormHTML = `
 
         searchProjectsListEmptyMessage = emptyMessage;
         searchProjectsWorkspaceEnabled = workspaceEnabled;
+        searchProjectsListPageTitle = title;
         searchProjectsSelectedProject = null;
 
         // Re-render from scratch each time we enter this route.
         searchView.innerHTML = `
             <h1 id="searchProjectsPageTitle">${title}</h1>
             ${workspaceEnabled ? `
+                <div id="myProjectsWorkspaceTopNav" style="display: none; margin: 0 0 14px;">
+                    <button type="button" id="myProjectsWorkspaceBack" class="secondary-button">Go Back</button>
+                </div>
                 <div id="myProjectsWorkspacePanel" class="project-types-panel my-projects-submodule-panel" style="display: none;">
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="myProjectsLessonsCategoriesSelect">Lessons Learned Categories</label>
@@ -5456,6 +5460,12 @@ const projectFormHTML = `
                     hideMyProjectsLessonFullView();
                 });
             }
+            const workspaceBack = document.getElementById('myProjectsWorkspaceBack');
+            if (workspaceBack) {
+                workspaceBack.addEventListener('click', () => {
+                    hideMyProjectsProjectWorkspace();
+                });
+            }
         }
 
         const input = document.getElementById('searchProjectsInput');
@@ -5647,6 +5657,10 @@ const projectFormHTML = `
     let searchProjectsCacheLoading = false;
     let searchProjectsSelectedProject = null;
     let searchProjectsWorkspaceEnabled = false;
+    let searchProjectsListPageTitle = 'Search Projects';
+    /** Last loaded assignment metadata list ids for My Projects workspace (non-PM); invalidated per list load. */
+    let myProjectsWorkspaceAssignedMetadataListIds = null;
+    let myProjectsWorkspaceAssignedForProjectId = null;
     let myProjectsLessonsCategoriesRequestToken = 0;
     let myProjectsLessonsResultsRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
@@ -5841,7 +5855,24 @@ const projectFormHTML = `
         });
     }
 
+    function hideMyProjectsProjectWorkspace() {
+        hideMyProjectsLessonFullView();
+        const topNav = document.getElementById('myProjectsWorkspaceTopNav');
+        const panel = document.getElementById('myProjectsWorkspacePanel');
+        const main = document.getElementById('searchProjectsMain');
+        const pageTitleEl = document.getElementById('searchProjectsPageTitle');
+        if (topNav) topNav.style.display = 'none';
+        if (panel) panel.style.display = 'none';
+        setMyProjectsLessonsResultsPanelVisible(false);
+        if (main) main.style.display = '';
+        if (pageTitleEl) {
+            pageTitleEl.textContent = searchProjectsListPageTitle || 'My Projects';
+        }
+        updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
+    }
+
     async function showMyProjectsWorkspace(project) {
+        const topNav = document.getElementById('myProjectsWorkspaceTopNav');
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
         const main = document.getElementById('searchProjectsMain');
@@ -5857,6 +5888,7 @@ const projectFormHTML = `
         }
 
         if (main) main.style.display = 'none';
+        if (topNav) topNav.style.display = 'block';
         panel.style.display = 'block';
         setMyProjectsLessonsResultsPanelVisible(false);
         updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
@@ -6077,6 +6109,78 @@ const projectFormHTML = `
         return true;
     }
 
+    function myProjectsViewerIsProjectManager() {
+        const t = ctUser && ctUser.usertype ? String(ctUser.usertype).trim().toLowerCase() : '';
+        return t === 'project manager';
+    }
+
+    /**
+     * @param {string|number} projectId
+     * @param {string|number|null|undefined} userId
+     * @returns {Promise<Set<string>>}
+     */
+    async function fetchMyProjectsUserAssignedMetadataListIds(projectId, userId) {
+        const set = new Set();
+        if (organizationId == null || projectId == null || userId == null) return set;
+        try {
+            const { data, error } = await supabase
+                .from('project_team_member_assignments')
+                .select('lessons_learned_metadata_list_id')
+                .eq('organization_id', organizationId)
+                .eq('project_id', projectId)
+                .eq('user_id', userId)
+                .limit(5000);
+            if (error) {
+                console.error('Error loading project team metadata assignments for My Projects:', error);
+                return set;
+            }
+            (Array.isArray(data) ? data : []).forEach((r) => {
+                const id = r && r.lessons_learned_metadata_list_id;
+                if (id != null) set.add(String(id));
+            });
+        } catch (err) {
+            console.error('Unexpected error loading metadata assignments for My Projects:', err);
+        }
+        return set;
+    }
+
+    /**
+     * @param {Array<{ lessons_learned_id?: unknown, lessons_learned_metadata_list_id?: unknown }>} links
+     * @returns {Map<string, string[]>}
+     */
+    function buildLessonIdToMetadataListIdsFromLinks(links) {
+        const byLesson = new Map();
+        (Array.isArray(links) ? links : []).forEach((link) => {
+            const lid = link && link.lessons_learned_id != null ? String(link.lessons_learned_id) : '';
+            const mid =
+                link && link.lessons_learned_metadata_list_id != null
+                    ? String(link.lessons_learned_metadata_list_id)
+                    : '';
+            if (!lid || !mid) return;
+            if (!byLesson.has(lid)) byLesson.set(lid, new Set());
+            byLesson.get(lid).add(mid);
+        });
+        const out = new Map();
+        byLesson.forEach((midSet, lid) => {
+            out.set(lid, Array.from(midSet));
+        });
+        return out;
+    }
+
+    /**
+     * For-review lessons: creator, Project Manager, or assignment overlap on linked metadata list ids.
+     * @param {object} row
+     * @param {{ isProjectManager: boolean, userId: string|number|null|undefined, assignedMetadataListIds: Set<string>, lessonMetadataListIds: string[] }} opts
+     */
+    function myProjectsUserCanViewForReviewLesson(row, opts) {
+        const { isProjectManager, userId, assignedMetadataListIds, lessonMetadataListIds } = opts;
+        if (normalizeMyProjectsReviewValue(row && row.review) !== 'for review') return true;
+        if (isProjectManager) return true;
+        if (userId != null && String(row && row.created_by) === String(userId)) return true;
+        const mids = Array.isArray(lessonMetadataListIds) ? lessonMetadataListIds : [];
+        return mids.some((id) => assignedMetadataListIds && assignedMetadataListIds.has(String(id)));
+    }
+
     function hideMyProjectsLessonFullView() {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
@@ -6100,11 +6204,26 @@ const projectFormHTML = `
         const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
         const selectedMetadataId = categoriesSelect ? categoriesSelect.value || '' : '';
 
+        const isPMFull = myProjectsViewerIsProjectManager();
+        let assignedIdsForDetail = undefined;
+        const pidFull = project && project.project_id != null ? project.project_id : null;
+        if (
+            !isPMFull &&
+            pidFull != null &&
+            myProjectsWorkspaceAssignedForProjectId != null &&
+            String(myProjectsWorkspaceAssignedForProjectId) === String(pidFull) &&
+            myProjectsWorkspaceAssignedMetadataListIds
+        ) {
+            assignedIdsForDetail = myProjectsWorkspaceAssignedMetadataListIds;
+        }
+
         void mountLessonFullPage(mount, row, project, {
             supabase,
             organizationId,
             projectId: project && project.project_id,
             userId: ctUser && ctUser.id != null ? ctUser.id : null,
+            isProjectManager: isPMFull,
+            assignedMetadataListIds: assignedIdsForDetail,
             projectTypeId:
                 project && project.project_type_id != null ? project.project_type_id : null,
             onLessonReviewSaved: () => {
@@ -6243,6 +6362,16 @@ const projectFormHTML = `
                 const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
                 const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
 
+                const isPM = myProjectsViewerIsProjectManager();
+                let assignedSet = new Set();
+                if (!isPM && myUserId != null) {
+                    assignedSet = await fetchMyProjectsUserAssignedMetadataListIds(projectId, myUserId);
+                }
+                if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+                myProjectsWorkspaceAssignedMetadataListIds = isPM ? null : assignedSet;
+                myProjectsWorkspaceAssignedForProjectId = projectId;
+                const lessonMetaMap = buildLessonIdToMetadataListIdsFromLinks(links);
+
                 let lessonQuery = supabase
                     .from('lessons_learned')
                     .select('id, title, category, review, created_by')
@@ -6262,9 +6391,16 @@ const projectFormHTML = `
                     return;
                 }
 
-                const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) =>
-                    myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)
-                );
+                const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
+                    if (!myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)) return false;
+                    const metaIds = lessonMetaMap.get(String(row && row.id)) || [];
+                    return myProjectsUserCanViewForReviewLesson(row, {
+                        isProjectManager: isPM,
+                        userId: myUserId,
+                        assignedMetadataListIds: assignedSet,
+                        lessonMetadataListIds: metaIds,
+                    });
+                });
 
                 if (lessons.length === 0) {
                     setMyProjectsLessonsStatus('No issues or successes found for the selected status.');
@@ -6363,6 +6499,16 @@ const projectFormHTML = `
             const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
             const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
 
+            const isPMSingle = myProjectsViewerIsProjectManager();
+            let assignedSetSingle = new Set();
+            if (!isPMSingle && myUserId != null) {
+                assignedSetSingle = await fetchMyProjectsUserAssignedMetadataListIds(projectId, myUserId);
+            }
+            if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+            myProjectsWorkspaceAssignedMetadataListIds = isPMSingle ? null : assignedSetSingle;
+            myProjectsWorkspaceAssignedForProjectId = projectId;
+            const singleCategoryMetaIds = [String(metadataId)];
+
             let lessonQuerySingle = supabase
                 .from('lessons_learned')
                 .select('id, title, category, review, created_by')
@@ -6382,9 +6528,15 @@ const projectFormHTML = `
                 return;
             }
 
-            const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) =>
-                myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)
-            );
+            const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
+                if (!myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)) return false;
+                return myProjectsUserCanViewForReviewLesson(row, {
+                    isProjectManager: isPMSingle,
+                    userId: myUserId,
+                    assignedMetadataListIds: assignedSetSingle,
+                    lessonMetadataListIds: singleCategoryMetaIds,
+                });
+            });
             if (lessons.length === 0) {
                 setMyProjectsLessonsStatus('No issues or successes found for this category and status.');
                 return;

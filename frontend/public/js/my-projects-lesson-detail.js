@@ -493,12 +493,107 @@ export function isLessonDraftForEditing(row) {
     );
 }
 
+function normalizeLessonReviewValue(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, ' ');
+}
+
+function isLessonForReviewMyProjects(row) {
+    return normalizeLessonReviewValue(row && row.review) === 'for review';
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string|number|null|undefined} organizationId
+ * @param {string|number|null|undefined} projectId
+ * @param {string|number|null|undefined} userId
+ * @returns {Promise<Set<string>>}
+ */
+async function loadAssignedMetadataListIdsForMyProjects(supabase, organizationId, projectId, userId) {
+    const set = new Set();
+    if (organizationId == null || projectId == null || userId == null) return set;
+    const { data, error } = await supabase
+        .from('project_team_member_assignments')
+        .select('lessons_learned_metadata_list_id')
+        .eq('organization_id', organizationId)
+        .eq('project_id', projectId)
+        .eq('user_id', userId)
+        .limit(5000);
+    if (error) {
+        throw new Error(error.message || 'Failed to verify lesson access.');
+    }
+    (Array.isArray(data) ? data : []).forEach((r) => {
+        const id = r && r.lessons_learned_metadata_list_id;
+        if (id != null) set.add(String(id));
+    });
+    return set;
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string|number|null|undefined} organizationId
+ * @param {string|number|null|undefined} projectId
+ * @param {unknown} lessonId
+ * @returns {Promise<string[]>}
+ */
+async function loadLessonMetadataListIdsForProject(
+    supabase,
+    organizationId,
+    projectId,
+    lessonId
+) {
+    if (organizationId == null || projectId == null || lessonId == null) return [];
+    const { data, error } = await supabase
+        .from('lessons_learned_metadata')
+        .select('lessons_learned_metadata_list_id')
+        .eq('organization_id', organizationId)
+        .eq('project_id', projectId)
+        .eq('lessons_learned_id', lessonId)
+        .limit(5000);
+    if (error) {
+        throw new Error(error.message || 'Failed to verify lesson access.');
+    }
+    return Array.from(
+        new Set(
+            (Array.isArray(data) ? data : [])
+                .map((r) => (r && r.lessons_learned_metadata_list_id != null ? String(r.lessons_learned_metadata_list_id) : ''))
+                .filter(Boolean)
+        )
+    );
+}
+
+/**
+ * @param {{ id?: unknown, review?: unknown, created_by?: unknown }} row
+ * @param {{ project_id?: unknown }} project
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId?: string|number|null, userId?: string|number|null, isProjectManager?: boolean, assignedMetadataListIds?: Set<string>|null|undefined }} ctx
+ */
+async function assertMyProjectsForReviewLessonAccess(row, project, ctx) {
+    if (!isLessonForReviewMyProjects(row)) return;
+    const { supabase, organizationId, projectId: ctxPid, userId, isProjectManager, assignedMetadataListIds } = ctx;
+    const pid = project && project.project_id != null ? project.project_id : ctxPid;
+    if (isProjectManager === true) return;
+    if (userId != null && String(row && row.created_by) === String(userId)) return;
+
+    let assigned =
+        assignedMetadataListIds instanceof Set ? assignedMetadataListIds : null;
+    if (!assigned) {
+        assigned = await loadAssignedMetadataListIdsForMyProjects(supabase, organizationId, pid, userId);
+    }
+
+    const metaIds = await loadLessonMetadataListIdsForProject(supabase, organizationId, pid, row.id);
+    if (metaIds.some((id) => assigned.has(id))) return;
+
+    throw new Error('You do not have permission to view this lesson.');
+}
+
 /**
  * Renders the full lesson into mountEl (caller provides back navigation outside this tree).
  * @param {HTMLElement} mountEl
  * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown }} row
  * @param {{ project_id?: unknown, project_type_id?: unknown }} project
- * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null, projectTypeId?: string|number|null, onLessonReviewSaved?: () => void }} ctx
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null, projectTypeId?: string|number|null, onLessonReviewSaved?: () => void, isProjectManager?: boolean, assignedMetadataListIds?: Set<string>|null }} ctx
  */
 export async function mountLessonFullPage(mountEl, row, project, ctx) {
     const { supabase, organizationId, projectId } = ctx;
@@ -515,12 +610,24 @@ export async function mountLessonFullPage(mountEl, row, project, ctx) {
     card.appendChild(buildLessonPrimaryTitle(row));
 
     const detailHost = document.createElement('div');
+    card.appendChild(detailHost);
+    mountEl.appendChild(card);
+
+    try {
+        await assertMyProjectsForReviewLessonAccess(row, project, ctx);
+    } catch (accessErr) {
+        const errEl = document.createElement('div');
+        errEl.className = 'upload-message upload-message--error';
+        errEl.textContent =
+            (accessErr && accessErr.message) || 'You do not have permission to view this lesson.';
+        detailHost.appendChild(errEl);
+        return;
+    }
+
     const loading = document.createElement('div');
     loading.className = 'org-lesson-detail-loading';
     loading.textContent = 'Loading lesson structure…';
     detailHost.appendChild(loading);
-    card.appendChild(detailHost);
-    mountEl.appendChild(card);
 
     try {
         const detail = await fetchLessonStructure(supabase, {
