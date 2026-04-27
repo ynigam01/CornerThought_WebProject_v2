@@ -75,25 +75,31 @@ export async function fetchLessonStructure(supabase, { organizationId, projectId
         metaResp,
         attachResp,
     ] = await Promise.all([
-        filterLesson(supabase.from('lessons_learned_causes').select('id, cause')),
-        filterLesson(supabase.from('lessons_learned_impacts').select('id, impact')),
+        filterLesson(supabase.from('lessons_learned_causes').select('id, cause, created_by')),
+        filterLesson(supabase.from('lessons_learned_impacts').select('id, impact, created_by')),
         filterLesson(
             supabase
                 .from('action_items')
-                .select('id, action_item, lessons_learned_cause_id, lessons_learned_impact_id')
+                .select(
+                    'id, action_item, lessons_learned_cause_id, lessons_learned_impact_id, created_by'
+                )
         ),
         filterLesson(
             supabase
                 .from('future_project_considerations')
-                .select('id, fpc, lessons_learned_cause_id, lessons_learned_impact_id')
+                .select(
+                    'id, fpc, lessons_learned_cause_id, lessons_learned_impact_id, created_by'
+                )
         ),
-        filterLesson(supabase.from('lessons_learned_notes').select('id, notes')),
+        filterLesson(supabase.from('lessons_learned_notes').select('id, notes, created_by')),
         filterLesson(
             supabase
                 .from('lessons_learned_metadata')
-                .select('id, metadata, metadata_type, lessons_learned_metadata_list_id')
+                .select('id, metadata, metadata_type, lessons_learned_metadata_list_id, created_by')
         ),
-        filterLesson(supabase.from('lessons_learned_attachments').select('id, file_name, content_type')),
+        filterLesson(
+            supabase.from('lessons_learned_attachments').select('id, file_name, content_type, created_by')
+        ),
     ]);
 
     const responses = [
@@ -119,6 +125,36 @@ export async function fetchLessonStructure(supabase, { organizationId, projectId
         metadata: Array.isArray(metaResp.data) ? metaResp.data : [],
         attachments: Array.isArray(attachResp.data) ? attachResp.data : [],
     };
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Iterable<string|number>} userIds
+ * @returns {Promise<Map<string, string>>}
+ */
+export async function fetchUserNamesById(supabase, userIds) {
+    const ids = Array.from(
+        new Set(
+            Array.from(userIds || [])
+                .map((id) => (id != null ? String(id).trim() : ''))
+                .filter(Boolean)
+        )
+    );
+    const map = new Map();
+    if (!ids.length) return map;
+    const numericIds = ids.map((s) => {
+        const n = Number(s);
+        return Number.isFinite(n) ? n : s;
+    });
+    const { data, error } = await supabase.from('users').select('id, name').in('id', numericIds);
+    if (error) {
+        console.warn('fetchUserNamesById:', error.message || error);
+        return map;
+    }
+    (Array.isArray(data) ? data : []).forEach((row) => {
+        if (row && row.id != null) map.set(String(row.id), row.name ? String(row.name).trim() : '');
+    });
+    return map;
 }
 
 function wireDraggable(el) {
@@ -281,9 +317,11 @@ function splitUnassigned(rows, causeKey, impactKey) {
  * @param {HTMLElement} container
  * @param {Awaited<ReturnType<typeof fetchLessonStructure>>} detail
  * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null }} ctx
+ * @param {{ skipNotes?: boolean }} [options]
  */
-export function renderLessonStructureInto(container, detail, ctx) {
+export function renderLessonStructureInto(container, detail, ctx, options = {}) {
     const { supabase, organizationId, projectId } = ctx;
+    const skipNotes = options && options.skipNotes === true;
     container.innerHTML = '';
 
     const shell = document.createElement('div');
@@ -366,7 +404,7 @@ export function renderLessonStructureInto(container, detail, ctx) {
     }
 
     const notes = detail.notes || [];
-    if (notes.length) {
+    if (!skipNotes && notes.length) {
         const ns = document.createElement('section');
         ns.className = 'org-lesson-notes-section';
         const nh = document.createElement('h4');
@@ -567,13 +605,13 @@ async function loadLessonMetadataListIdsForProject(
 /**
  * @param {{ id?: unknown, review?: unknown, created_by?: unknown }} row
  * @param {{ project_id?: unknown }} project
- * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId?: string|number|null, userId?: string|number|null, isProjectManager?: boolean, assignedMetadataListIds?: Set<string>|null|undefined }} ctx
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId?: string|number|null, userId?: string|number|null, isLessonModerator?: boolean, assignedMetadataListIds?: Set<string>|null|undefined }} ctx
  */
 async function assertMyProjectsForReviewLessonAccess(row, project, ctx) {
     if (!isLessonForReviewMyProjects(row)) return;
-    const { supabase, organizationId, projectId: ctxPid, userId, isProjectManager, assignedMetadataListIds } = ctx;
+    const { supabase, organizationId, projectId: ctxPid, userId, isLessonModerator, assignedMetadataListIds } = ctx;
     const pid = project && project.project_id != null ? project.project_id : ctxPid;
-    if (isProjectManager === true) return;
+    if (isLessonModerator === true) return;
     if (userId != null && String(row && row.created_by) === String(userId)) return;
 
     let assigned =
@@ -593,14 +631,49 @@ async function assertMyProjectsForReviewLessonAccess(row, project, ctx) {
  * @param {HTMLElement} mountEl
  * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown }} row
  * @param {{ project_id?: unknown, project_type_id?: unknown }} project
- * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null, projectTypeId?: string|number|null, onLessonReviewSaved?: () => void, isProjectManager?: boolean, assignedMetadataListIds?: Set<string>|null }} ctx
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null, projectTypeId?: string|number|null, onLessonReviewSaved?: () => void, isLessonModerator?: boolean, assignedMetadataListIds?: Set<string>|null }} ctx
  */
 export async function mountLessonFullPage(mountEl, row, project, ctx) {
-    const { supabase, organizationId, projectId } = ctx;
+    const { supabase, organizationId, projectId, userId } = ctx;
 
     if (isLessonDraftForEditing(row)) {
         const { mountDraftLessonEditor } = await import('./my-projects-lesson-draft-editor.js');
         return mountDraftLessonEditor(mountEl, row, project, ctx);
+    }
+
+    if (isLessonForReviewMyProjects(row)) {
+        try {
+            await assertMyProjectsForReviewLessonAccess(row, project, ctx);
+        } catch (accessErr) {
+            mountEl.innerHTML = '';
+            const card = document.createElement('article');
+            card.className = 'lesson-detail-card org-lesson-full-page-card';
+            card.appendChild(buildLessonPrimaryTitle(row));
+            const detailHost = document.createElement('div');
+            const errEl = document.createElement('div');
+            errEl.className = 'upload-message upload-message--error';
+            errEl.textContent =
+                (accessErr && accessErr.message) || 'You do not have permission to view this lesson.';
+            detailHost.appendChild(errEl);
+            card.appendChild(detailHost);
+            mountEl.appendChild(card);
+            return;
+        }
+
+        const isModerator = ctx.isLessonModerator === true;
+        const isCreator = userId != null && String(row && row.created_by) === String(userId);
+        const canCollaborate = isModerator || isCreator;
+
+        if (canCollaborate) {
+            const { mountDraftLessonEditor } = await import('./my-projects-lesson-draft-editor.js');
+            return mountDraftLessonEditor(mountEl, row, project, {
+                ...ctx,
+                forReviewCollaborative: true,
+                lessonCreatorId: row && row.created_by != null ? row.created_by : null,
+            });
+        }
+
+        return mountForReviewNotesOnlyLesson(mountEl, row, project, ctx);
     }
 
     mountEl.innerHTML = '';
@@ -648,6 +721,176 @@ export async function mountLessonFullPage(mountEl, row, project, ctx) {
         errEl.textContent = (err && err.message) || 'Failed to load lesson details.';
         detailHost.appendChild(errEl);
     }
+}
+
+/**
+ * For Review: read-only lesson body; current user may add/edit/delete only their own notes.
+ * @param {HTMLElement} mountEl
+ * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown, created_by?: unknown }} row
+ * @param {{ project_id?: unknown, project_type_id?: unknown }} project
+ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient, organizationId: string|number|null, projectId: string|number|null, userId?: string|number|null }} ctx
+ */
+async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
+    const { supabase, organizationId, projectId, userId } = ctx;
+    const lessonId = row && row.id;
+    const pid = project && project.project_id != null ? project.project_id : projectId;
+    const lessonCreatorId = row && row.created_by != null ? row.created_by : null;
+
+    mountEl.innerHTML = '';
+    const card = document.createElement('article');
+    card.className = 'lesson-detail-card org-lesson-full-page-card org-lesson-for-review-notes-only';
+    card.appendChild(buildLessonPrimaryTitle(row));
+
+    const detailHost = document.createElement('div');
+    card.appendChild(detailHost);
+    mountEl.appendChild(card);
+
+    const { openLessonDraftTextModal } = await import('./my-projects-lesson-draft-editor.js');
+
+    function effectiveNoteOwnerId(noteRow) {
+        const cb = noteRow && noteRow.created_by;
+        if (cb != null && String(cb).trim() !== '') return String(cb);
+        if (lessonCreatorId != null) return String(lessonCreatorId);
+        return '';
+    }
+
+    function canMutateNote(noteRow) {
+        return userId != null && effectiveNoteOwnerId(noteRow) === String(userId);
+    }
+
+    async function refreshBody() {
+        detailHost.innerHTML = '';
+        const loading = document.createElement('div');
+        loading.className = 'org-lesson-detail-loading';
+        loading.textContent = 'Loading lesson structure…';
+        detailHost.appendChild(loading);
+
+        try {
+            const detail = await fetchLessonStructure(supabase, {
+                organizationId,
+                projectId: pid,
+                lessonId,
+            });
+            const notes = Array.isArray(detail.notes) ? detail.notes.slice() : [];
+            const detailSansNotes = { ...detail, notes: [] };
+            detailHost.innerHTML = '';
+            renderLessonStructureInto(
+                detailHost,
+                detailSansNotes,
+                { supabase, organizationId, projectId: pid },
+                { skipNotes: true }
+            );
+
+            const ns = document.createElement('section');
+            ns.className = 'org-lesson-notes-section org-lesson-notes-section--interactive';
+            const notesHead = document.createElement('div');
+            notesHead.className = 'lesson-draft-section-heading-row';
+            const nh = document.createElement('h4');
+            nh.textContent = 'Notes';
+            const addNoteBtn = document.createElement('button');
+            addNoteBtn.type = 'button';
+            addNoteBtn.className = 'lesson-draft-section-add';
+            addNoteBtn.textContent = 'Add note';
+            notesHead.appendChild(nh);
+            notesHead.appendChild(addNoteBtn);
+            ns.appendChild(notesHead);
+
+            addNoteBtn.addEventListener('click', async () => {
+                const r = await openLessonDraftTextModal({
+                    title: 'Add note',
+                    label: 'Note',
+                    mode: 'create',
+                });
+                if (r.action !== 'save' || !r.value) return;
+                try {
+                    const { error } = await supabase.from('lessons_learned_notes').insert({
+                        lessons_learned_id: lessonId,
+                        notes: r.value,
+                        created_by: userId,
+                        organization_id: organizationId,
+                        project_id: pid,
+                    });
+                    if (error) throw error;
+                    await refreshBody();
+                } catch (err) {
+                    console.error(err);
+                    alert(err.message || 'Save failed.');
+                }
+            });
+
+            if (!notes.length) {
+                const ne = document.createElement('p');
+                ne.className = 'lesson-draft-empty-hint';
+                ne.textContent = 'No notes yet.';
+                ns.appendChild(ne);
+            } else {
+                const ul = document.createElement('ul');
+                ul.className = 'org-lesson-notes-list lesson-draft-notes-editable';
+                notes.forEach((n) => {
+                    const li = document.createElement('li');
+                    li.className = 'lesson-draft-note-row';
+                    const span = document.createElement('span');
+                    span.textContent = n.notes || '';
+                    li.appendChild(span);
+                    if (canMutateNote(n)) {
+                        const eb = document.createElement('button');
+                        eb.type = 'button';
+                        eb.className = 'lesson-draft-section-add';
+                        eb.textContent = 'Edit';
+                        eb.addEventListener('click', async () => {
+                            const r = await openLessonDraftTextModal({
+                                title: 'Edit note',
+                                label: 'Note',
+                                initialValue: n.notes || '',
+                                mode: 'edit',
+                                showDelete: true,
+                            });
+                            try {
+                                let qDel = supabase
+                                    .from('lessons_learned_notes')
+                                    .delete()
+                                    .eq('id', n.id)
+                                    .eq('organization_id', organizationId);
+                                let qUp = supabase
+                                    .from('lessons_learned_notes')
+                                    .update({ notes: r.value })
+                                    .eq('id', n.id)
+                                    .eq('organization_id', organizationId);
+                                if (n.created_by != null) {
+                                    qDel = qDel.eq('created_by', userId);
+                                    qUp = qUp.eq('created_by', userId);
+                                }
+                                if (r.action === 'delete') {
+                                    const { error } = await qDel;
+                                    if (error) throw error;
+                                } else if (r.action === 'save') {
+                                    const { error } = await qUp;
+                                    if (error) throw error;
+                                } else return;
+                                await refreshBody();
+                            } catch (err) {
+                                console.error(err);
+                                alert(err.message || 'Update failed.');
+                            }
+                        });
+                        li.appendChild(eb);
+                    }
+                    ul.appendChild(li);
+                });
+                ns.appendChild(ul);
+            }
+
+            detailHost.appendChild(ns);
+        } catch (err) {
+            detailHost.innerHTML = '';
+            const errEl = document.createElement('div');
+            errEl.className = 'upload-message upload-message--error';
+            errEl.textContent = (err && err.message) || 'Failed to load lesson details.';
+            detailHost.appendChild(errEl);
+        }
+    }
+
+    await refreshBody();
 }
 
 /**

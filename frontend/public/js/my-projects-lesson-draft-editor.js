@@ -7,8 +7,40 @@ import {
     fetchLessonStructure,
     buildLessonPrimaryTitle,
     pgByteaToUint8Array,
-    formatMetadataRows,
+    fetchUserNamesById,
 } from './my-projects-lesson-detail.js';
+
+export function effectiveRowCreatedBy(createdBy, lessonCreatorId) {
+    if (createdBy != null && String(createdBy).trim() !== '') return String(createdBy);
+    if (lessonCreatorId != null) return String(lessonCreatorId);
+    return '';
+}
+
+export function canMutateSubRow(createdBy, lessonCreatorId, userId) {
+    if (userId == null) return false;
+    return effectiveRowCreatedBy(createdBy, lessonCreatorId) === String(userId);
+}
+
+export function isReviewerContribution(createdBy, lessonCreatorId) {
+    const eff = effectiveRowCreatedBy(createdBy, lessonCreatorId);
+    if (lessonCreatorId == null || eff === '') return false;
+    return eff !== String(lessonCreatorId);
+}
+
+function collectDetailContributorIds(detail) {
+    const ids = [];
+    const add = (row) => {
+        if (row && row.created_by != null) ids.push(row.created_by);
+    };
+    (detail.causes || []).forEach(add);
+    (detail.impacts || []).forEach(add);
+    (detail.actions || []).forEach(add);
+    (detail.fpcs || []).forEach(add);
+    (detail.notes || []).forEach(add);
+    (detail.metadata || []).forEach(add);
+    (detail.attachments || []).forEach(add);
+    return ids;
+}
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -50,7 +82,7 @@ function formatListMetadataLabel(row) {
  *   showDelete?: boolean,
  * }} opts
  */
-function openLessonDraftTextModal(opts) {
+export function openLessonDraftTextModal(opts) {
     const {
         title,
         label,
@@ -198,7 +230,17 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         userId,
         projectTypeId: ctxTypeId,
         onLessonReviewSaved,
+        forReviewCollaborative: forReviewCollaborativeRaw,
+        lessonCreatorId: lessonCreatorIdCtx,
     } = ctx;
+
+    const forReviewCollaborative = forReviewCollaborativeRaw === true;
+    const lessonCreatorId =
+        lessonCreatorIdCtx != null
+            ? lessonCreatorIdCtx
+            : row && row.created_by != null
+              ? row.created_by
+              : null;
 
     const lessonId = row && row.id;
     const pid = ctxPid != null ? ctxPid : project && project.project_id;
@@ -221,11 +263,16 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         title: row.title,
         category: row.category,
         review: row.review,
+        created_by: row && row.created_by != null ? row.created_by : undefined,
     };
+
+    let contributorNameMap = new Map();
 
     mountEl.innerHTML = '';
     const card = document.createElement('article');
-    card.className = 'lesson-detail-card org-lesson-full-page-card org-lesson-draft-editor';
+    card.className = forReviewCollaborative
+        ? 'lesson-detail-card org-lesson-full-page-card org-lesson-draft-editor org-lesson-for-review-editor'
+        : 'lesson-detail-card org-lesson-full-page-card org-lesson-draft-editor';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'lesson-draft-toolbar';
@@ -240,8 +287,15 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     const toolbarStatus = document.createElement('div');
     toolbarStatus.className = 'lesson-draft-toolbar-status upload-message';
     toolbarStatus.setAttribute('aria-live', 'polite');
-    toolbar.appendChild(btnSaveDraft);
-    toolbar.appendChild(btnSendReview);
+    if (!forReviewCollaborative) {
+        toolbar.appendChild(btnSaveDraft);
+        toolbar.appendChild(btnSendReview);
+    } else {
+        const forReviewLabel = document.createElement('div');
+        forReviewLabel.className = 'lesson-for-review-toolbar-label';
+        forReviewLabel.textContent = 'For review';
+        toolbar.appendChild(forReviewLabel);
+    }
     toolbar.appendChild(toolbarStatus);
 
     const titleRow = document.createElement('div');
@@ -254,6 +308,9 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     editTitleBtn.textContent = 'Edit';
     titleRow.appendChild(titleHost);
     titleRow.appendChild(editTitleBtn);
+    if (forReviewCollaborative && String(userId) !== String(lessonCreatorId)) {
+        editTitleBtn.style.display = 'none';
+    }
 
     function renderTitleIntoHost() {
         titleHost.innerHTML = '';
@@ -274,6 +331,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         toolbarStatus.classList.remove('upload-message--success', 'upload-message--error');
         if (!msg) return;
         toolbarStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+    }
+
+    function applyReviewOwnerConstraint(q, rowCreatedBy) {
+        if (forReviewCollaborative && rowCreatedBy != null) {
+            return q.eq('created_by', userId);
+        }
+        return q;
     }
 
     let editorDragEl = null;
@@ -310,7 +374,14 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     async function persistCardAssignment(card, listEl) {
         const table = card.dataset.itemTable;
         const id = card.dataset.itemId;
+        const rawCb = card.dataset.itemCreatedBy;
+        const rowCreatedBy = rawCb === '' || rawCb == null ? null : rawCb;
         if (!table || !id) return;
+        if (forReviewCollaborative && !canMutateSubRow(rowCreatedBy, lessonCreatorId, userId)) {
+            setToolbarStatus('You can only move items you created.', true);
+            await refreshDetail();
+            return;
+        }
 
         let causeId = null;
         let impactId = null;
@@ -328,7 +399,16 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             lessons_learned_impact_id: impactId,
         };
 
-        const { error } = await supabase.from(table).update(patch).eq('id', id).eq('organization_id', orgId).eq('project_id', pid);
+        let q = supabase
+            .from(table)
+            .update(patch)
+            .eq('id', id)
+            .eq('organization_id', orgId)
+            .eq('project_id', pid);
+        if (forReviewCollaborative && rowCreatedBy != null) {
+            q = q.eq('created_by', userId);
+        }
+        const { error } = await q;
         if (error) throw error;
     }
 
@@ -378,6 +458,10 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                 projectId: pid,
                 lessonId,
             });
+            contributorNameMap = await fetchUserNamesById(
+                supabase,
+                collectDetailContributorIds(detail)
+            );
             detailHost.innerHTML = '';
             renderDraftDetail(detailHost, detail);
         } catch (err) {
@@ -395,26 +479,46 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         card.dataset.dragKind = kind;
         card.dataset.itemTable = tableName;
         card.dataset.itemId = String(dbRow.id);
+        card.dataset.itemCreatedBy = dbRow && dbRow.created_by != null ? String(dbRow.created_by) : '';
+        const canMutate = canMutateSubRow(dbRow && dbRow.created_by, lessonCreatorId, userId);
         const top = document.createElement('div');
         top.className = 'lesson-draft-card-head';
         const badge = document.createElement('span');
         badge.className = 'org-lesson-kind-badge';
         badge.textContent = kind === 'action' ? 'Action item' : 'Future consideration';
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'lesson-draft-section-add lesson-draft-card-edit';
-        editBtn.textContent = 'Edit';
-        editBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            onEditClick(dbRow, card);
-        });
-        top.appendChild(badge);
-        top.appendChild(editBtn);
+        if (canMutate) {
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'lesson-draft-section-add lesson-draft-card-edit';
+            editBtn.textContent = 'Edit';
+            editBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                onEditClick(dbRow, card);
+            });
+            top.appendChild(badge);
+            top.appendChild(editBtn);
+        } else {
+            top.appendChild(badge);
+        }
         const body = document.createElement('div');
-        body.textContent = text || '';
+        const mainText = document.createElement('span');
+        mainText.className = 'org-lesson-draggable-card-text';
+        mainText.textContent = text || '';
+        body.appendChild(mainText);
+        if (forReviewCollaborative && isReviewerContribution(dbRow && dbRow.created_by, lessonCreatorId)) {
+            body.classList.add('org-lesson-review-contribution');
+            const who = effectiveRowCreatedBy(dbRow && dbRow.created_by, lessonCreatorId);
+            const dispName = contributorNameMap.get(String(who)) || 'Unknown user';
+            body.appendChild(document.createTextNode(' '));
+            const sub = document.createElement('span');
+            sub.className = 'org-lesson-review-contribution-byline';
+            sub.textContent = `(submitted by ${dispName})`;
+            body.appendChild(sub);
+        }
         card.appendChild(top);
         card.appendChild(body);
-        wireDraggableEditor(card);
+        if (canMutate) wireDraggableEditor(card);
+        else card.setAttribute('draggable', 'false');
         return card;
     }
 
@@ -489,50 +593,74 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             hdrBtn.className = 'lesson-detail-item-header lesson-draft-item-expand-btn';
             const lbl = document.createElement('span');
             lbl.className = 'lesson-detail-item-label';
-            lbl.textContent = item[textKey] || '';
+            const lblMain = document.createElement('span');
+            lblMain.textContent = item[textKey] || '';
+            lbl.appendChild(lblMain);
+            if (forReviewCollaborative && isReviewerContribution(item.created_by, lessonCreatorId)) {
+                lbl.classList.add('org-lesson-review-contribution');
+                const who = effectiveRowCreatedBy(item.created_by, lessonCreatorId);
+                const dispName = contributorNameMap.get(String(who)) || 'Unknown user';
+                lbl.appendChild(document.createTextNode(' '));
+                const sub = document.createElement('span');
+                sub.className = 'org-lesson-review-contribution-byline';
+                sub.textContent = `(submitted by ${dispName})`;
+                lbl.appendChild(sub);
+            }
             const tg = document.createElement('span');
             tg.className = 'lesson-detail-toggle';
             hdrBtn.appendChild(lbl);
             hdrBtn.appendChild(tg);
 
-            const editHdr = document.createElement('button');
-            editHdr.type = 'button';
-            editHdr.className = 'lesson-draft-section-add';
-            editHdr.textContent = 'Edit';
-            editHdr.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const r = await openLessonDraftTextModal({
-                    title: kind === 'cause' ? 'Edit cause' : 'Edit impact',
-                    label: kind === 'cause' ? 'Cause' : 'Impact',
-                    initialValue: item[textKey] || '',
-                    mode: 'edit',
-                });
-                const table = kind === 'cause' ? 'lessons_learned_causes' : 'lessons_learned_impacts';
-                const col = kind === 'cause' ? 'cause' : 'impact';
-                try {
-                    if (r.action === 'delete') {
-                        if (kind === 'cause') await unassignCauseDependencies(supabase, orgId, pid, itemId);
-                        else await unassignImpactDependencies(supabase, orgId, pid, itemId);
-                        const { error } = await supabase.from(table).delete().eq('id', itemId).eq('organization_id', orgId);
-                        if (error) throw error;
-                    } else if (r.action === 'save' && r.value) {
-                        const { error } = await supabase
-                            .from(table)
-                            .update({ [col]: r.value })
-                            .eq('id', itemId)
-                            .eq('organization_id', orgId);
-                        if (error) throw error;
-                    } else return;
-                    setToolbarStatus('Updated.', false);
-                    await refreshDetail();
-                } catch (err) {
-                    console.error(err);
-                    setToolbarStatus(err.message || 'Update failed.', true);
-                }
-            });
-
             hdr.appendChild(hdrBtn);
-            hdr.appendChild(editHdr);
+
+            const canEditCauseImpact = canMutateSubRow(item.created_by, lessonCreatorId, userId);
+            if (canEditCauseImpact) {
+                const editHdr = document.createElement('button');
+                editHdr.type = 'button';
+                editHdr.className = 'lesson-draft-section-add';
+                editHdr.textContent = 'Edit';
+                editHdr.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const r = await openLessonDraftTextModal({
+                        title: kind === 'cause' ? 'Edit cause' : 'Edit impact',
+                        label: kind === 'cause' ? 'Cause' : 'Impact',
+                        initialValue: item[textKey] || '',
+                        mode: 'edit',
+                        showDelete: true,
+                    });
+                    const table = kind === 'cause' ? 'lessons_learned_causes' : 'lessons_learned_impacts';
+                    const col = kind === 'cause' ? 'cause' : 'impact';
+                    try {
+                        if (r.action === 'delete') {
+                            if (kind === 'cause') await unassignCauseDependencies(supabase, orgId, pid, itemId);
+                            else await unassignImpactDependencies(supabase, orgId, pid, itemId);
+                            let qDel = supabase
+                                .from(table)
+                                .delete()
+                                .eq('id', itemId)
+                                .eq('organization_id', orgId);
+                            qDel = applyReviewOwnerConstraint(qDel, item.created_by);
+                            const { error } = await qDel;
+                            if (error) throw error;
+                        } else if (r.action === 'save' && r.value) {
+                            let qUp = supabase
+                                .from(table)
+                                .update({ [col]: r.value })
+                                .eq('id', itemId)
+                                .eq('organization_id', orgId);
+                            qUp = applyReviewOwnerConstraint(qUp, item.created_by);
+                            const { error } = await qUp;
+                            if (error) throw error;
+                        } else return;
+                        setToolbarStatus('Updated.', false);
+                        await refreshDetail();
+                    } catch (err) {
+                        console.error(err);
+                        setToolbarStatus(err.message || 'Update failed.', true);
+                    }
+                });
+                hdr.appendChild(editHdr);
+            }
 
             const body = document.createElement('div');
             body.className = 'lesson-detail-item-body org-lesson-item-body';
@@ -553,21 +681,26 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                             label: 'Action item',
                             initialValue: db.action_item || '',
                             mode: 'edit',
+                            showDelete: true,
                         });
                         try {
                             if (r.action === 'delete') {
-                                const { error } = await supabase
+                                let qDel = supabase
                                     .from('action_items')
                                     .delete()
                                     .eq('id', db.id)
                                     .eq('organization_id', orgId);
+                                qDel = applyReviewOwnerConstraint(qDel, db.created_by);
+                                const { error } = await qDel;
                                 if (error) throw error;
                             } else if (r.action === 'save') {
-                                const { error } = await supabase
+                                let qUp = supabase
                                     .from('action_items')
                                     .update({ action_item: r.value })
                                     .eq('id', db.id)
                                     .eq('organization_id', orgId);
+                                qUp = applyReviewOwnerConstraint(qUp, db.created_by);
+                                const { error } = await qUp;
                                 if (error) throw error;
                             } else return;
                             setToolbarStatus('Updated.', false);
@@ -588,21 +721,26 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                             label: 'Consideration',
                             initialValue: db.fpc || '',
                             mode: 'edit',
+                            showDelete: true,
                         });
                         try {
                             if (r.action === 'delete') {
-                                const { error } = await supabase
+                                let qDel = supabase
                                     .from('future_project_considerations')
                                     .delete()
                                     .eq('id', db.id)
                                     .eq('organization_id', orgId);
+                                qDel = applyReviewOwnerConstraint(qDel, db.created_by);
+                                const { error } = await qDel;
                                 if (error) throw error;
                             } else if (r.action === 'save') {
-                                const { error } = await supabase
+                                let qUp = supabase
                                     .from('future_project_considerations')
                                     .update({ fpc: r.value })
                                     .eq('id', db.id)
                                     .eq('organization_id', orgId);
+                                qUp = applyReviewOwnerConstraint(qUp, db.created_by);
+                                const { error } = await qUp;
                                 if (error) throw error;
                             } else return;
                             setToolbarStatus('Updated.', false);
@@ -767,21 +905,26 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         label: 'Action item',
                         initialValue: db.action_item || '',
                         mode: 'edit',
+                        showDelete: true,
                     });
                     try {
                         if (r.action === 'delete') {
-                            const { error } = await supabase
+                            let qDel = supabase
                                 .from('action_items')
                                 .delete()
                                 .eq('id', db.id)
                                 .eq('organization_id', orgId);
+                            qDel = applyReviewOwnerConstraint(qDel, db.created_by);
+                            const { error } = await qDel;
                             if (error) throw error;
                         } else if (r.action === 'save') {
-                            const { error } = await supabase
+                            let qUp = supabase
                                 .from('action_items')
                                 .update({ action_item: r.value })
                                 .eq('id', db.id)
                                 .eq('organization_id', orgId);
+                            qUp = applyReviewOwnerConstraint(qUp, db.created_by);
+                            const { error } = await qUp;
                             if (error) throw error;
                         } else return;
                         setToolbarStatus('Updated.', false);
@@ -802,21 +945,26 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         label: 'Consideration',
                         initialValue: db.fpc || '',
                         mode: 'edit',
+                        showDelete: true,
                     });
                     try {
                         if (r.action === 'delete') {
-                            const { error } = await supabase
+                            let qDel = supabase
                                 .from('future_project_considerations')
                                 .delete()
                                 .eq('id', db.id)
                                 .eq('organization_id', orgId);
+                            qDel = applyReviewOwnerConstraint(qDel, db.created_by);
+                            const { error } = await qDel;
                             if (error) throw error;
                         } else if (r.action === 'save') {
-                            const { error } = await supabase
+                            let qUp = supabase
                                 .from('future_project_considerations')
                                 .update({ fpc: r.value })
                                 .eq('id', db.id)
                                 .eq('organization_id', orgId);
+                            qUp = applyReviewOwnerConstraint(qUp, db.created_by);
+                            const { error } = await qUp;
                             if (error) throw error;
                         } else return;
                         setToolbarStatus('Updated.', false);
@@ -892,44 +1040,63 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             notes.forEach((n) => {
                 const li = document.createElement('li');
                 li.className = 'lesson-draft-note-row';
-                const span = document.createElement('span');
-                span.textContent = n.notes || '';
-                const eb = document.createElement('button');
-                eb.type = 'button';
-                eb.className = 'lesson-draft-section-add';
-                eb.textContent = 'Edit';
-                eb.addEventListener('click', async () => {
-                    const r = await openLessonDraftTextModal({
-                        title: 'Edit note',
-                        label: 'Note',
-                        initialValue: n.notes || '',
-                        mode: 'edit',
+                const wrap = document.createElement('span');
+                const main = document.createElement('span');
+                main.textContent = n.notes || '';
+                wrap.appendChild(main);
+                if (forReviewCollaborative && isReviewerContribution(n.created_by, lessonCreatorId)) {
+                    wrap.classList.add('org-lesson-review-contribution');
+                    const who = effectiveRowCreatedBy(n.created_by, lessonCreatorId);
+                    const dispName = contributorNameMap.get(String(who)) || 'Unknown user';
+                    wrap.appendChild(document.createTextNode(' '));
+                    const sub = document.createElement('span');
+                    sub.className = 'org-lesson-review-contribution-byline';
+                    sub.textContent = `(submitted by ${dispName})`;
+                    wrap.appendChild(sub);
+                }
+                li.appendChild(wrap);
+                if (canMutateSubRow(n.created_by, lessonCreatorId, userId)) {
+                    const eb = document.createElement('button');
+                    eb.type = 'button';
+                    eb.className = 'lesson-draft-section-add';
+                    eb.textContent = 'Edit';
+                    eb.addEventListener('click', async () => {
+                        const r = await openLessonDraftTextModal({
+                            title: 'Edit note',
+                            label: 'Note',
+                            initialValue: n.notes || '',
+                            mode: 'edit',
+                            showDelete: true,
+                        });
+                        try {
+                            if (r.action === 'delete') {
+                                let qDel = supabase
+                                    .from('lessons_learned_notes')
+                                    .delete()
+                                    .eq('id', n.id)
+                                    .eq('organization_id', orgId);
+                                qDel = applyReviewOwnerConstraint(qDel, n.created_by);
+                                const { error } = await qDel;
+                                if (error) throw error;
+                            } else if (r.action === 'save') {
+                                let qUp = supabase
+                                    .from('lessons_learned_notes')
+                                    .update({ notes: r.value })
+                                    .eq('id', n.id)
+                                    .eq('organization_id', orgId);
+                                qUp = applyReviewOwnerConstraint(qUp, n.created_by);
+                                const { error } = await qUp;
+                                if (error) throw error;
+                            } else return;
+                            setToolbarStatus('Updated.', false);
+                            await refreshDetail();
+                        } catch (err) {
+                            console.error(err);
+                            setToolbarStatus(err.message || 'Update failed.', true);
+                        }
                     });
-                    try {
-                        if (r.action === 'delete') {
-                            const { error } = await supabase
-                                .from('lessons_learned_notes')
-                                .delete()
-                                .eq('id', n.id)
-                                .eq('organization_id', orgId);
-                            if (error) throw error;
-                        } else if (r.action === 'save') {
-                            const { error } = await supabase
-                                .from('lessons_learned_notes')
-                                .update({ notes: r.value })
-                                .eq('id', n.id)
-                                .eq('organization_id', orgId);
-                            if (error) throw error;
-                        } else return;
-                        setToolbarStatus('Updated.', false);
-                        await refreshDetail();
-                    } catch (err) {
-                        console.error(err);
-                        setToolbarStatus(err.message || 'Update failed.', true);
-                    }
-                });
-                li.appendChild(span);
-                li.appendChild(eb);
+                    li.appendChild(eb);
+                }
                 ul.appendChild(li);
             });
             ns.appendChild(ul);
@@ -954,8 +1121,36 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         const metaRows = detail.metadata || [];
         const metaSummary = document.createElement('div');
         metaSummary.className = 'org-lesson-footer-row lesson-draft-meta-summary';
-        const lines = formatMetadataRows(metaRows);
-        metaSummary.textContent = lines.length ? lines.join(' · ') : 'No metadata tags yet.';
+        if (!metaRows.length) {
+            metaSummary.textContent = 'No metadata tags yet.';
+        } else {
+            metaRows.forEach((mrow, idx) => {
+                if (idx > 0) metaSummary.appendChild(document.createTextNode(' · '));
+                const type = mrow && mrow.metadata_type ? String(mrow.metadata_type).trim() : '';
+                let meta = mrow && mrow.metadata;
+                if (meta && typeof meta === 'object') {
+                    try {
+                        meta = JSON.stringify(meta);
+                    } catch (_) {
+                        meta = String(meta);
+                    }
+                } else if (meta != null) {
+                    meta = String(meta);
+                } else {
+                    meta = '';
+                }
+                const label = type && meta ? `${type}: ${meta}` : type || meta || '';
+                const span = document.createElement('span');
+                span.textContent = label;
+                if (
+                    forReviewCollaborative &&
+                    isReviewerContribution(mrow && mrow.created_by, lessonCreatorId)
+                ) {
+                    span.classList.add('org-lesson-metadata-tag--reviewer');
+                }
+                metaSummary.appendChild(span);
+            });
+        }
         footer.appendChild(metaSummary);
 
         metaBtn.addEventListener('click', () => {
@@ -966,6 +1161,8 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                 lessonId,
                 userId,
                 projectTypeId,
+                lessonCreatorId,
+                forReviewCollaborative,
                 currentLinks: metaRows,
                 onChanged: async () => {
                     setToolbarStatus('Metadata updated.', false);
@@ -1064,28 +1261,32 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         alert(err.message || 'Download failed.');
                     }
                 });
-                const rm = document.createElement('button');
-                rm.type = 'button';
-                rm.className = 'lesson-draft-section-add lesson-draft-remove-attach';
-                rm.textContent = 'Remove';
-                rm.addEventListener('click', async () => {
-                    if (!confirm('Remove this attachment?')) return;
-                    try {
-                        const { error } = await supabase
-                            .from('lessons_learned_attachments')
-                            .delete()
-                            .eq('id', att.id)
-                            .eq('organization_id', orgId);
-                        if (error) throw error;
-                        setToolbarStatus('Attachment removed.', false);
-                        await refreshDetail();
-                    } catch (err) {
-                        console.error(err);
-                        setToolbarStatus(err.message || 'Remove failed.', true);
-                    }
-                });
                 row.appendChild(btn);
-                row.appendChild(rm);
+                if (canMutateSubRow(att.created_by, lessonCreatorId, userId)) {
+                    const rm = document.createElement('button');
+                    rm.type = 'button';
+                    rm.className = 'lesson-draft-section-add lesson-draft-remove-attach';
+                    rm.textContent = 'Remove';
+                    rm.addEventListener('click', async () => {
+                        if (!confirm('Remove this attachment?')) return;
+                        try {
+                            let qDel = supabase
+                                .from('lessons_learned_attachments')
+                                .delete()
+                                .eq('id', att.id)
+                                .eq('organization_id', orgId);
+                            qDel = applyReviewOwnerConstraint(qDel, att.created_by);
+                            const { error } = await qDel;
+                            if (error) throw error;
+                            setToolbarStatus('Attachment removed.', false);
+                            await refreshDetail();
+                        } catch (err) {
+                            console.error(err);
+                            setToolbarStatus(err.message || 'Remove failed.', true);
+                        }
+                    });
+                    row.appendChild(rm);
+                }
                 footer.appendChild(row);
             });
         }
@@ -1105,11 +1306,15 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         });
         if (r.action !== 'save' || !r.value) return;
         try {
-            const { error } = await supabase
+            let qTitle = supabase
                 .from('lessons_learned')
                 .update({ title: r.value })
                 .eq('id', lessonId)
                 .eq('organization_id', orgId);
+            if (forReviewCollaborative) {
+                qTitle = qTitle.eq('created_by', userId);
+            }
+            const { error } = await qTitle;
             if (error) throw error;
             lessonRowState.title = r.value;
             renderTitleIntoHost();
@@ -1120,55 +1325,57 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         }
     });
 
-    btnSaveDraft.addEventListener('click', async () => {
-        try {
-            btnSaveDraft.disabled = true;
-            btnSendReview.disabled = true;
-            const { error } = await supabase
-                .from('lessons_learned')
-                .update({ review: 'draft' })
-                .eq('id', lessonId)
-                .eq('organization_id', orgId);
-            if (error) throw error;
-            lessonRowState.review = 'draft';
-            setToolbarStatus('Draft status saved.', false);
-            if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
-        } catch (err) {
-            console.error(err);
-            setToolbarStatus(err.message || 'Could not update status.', true);
-        } finally {
-            btnSaveDraft.disabled = false;
-            btnSendReview.disabled = false;
-        }
-    });
+    if (!forReviewCollaborative) {
+        btnSaveDraft.addEventListener('click', async () => {
+            try {
+                btnSaveDraft.disabled = true;
+                btnSendReview.disabled = true;
+                const { error } = await supabase
+                    .from('lessons_learned')
+                    .update({ review: 'draft' })
+                    .eq('id', lessonId)
+                    .eq('organization_id', orgId);
+                if (error) throw error;
+                lessonRowState.review = 'draft';
+                setToolbarStatus('Draft status saved.', false);
+                if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
+            } catch (err) {
+                console.error(err);
+                setToolbarStatus(err.message || 'Could not update status.', true);
+            } finally {
+                btnSaveDraft.disabled = false;
+                btnSendReview.disabled = false;
+            }
+        });
 
-    btnSendReview.addEventListener('click', async () => {
-        try {
-            btnSaveDraft.disabled = true;
-            btnSendReview.disabled = true;
-            const { error } = await supabase
-                .from('lessons_learned')
-                .update({ review: 'for review' })
-                .eq('id', lessonId)
-                .eq('organization_id', orgId);
-            if (error) throw error;
-            lessonRowState.review = 'for review';
-            if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
-            const mod = await import('./my-projects-lesson-detail.js');
-            mountEl.innerHTML = '';
-            await mod.mountLessonFullPage(
-                mountEl,
-                { ...lessonRowState, review: 'for review' },
-                project,
-                ctx
-            );
-        } catch (err) {
-            console.error(err);
-            setToolbarStatus(err.message || 'Could not send for review.', true);
-            btnSaveDraft.disabled = false;
-            btnSendReview.disabled = false;
-        }
-    });
+        btnSendReview.addEventListener('click', async () => {
+            try {
+                btnSaveDraft.disabled = true;
+                btnSendReview.disabled = true;
+                const { error } = await supabase
+                    .from('lessons_learned')
+                    .update({ review: 'for review' })
+                    .eq('id', lessonId)
+                    .eq('organization_id', orgId);
+                if (error) throw error;
+                lessonRowState.review = 'for review';
+                if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
+                const mod = await import('./my-projects-lesson-detail.js');
+                mountEl.innerHTML = '';
+                await mod.mountLessonFullPage(
+                    mountEl,
+                    { ...lessonRowState, review: 'for review' },
+                    project,
+                    ctx
+                );
+            } catch (err) {
+                console.error(err);
+                setToolbarStatus(err.message || 'Could not send for review.', true);
+                btnSaveDraft.disabled = false;
+                btnSendReview.disabled = false;
+            }
+        });
+    }
 
     await refreshDetail();
 }
@@ -1180,6 +1387,8 @@ async function openDraftMetadataModal({
     lessonId,
     userId,
     projectTypeId,
+    lessonCreatorId,
+    forReviewCollaborative,
     currentLinks,
     onChanged,
     setToolbarStatus,
@@ -1226,33 +1435,48 @@ async function openDraftMetadataModal({
             li.className = 'lesson-draft-metadata-tag-item';
             const t = document.createElement('span');
             t.textContent = formatListMetadataLabel(link);
-            const rb = document.createElement('button');
-            rb.type = 'button';
-            rb.className = 'lesson-draft-section-add';
-            rb.textContent = 'Remove';
-            rb.addEventListener('click', async () => {
-                try {
-                    const { error } = await supabase
-                        .from('lessons_learned_metadata')
-                        .delete()
-                        .eq('id', link.id)
-                        .eq('organization_id', orgId);
-                    if (error) throw error;
-                    const idx = currentLinks.indexOf(link);
-                    if (idx >= 0) currentLinks.splice(idx, 1);
-                    assignedSet.delete(
-                        String(link.lessons_learned_metadata_list_id || '')
-                    );
-                    rebuildCurrentList();
-                    setToolbarStatus('Metadata tag removed.', false);
-                    await onChanged();
-                } catch (err) {
-                    console.error(err);
-                    setToolbarStatus(err.message || 'Remove failed.', true);
-                }
-            });
+            if (
+                forReviewCollaborative &&
+                isReviewerContribution(link.created_by, lessonCreatorId)
+            ) {
+                t.classList.add('org-lesson-metadata-tag--reviewer');
+            }
             li.appendChild(t);
-            li.appendChild(rb);
+            const canRemove =
+                !forReviewCollaborative ||
+                canMutateSubRow(link.created_by, lessonCreatorId, userId);
+            if (canRemove) {
+                const rb = document.createElement('button');
+                rb.type = 'button';
+                rb.className = 'lesson-draft-section-add';
+                rb.textContent = 'Remove';
+                rb.addEventListener('click', async () => {
+                    try {
+                        let qDel = supabase
+                            .from('lessons_learned_metadata')
+                            .delete()
+                            .eq('id', link.id)
+                            .eq('organization_id', orgId);
+                        if (forReviewCollaborative && link.created_by != null) {
+                            qDel = qDel.eq('created_by', userId);
+                        }
+                        const { error } = await qDel;
+                        if (error) throw error;
+                        const idx = currentLinks.indexOf(link);
+                        if (idx >= 0) currentLinks.splice(idx, 1);
+                        assignedSet.delete(
+                            String(link.lessons_learned_metadata_list_id || '')
+                        );
+                        rebuildCurrentList();
+                        setToolbarStatus('Metadata tag removed.', false);
+                        await onChanged();
+                    } catch (err) {
+                        console.error(err);
+                        setToolbarStatus(err.message || 'Remove failed.', true);
+                    }
+                });
+                li.appendChild(rb);
+            }
             curList.appendChild(li);
         });
         if (!curList.childNodes.length) {

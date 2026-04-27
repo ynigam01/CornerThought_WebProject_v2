@@ -5927,8 +5927,9 @@ const projectFormHTML = `
         const projectId = project && project.project_id != null ? project.project_id : null;
         const userId = ctUser && ctUser.id != null ? ctUser.id : null;
         const currentUserType = ctUser && ctUser.usertype ? String(ctUser.usertype).trim().toLowerCase() : '';
-        const isProjectManager = currentUserType === 'project manager';
-        if (!organizationId || projectId == null || (!isProjectManager && userId == null)) {
+        const isLessonModerator =
+            currentUserType === 'project manager' || currentUserType === 'subject matter expert';
+        if (!organizationId || projectId == null || (!isLessonModerator && userId == null)) {
             setSingleOption('No categories available yet');
             return;
         }
@@ -5939,7 +5940,7 @@ const projectFormHTML = `
         try {
             let rows = [];
 
-            if (isProjectManager) {
+            if (isLessonModerator) {
                 const { data: metadataLinks, error: linkErr } = await supabase
                     .from('lessons_learned_metadata')
                     .select('lessons_learned_metadata_list_id')
@@ -6114,6 +6115,12 @@ const projectFormHTML = `
         return t === 'project manager';
     }
 
+    /** Project Manager or Subject Matter Expert: full My Projects lesson access (categories, For Review visibility). */
+    function myProjectsViewerIsLessonModerator() {
+        const t = ctUser && ctUser.usertype ? String(ctUser.usertype).trim().toLowerCase() : '';
+        return t === 'project manager' || t === 'subject matter expert';
+    }
+
     /**
      * @param {string|number} projectId
      * @param {string|number|null|undefined} userId
@@ -6170,12 +6177,12 @@ const projectFormHTML = `
     /**
      * For-review lessons: creator, Project Manager, or assignment overlap on linked metadata list ids.
      * @param {object} row
-     * @param {{ isProjectManager: boolean, userId: string|number|null|undefined, assignedMetadataListIds: Set<string>, lessonMetadataListIds: string[] }} opts
+     * @param {{ isLessonModerator: boolean, userId: string|number|null|undefined, assignedMetadataListIds: Set<string>, lessonMetadataListIds: string[] }} opts
      */
     function myProjectsUserCanViewForReviewLesson(row, opts) {
-        const { isProjectManager, userId, assignedMetadataListIds, lessonMetadataListIds } = opts;
+        const { isLessonModerator, userId, assignedMetadataListIds, lessonMetadataListIds } = opts;
         if (normalizeMyProjectsReviewValue(row && row.review) !== 'for review') return true;
-        if (isProjectManager) return true;
+        if (isLessonModerator) return true;
         if (userId != null && String(row && row.created_by) === String(userId)) return true;
         const mids = Array.isArray(lessonMetadataListIds) ? lessonMetadataListIds : [];
         return mids.some((id) => assignedMetadataListIds && assignedMetadataListIds.has(String(id)));
@@ -6204,11 +6211,11 @@ const projectFormHTML = `
         const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
         const selectedMetadataId = categoriesSelect ? categoriesSelect.value || '' : '';
 
-        const isPMFull = myProjectsViewerIsProjectManager();
+        const isModeratorFull = myProjectsViewerIsLessonModerator();
         let assignedIdsForDetail = undefined;
         const pidFull = project && project.project_id != null ? project.project_id : null;
         if (
-            !isPMFull &&
+            !isModeratorFull &&
             pidFull != null &&
             myProjectsWorkspaceAssignedForProjectId != null &&
             String(myProjectsWorkspaceAssignedForProjectId) === String(pidFull) &&
@@ -6222,7 +6229,7 @@ const projectFormHTML = `
             organizationId,
             projectId: project && project.project_id,
             userId: ctUser && ctUser.id != null ? ctUser.id : null,
-            isProjectManager: isPMFull,
+            isLessonModerator: isModeratorFull,
             assignedMetadataListIds: assignedIdsForDetail,
             projectTypeId:
                 project && project.project_type_id != null ? project.project_type_id : null,
@@ -6312,7 +6319,7 @@ const projectFormHTML = `
         projectId,
         myUserId,
         selectedStatus,
-        isPM,
+        isModerator,
         assignedSet,
         requestToken,
         resultsToken,
@@ -6415,7 +6422,7 @@ const projectFormHTML = `
             const metaIdsForLesson = supMetaMap.get(lid) || [];
             if (
                 !myProjectsUserCanViewForReviewLesson(row, {
-                    isProjectManager: isPM,
+                    isLessonModerator: isModerator,
                     userId: myUserId,
                     assignedMetadataListIds: assignedSet,
                     lessonMetadataListIds: metaIdsForLesson,
@@ -6438,7 +6445,7 @@ const projectFormHTML = `
             if (!row) return;
             if (
                 !myProjectsUserCanViewForReviewLesson(row, {
-                    isProjectManager: isPM,
+                    isLessonModerator: isModerator,
                     userId: myUserId,
                     assignedMetadataListIds: assignedSet,
                     lessonMetadataListIds: [],
@@ -6593,13 +6600,13 @@ const projectFormHTML = `
                     return;
                 }
 
-                const isPM = myProjectsViewerIsProjectManager();
+                const isModerator = myProjectsViewerIsLessonModerator();
                 let assignedSet = new Set();
-                if (!isPM && myUserId != null) {
+                if (!isModerator && myUserId != null) {
                     assignedSet = await fetchMyProjectsUserAssignedMetadataListIds(projectId, myUserId);
                 }
                 if (requestToken !== myProjectsLessonsResultsRequestToken) return;
-                myProjectsWorkspaceAssignedMetadataListIds = isPM ? null : assignedSet;
+                myProjectsWorkspaceAssignedMetadataListIds = isModerator ? null : assignedSet;
                 myProjectsWorkspaceAssignedForProjectId = projectId;
                 const lessonMetaMap = buildLessonIdToMetadataListIdsFromLinks(links);
 
@@ -6632,7 +6639,7 @@ const projectFormHTML = `
                     if (!myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)) return false;
                     const metaIds = lessonMetaMap.get(String(row && row.id)) || [];
                     return myProjectsUserCanViewForReviewLesson(row, {
-                        isProjectManager: isPM,
+                        isLessonModerator: isModerator,
                         userId: myUserId,
                         assignedMetadataListIds: assignedSet,
                         lessonMetadataListIds: metaIds,
@@ -6682,7 +6689,7 @@ const projectFormHTML = `
                     projectId,
                     myUserId,
                     selectedStatus,
-                    isPM,
+                    isModerator,
                     assignedSet,
                     requestToken,
                     resultsToken: myProjectsLessonsResultsRequestToken,
@@ -6748,13 +6755,13 @@ const projectFormHTML = `
             const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
             const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
 
-            const isPMSingle = myProjectsViewerIsProjectManager();
+            const isModeratorSingle = myProjectsViewerIsLessonModerator();
             let assignedSetSingle = new Set();
-            if (!isPMSingle && myUserId != null) {
+            if (!isModeratorSingle && myUserId != null) {
                 assignedSetSingle = await fetchMyProjectsUserAssignedMetadataListIds(projectId, myUserId);
             }
             if (requestToken !== myProjectsLessonsResultsRequestToken) return;
-            myProjectsWorkspaceAssignedMetadataListIds = isPMSingle ? null : assignedSetSingle;
+            myProjectsWorkspaceAssignedMetadataListIds = isModeratorSingle ? null : assignedSetSingle;
             myProjectsWorkspaceAssignedForProjectId = projectId;
             const singleCategoryMetaIds = [String(metadataId)];
 
@@ -6780,7 +6787,7 @@ const projectFormHTML = `
             const lessons = (Array.isArray(lessonRows) ? lessonRows : []).filter((row) => {
                 if (!myProjectsLessonRowMatchesStatusFilter(row, selectedStatus, myUserId)) return false;
                 return myProjectsUserCanViewForReviewLesson(row, {
-                    isProjectManager: isPMSingle,
+                    isLessonModerator: isModeratorSingle,
                     userId: myUserId,
                     assignedMetadataListIds: assignedSetSingle,
                     lessonMetadataListIds: singleCategoryMetaIds,

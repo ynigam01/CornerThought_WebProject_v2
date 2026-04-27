@@ -1705,6 +1705,29 @@ body {
     word-break: break-word;
 }
 
+.lesson-for-review-toolbar-label {
+    font-weight: 600;
+    color: #1e3a5f;
+    padding: 8px 12px 8px 0;
+}
+
+.org-lesson-review-contribution,
+.lesson-detail-item-label.org-lesson-review-contribution {
+    color: #0066ff;
+    font-style: italic;
+}
+
+.org-lesson-review-contribution-byline {
+    font-style: italic;
+    color: #0066ff;
+    font-weight: 500;
+}
+
+.org-lesson-metadata-tag--reviewer {
+    color: #0066ff;
+    font-weight: 500;
+}
+
 .metadata-row-clickable {
     cursor: pointer;
 }
