@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Cache of organization-specific project types for use in create project forms
     let orgProjectTypes = [];
-    let orgProjectTypesLoaded = false;
+    let orgProjectTypesQuery = null;
 
     // State for organization project details sub-module (Create view)
     let orgProjectDetailsPanel = null;
@@ -161,26 +161,29 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
     let selectedOrgManageUserId = null;
 
-    async function loadOrgProjectTypes() {
-        if (!organizationId || orgProjectTypesLoaded) return;
-        try {
-            const { data, error } = await supabase
-                .from('project_type')
-                .select('project_type')
-                .eq('organization_id', organizationId)
-                .order('project_type', { ascending: true });
+    async function loadOrgProjectTypes(query = '') {
+        const normalizedQuery = String(query || '').trim();
+        if (!ctUser || ctUser.id == null) return;
+        if (orgProjectTypesQuery === normalizedQuery) return;
 
-            if (error) {
-                console.error('Error loading organization project types for Create Project:', error);
-                return;
+        try {
+            const params = new URLSearchParams({ userId: String(ctUser.id) });
+            if (normalizedQuery) {
+                params.set('q', normalizedQuery);
+            }
+            const response = await fetch(`/api/project-types?${params.toString()}`);
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Unable to load project types');
             }
 
-            const names = (data || [])
+            const names = (payload.projectTypes || [])
                 .map(row => row && row.project_type)
                 .filter(Boolean);
 
             orgProjectTypes = Array.from(new Set(names));
-            orgProjectTypesLoaded = true;
+            orgProjectTypesQuery = normalizedQuery;
         } catch (err) {
             console.error('Unexpected error loading organization project types for Create Project:', err);
         }
@@ -383,66 +386,36 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Insert a new organization project into Supabase `projects` table.
+    // Insert a new organization project through the app API.
     // Expects `type` to already be validated as a valid organization project type.
     async function createOrganizationProject({ name, type, assetRaw, descRaw, startRaw, endRaw }) {
-        if (!organizationId) {
+        if (!ctUser || ctUser.id == null || !organizationId) {
             alert('Could not determine your organization. Please log out and log back in, or contact your administrator.');
             return { success: false };
         }
 
-        // Normalize optional fields
-        const asset = assetRaw === 'N/A' || assetRaw === '' ? null : (assetRaw || null);
-        const desc = descRaw || null;
-        const start = startRaw || null;
-        const end = endRaw || null;
-
         try {
-            // Look up the project_type id for this organization and type name
-            const { data: typeRows, error: typeErr } = await supabase
-                .from('project_type')
-                .select('id')
-                .eq('organization_id', organizationId)
-                .eq('project_type', type)
-                .limit(1);
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: ctUser.id,
+                    name,
+                    type,
+                    assetRaw,
+                    descRaw,
+                    startRaw,
+                    endRaw
+                })
+            });
+            const payload = await response.json().catch(() => ({}));
 
-            if (typeErr) {
-                console.error('Error looking up organization project_type:', typeErr);
-                alert('Failed to look up project type. Please try again.');
+            if (!response.ok) {
+                alert(payload.error || 'Failed to create project. Please try again.');
                 return { success: false };
             }
 
-            if (!typeRows || typeRows.length === 0) {
-                alert('The selected Project Type could not be found for your organization. Please refresh and try again.');
-                return { success: false };
-            }
-
-            const projectTypeId = typeRows[0].id;
-
-            const projectPayload = {
-                project_name: name,
-                project_type_id: projectTypeId,
-                project_description: desc,
-                asset_new_existing: asset,
-                start_date: start,
-                end_date: end,
-                organization_id: organizationId,
-                search_embedding: null
-            };
-
-            const { data: projectRow, error: projectErr } = await supabase
-                .from('projects')
-                .insert(projectPayload)
-                .select()
-                .single();
-
-            if (projectErr) {
-                console.error('Error inserting organization project:', projectErr);
-                alert('Failed to create project. Please try again.');
-                return { success: false };
-            }
-
-            return { success: true, project: projectRow };
+            return { success: true, project: payload.project };
         } catch (err) {
             console.error('Unexpected error creating organization project:', err);
             alert('An unexpected error occurred while creating the project.');
@@ -3310,20 +3283,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         inputEl.addEventListener('focus', async () => {
-            await loadOrgProjectTypes();
+            await loadOrgProjectTypes(inputEl.value);
             renderOptions(orgProjectTypes);
         });
 
-        inputEl.addEventListener('input', () => {
-            const query = inputEl.value.trim().toLowerCase();
+        inputEl.addEventListener('input', async () => {
+            const query = inputEl.value.trim();
+            await loadOrgProjectTypes(query);
             if (!query) {
                 renderOptions(orgProjectTypes);
                 return;
             }
-            const filtered = orgProjectTypes.filter(name =>
-                String(name).toLowerCase().includes(query)
-            );
-            renderOptions(filtered);
+            renderOptions(orgProjectTypes);
         });
 
         inputEl.addEventListener('blur', () => {
@@ -3740,6 +3711,7 @@ const projectFormHTML = `
             alert('Please fill in both Project Name and Type.');
             return;
         }
+        await loadOrgProjectTypes(type);
         if (!isValidOrgProjectType(type)) {
             alert('Please choose a valid Project Type from the list for your organization.');
             return;
@@ -8486,6 +8458,7 @@ const projectFormHTML = `
                     alert('Please fill in both Project Name and Type.');
                     return;
                 }
+                await loadOrgProjectTypes(type);
                 if (!isValidOrgProjectType(type)) {
                     alert('Please choose a valid Project Type from the list for your organization.');
                     return;
