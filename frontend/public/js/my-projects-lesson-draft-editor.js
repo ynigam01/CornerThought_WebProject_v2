@@ -1359,6 +1359,28 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     .eq('organization_id', orgId);
                 if (error) throw error;
                 lessonRowState.review = 'for review';
+                try {
+                    const { createLessonsLearnedReviewNotifications } = await import('./notifications.js');
+                    const { error: notifErr } = await createLessonsLearnedReviewNotifications({
+                        supabase,
+                        lessonsLearnedId: lessonId,
+                        projectId: pid,
+                        organizationId: orgId,
+                    });
+                    if (notifErr) {
+                        console.error('Review notification insert failed:', notifErr);
+                        setToolbarStatus(
+                            `Sent for review, but notifications failed: ${notifErr.message}`,
+                            true
+                        );
+                    }
+                } catch (notifImportErr) {
+                    console.error(notifImportErr);
+                    setToolbarStatus(
+                        'Sent for review, but review notifications could not be loaded.',
+                        true
+                    );
+                }
                 if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
                 const mod = await import('./my-projects-lesson-detail.js');
                 mountEl.innerHTML = '';

@@ -4372,6 +4372,19 @@ const projectFormHTML = `
 
         try {
             let savedCount = 0;
+            const notificationWarnings = [];
+
+            let createLessonsLearnedReviewNotifications = null;
+            if (!isDraftSave) {
+                try {
+                    const notificationsMod = await import('./notifications.js');
+                    createLessonsLearnedReviewNotifications =
+                        notificationsMod.createLessonsLearnedReviewNotifications;
+                } catch (importErr) {
+                    console.error('Failed to load notifications module:', importErr);
+                    notificationWarnings.push('Review notifications module could not be loaded.');
+                }
+            }
 
             for (const entry of entries) {
                 const title = (entry.dataset && entry.dataset.text) ? entry.dataset.text : '';
@@ -4525,13 +4538,31 @@ const projectFormHTML = `
                         }
                     }
                 }
+
+                if (!isDraftSave && typeof createLessonsLearnedReviewNotifications === 'function') {
+                    const { error: notifErr } = await createLessonsLearnedReviewNotifications({
+                        supabase,
+                        lessonsLearnedId: lessonId,
+                        projectId,
+                        organizationId: orgId,
+                    });
+                    if (notifErr) {
+                        console.error('Review notification insert failed:', notifErr);
+                        notificationWarnings.push(
+                            notifErr.message || 'Failed to create review notifications.'
+                        );
+                    }
+                }
             }
 
-            setSaveLessonsStatus(
-                isDraftSave
-                    ? `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} as draft.`
-                    : `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`
-            );
+            let statusMsg = isDraftSave
+                ? `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} as draft.`
+                : `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`;
+            if (!isDraftSave && notificationWarnings.length) {
+                const unique = [...new Set(notificationWarnings)];
+                statusMsg += ` Note: ${unique.join(' ')}`;
+            }
+            setSaveLessonsStatus(statusMsg);
             resetMainArea();
         } catch (err) {
             console.error('Error saving lessons learned:', err);
