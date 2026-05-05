@@ -8,6 +8,9 @@
  * For the welcome / notifications list UI, the same user needs SELECT on their
  * `lessons_learned_review_notifications` rows plus read access to `lessons_learned` and `projects`
  * as used by fetchReviewNotificationsForUserGrouped.
+ *
+ * Marking notifications as read requires UPDATE on `lessons_learned_review_notifications` for rows
+ * matching the current user and lesson (see markReviewNotificationsNotifiedForLesson).
  */
 
 const IN_CHUNK = 250;
@@ -289,4 +292,38 @@ export async function fetchReviewNotificationsForUserGrouped({
     groups.sort((a, b) => String(a.projectName).localeCompare(String(b.projectName)));
 
     return { groups, error: null };
+}
+
+/**
+ * Sets notified = true for all review-notification rows for this user + lesson + org.
+ * @param {{
+ *   supabase: import('@supabase/supabase-js').SupabaseClient,
+ *   userId: string | number,
+ *   organizationId: string | number,
+ *   lessonsLearnedId: string | number,
+ * }} args
+ * @returns {Promise<{ error: Error | null }>}
+ */
+export async function markReviewNotificationsNotifiedForLesson({
+    supabase,
+    userId,
+    organizationId,
+    lessonsLearnedId,
+}) {
+    if (!supabase || userId == null || organizationId == null || lessonsLearnedId == null) {
+        return { error: new Error('Missing supabase client, user id, organization id, or lesson id.') };
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await supabase
+        .from('lessons_learned_review_notifications')
+        .update({ notified: true, updated_at: now })
+        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
+        .eq('lessons_learned_id', lessonsLearnedId);
+
+    if (error) {
+        return { error: new Error(error.message || 'Failed to update notification status.') };
+    }
+    return { error: null };
 }

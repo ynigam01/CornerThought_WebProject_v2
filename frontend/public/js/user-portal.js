@@ -7,7 +7,10 @@ import { importProjectTeamListExcelToSupabase, updateProjectTeamListExcelToSupab
 import { importProjectMiscListExcelToSupabase, updateProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
 import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
 import { createMyProjectsLessonWrap, mountLessonFullPage } from './my-projects-lesson-detail.js';
-import { fetchReviewNotificationsForUserGrouped } from './notifications.js';
+import {
+    fetchReviewNotificationsForUserGrouped,
+    markReviewNotificationsNotifiedForLesson,
+} from './notifications.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -5237,7 +5240,16 @@ const projectFormHTML = `
             ul.className = 'review-notifications-lesson-list';
             for (const les of g.lessons) {
                 const li = document.createElement('li');
-                li.textContent = les.title ? String(les.title) : '(Untitled)';
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'review-notifications-lesson-link';
+                btn.textContent = les.title ? String(les.title) : '(Untitled)';
+                const pid = g.projectId;
+                const lid = les.id;
+                btn.addEventListener('click', () => {
+                    void openLessonFromReviewNotifications(pid, lid);
+                });
+                li.appendChild(btn);
                 ul.appendChild(li);
             }
             block.appendChild(ul);
@@ -5256,6 +5268,74 @@ const projectFormHTML = `
         const rv = document.getElementById('reviewNotificationsView');
         if (rv) rv.hidden = false;
         renderReviewNotificationsList();
+    }
+
+    /**
+     * Opens a for-review lesson in the same full-screen My Projects viewer, after marking notifications notified.
+     * @param {string|number} projectId
+     * @param {string|number} lessonId
+     */
+    async function openLessonFromReviewNotifications(projectId, lessonId) {
+        if (!ctUser || ctUser.id == null || !organizationId) return;
+        if (projectId == null || lessonId == null) return;
+
+        const { data: lessonRow, error: lessonErr } = await supabase
+            .from('lessons_learned')
+            .select('id, title, category, review, created_by')
+            .eq('id', lessonId)
+            .eq('project_id', projectId)
+            .eq('organization_id', organizationId)
+            .maybeSingle();
+
+        if (lessonErr || !lessonRow) {
+            console.error(lessonErr || new Error('Lesson not found.'));
+            alert(lessonErr?.message || 'Could not load this lesson.');
+            return;
+        }
+
+        if (normalizeMyProjectsReviewValue(lessonRow.review) !== 'for review') {
+            alert('This lesson is no longer in For Review status.');
+            return;
+        }
+
+        const { data: projectRow, error: projectErr } = await supabase
+            .from('projects')
+            .select('project_id, project_name, project_type_id')
+            .eq('project_id', projectId)
+            .eq('organization_id', organizationId)
+            .maybeSingle();
+
+        if (projectErr || !projectRow) {
+            console.error(projectErr || new Error('Project not found.'));
+            alert(projectErr?.message || 'Could not load this project.');
+            return;
+        }
+
+        const { error: markErr } = await markReviewNotificationsNotifiedForLesson({
+            supabase,
+            userId: ctUser.id,
+            organizationId,
+            lessonsLearnedId: lessonId,
+        });
+        if (markErr) {
+            console.error(markErr);
+            alert(markErr.message || 'Could not update notification status.');
+            return;
+        }
+
+        void refreshWelcomeReviewNotificationsBanner();
+
+        navigate('projects');
+        queueMicrotask(() => {
+            showMyProjectsLessonFullView(lessonRow, projectRow);
+        });
+        if ((location.hash || '#home') !== '#projects') {
+            try {
+                history.replaceState(null, '', `${location.pathname}${location.search}#projects`);
+            } catch (_) {
+                /* keep URL as-is if replaceState fails */
+            }
+        }
     }
 
     function showHomeView() {
