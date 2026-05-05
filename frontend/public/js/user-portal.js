@@ -7,6 +7,7 @@ import { importProjectTeamListExcelToSupabase, updateProjectTeamListExcelToSupab
 import { importProjectMiscListExcelToSupabase, updateProjectMiscListExcelToSupabase } from './excel-project-misc-importer.js';
 import { importAssetGeneralExcelToSupabase } from './excel-asset-general-importer.js';
 import { createMyProjectsLessonWrap, mountLessonFullPage } from './my-projects-lesson-detail.js';
+import { fetchReviewNotificationsForUserGrouped } from './notifications.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -148,6 +149,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataMetadataLoaded = false;
     let addDataMetadataLoading = false;
     let addDataMetadataEntry = null;
+
+    /** @type {Array<{ projectId: string | number, projectName: string, lessons: Array<{ id: unknown, title: string }> }>} */
+    let welcomeReviewNotificationGroupsCache = [];
     let saveLessonsButton = null;
     let saveDraftButton = null;
     let saveLessonsStatus = null;
@@ -5192,6 +5196,68 @@ const projectFormHTML = `
         if (el) el.hidden = true;
     }
 
+    async function refreshWelcomeReviewNotificationsBanner() {
+        const banner = document.getElementById('welcomeReviewNotificationsBanner');
+        if (!banner) {
+            welcomeReviewNotificationGroupsCache = [];
+            return;
+        }
+        if (!ctUser || ctUser.id == null || !organizationId) {
+            welcomeReviewNotificationGroupsCache = [];
+            banner.hidden = true;
+            return;
+        }
+        const { groups, error } = await fetchReviewNotificationsForUserGrouped({
+            supabase,
+            userId: ctUser.id,
+            organizationId,
+        });
+        if (error) {
+            console.error(error);
+            welcomeReviewNotificationGroupsCache = [];
+            banner.hidden = true;
+            return;
+        }
+        welcomeReviewNotificationGroupsCache = groups;
+        banner.hidden = groups.length === 0;
+    }
+
+    function renderReviewNotificationsList() {
+        const listEl = document.getElementById('reviewNotificationsList');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        for (const g of welcomeReviewNotificationGroupsCache) {
+            const block = document.createElement('div');
+            block.className = 'review-notifications-project-block';
+            const heading = document.createElement('h3');
+            heading.className = 'review-notifications-project-name';
+            heading.textContent = g.projectName || '';
+            block.appendChild(heading);
+            const ul = document.createElement('ul');
+            ul.className = 'review-notifications-lesson-list';
+            for (const les of g.lessons) {
+                const li = document.createElement('li');
+                li.textContent = les.title ? String(les.title) : '(Untitled)';
+                ul.appendChild(li);
+            }
+            block.appendChild(ul);
+            listEl.appendChild(block);
+        }
+    }
+
+    function showReviewNotificationsView() {
+        const org = document.getElementById('orgView');
+        if (org) org.remove();
+        hide('#homeView');
+        hide('#searchView');
+        hide('#createView');
+        hide('#addDataView');
+        hide('#projectsView');
+        const rv = document.getElementById('reviewNotificationsView');
+        if (rv) rv.hidden = false;
+        renderReviewNotificationsList();
+    }
+
     function showHomeView() {
         // Remove org view if present, show home, hide search
         exitOrganizationSettings();
@@ -5206,9 +5272,11 @@ const projectFormHTML = `
         hide('#createView');
         hide('#addDataView');
         hide('#projectsView');
+        hide('#reviewNotificationsView');
         // Ensure header visible and display area hidden by default
         const header = document.querySelector('#homeView h1');
         if (header) header.style.display = '';
+        void refreshWelcomeReviewNotificationsBanner();
     }
 
     function showSearchView() {
@@ -5219,6 +5287,7 @@ const projectFormHTML = `
         hide('#createView');
         hide('#addDataView');
         hide('#projectsView');
+        hide('#reviewNotificationsView');
     }
 
     function showSearchProjectsView() {
@@ -8382,6 +8451,7 @@ const projectFormHTML = `
         show('#createView');
         hide('#addDataView');
         hide('#projectsView');
+        hide('#reviewNotificationsView');
         // When entering Create view, default to showing the Create Project form (hide sub-modules)
         hideOrgProjectDetailsPanel();
         hideLessonsMetadataPanel();
@@ -8574,6 +8644,7 @@ const projectFormHTML = `
         hide('#createView');
         show('#addDataView');
         hide('#projectsView');
+        hide('#reviewNotificationsView');
     }
 
     // Function to display Organization Settings
@@ -8584,6 +8655,7 @@ const projectFormHTML = `
         hide('#createView');
         hide('#addDataView');
         hide('#projectsView');
+        hide('#reviewNotificationsView');
         // If already present, don't duplicate
         if (!document.getElementById('orgView')) {
             const tpl = document.getElementById('orgSettingsTemplate');
@@ -10397,6 +10469,7 @@ const projectFormHTML = `
     function exitOrganizationSettings() {
         const org = document.getElementById('orgView');
         if (org) org.remove();
+        hide('#reviewNotificationsView');
         // Restore home view visibility if needed
         show('#homeView');
     }
@@ -10443,6 +10516,26 @@ const projectFormHTML = `
             resetMainArea();
             showHomeView();
         }
+    }
+
+    const welcomeReviewNotificationsCta = document.getElementById('welcomeReviewNotificationsCta');
+    const reviewNotificationsBack = document.getElementById('reviewNotificationsBack');
+    if (welcomeReviewNotificationsCta) {
+        welcomeReviewNotificationsCta.addEventListener('click', () => {
+            if (!confirmNavigation('open-notifications')) return;
+            showReviewNotificationsView();
+        });
+    }
+    if (reviewNotificationsBack) {
+        reviewNotificationsBack.addEventListener('click', () => {
+            if (!confirmNavigation('home')) return;
+            const r = (location.hash || '#home').replace('#', '');
+            if (r !== 'home') {
+                location.hash = 'home';
+            } else {
+                navigate('home');
+            }
+        });
     }
 
     window.addEventListener('hashchange', () => {

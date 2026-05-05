@@ -45,6 +45,12 @@
             <section id="homeView" class="view">
                 <h1>Welcome, User</h1>
 
+                <div id="welcomeReviewNotificationsBanner" class="welcome-review-notifications-banner" hidden>
+                    <button type="button" id="welcomeReviewNotificationsCta" class="welcome-review-notifications-cta">
+                        New Notifications for Your Projects
+                    </button>
+                </div>
+
                 <!-- Display area for Issue/Success entries -->
                 <div id="issueSuccessDisplay" class="display-area" style="display: none;"></div>
 
@@ -84,6 +90,13 @@
                     </div>
                 </div>
                 <div id="addDataDisplay" class="display-area" style="display: none;"></div>
+            </section>
+
+            <section id="reviewNotificationsView" class="view" hidden>
+                <button type="button" id="reviewNotificationsBack" class="review-notifications-back">Go back</button>
+                <h1>Notifications</h1>
+                <h2 class="review-notifications-subtitle">For Review</h2>
+                <div id="reviewNotificationsList" class="review-notifications-list"></div>
             </section>
 
             <template id="orgSettingsTemplate">
