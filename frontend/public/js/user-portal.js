@@ -11,6 +11,7 @@ import {
     fetchReviewNotificationsForUserGrouped,
     markReviewNotificationsNotifiedForLesson,
 } from './notifications.js';
+import { mountProjectAnalysisPortal, clearProjectAnalysisPortal } from './project_analysis_portal.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -5408,6 +5409,7 @@ const projectFormHTML = `
             enableProjectWorkspace = false
         } = options;
         const workspaceEnabled = Boolean(enableProjectWorkspace);
+        const showMyProjectsProjectAnalysisButton = workspaceEnabled && myProjectsViewerIsProjectManager();
 
         // #region agent log
         fetch('http://127.0.0.1:7492/ingest/3aa172e9-ee8c-4076-afde-9f5cd44c04d8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a193c2'},body:JSON.stringify({sessionId:'a193c2',hypothesisId:'A',location:'user-portal.js:renderSearchProjectsModule',message:'before innerHTML replace',data:{lessonFullscreen:searchView.classList.contains('search-view--lesson-fullscreen'),workspaceEnabled},timestamp:Date.now(),runId:'pre-fix'})}).catch(()=>{});
@@ -5417,13 +5419,18 @@ const projectFormHTML = `
         searchProjectsWorkspaceEnabled = workspaceEnabled;
         searchProjectsListPageTitle = title;
         searchProjectsSelectedProject = null;
+        if (workspaceEnabled) {
+            myProjectsProjectAnalysisViewActive = false;
+            myProjectsLessonsResultsVisibilityBeforeAnalysis = false;
+        }
 
         // Re-render from scratch each time we enter this route.
         searchView.innerHTML = `
             <h1 id="searchProjectsPageTitle">${title}</h1>
             ${workspaceEnabled ? `
-                <div id="myProjectsWorkspaceTopNav" style="display: none; margin: 0 0 14px;">
+                <div id="myProjectsWorkspaceTopNav" class="my-projects-workspace-top-nav" style="display: none; margin: 0 0 14px;">
                     <button type="button" id="myProjectsWorkspaceBack" class="secondary-button">Go Back</button>
+                    ${showMyProjectsProjectAnalysisButton ? '<button type="button" id="myProjectsProjectAnalysisButton" class="side-button">Project Analysis</button>' : ''}
                 </div>
                 <div id="myProjectsWorkspacePanel" class="project-types-panel my-projects-submodule-panel" style="display: none;">
                     <div class="form-group" style="margin-bottom: 0;">
@@ -5457,6 +5464,9 @@ const projectFormHTML = `
                 <div id="myProjectsLessonsResultsPanel" class="project-types-panel" style="display: none;">
                     <div id="myProjectsLessonsStatus" class="upload-message" aria-live="polite"></div>
                     <div id="myProjectsLessonsResults" class="my-projects-lessons-results" style="margin-top: 12px;"></div>
+                </div>
+                <div id="myProjectsProjectAnalysisPanel" class="project-types-panel my-projects-project-analysis-panel" style="display: none;">
+                    <div id="myProjectsProjectAnalysisMount" class="my-projects-project-analysis-mount"></div>
                 </div>
                 <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
                     <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
@@ -5643,7 +5653,17 @@ const projectFormHTML = `
             const workspaceBack = document.getElementById('myProjectsWorkspaceBack');
             if (workspaceBack) {
                 workspaceBack.addEventListener('click', () => {
-                    hideMyProjectsProjectWorkspace();
+                    if (myProjectsProjectAnalysisViewActive) {
+                        exitMyProjectsProjectAnalysisView();
+                    } else {
+                        hideMyProjectsProjectWorkspace();
+                    }
+                });
+            }
+            const projectAnalysisBtn = document.getElementById('myProjectsProjectAnalysisButton');
+            if (projectAnalysisBtn) {
+                projectAnalysisBtn.addEventListener('click', () => {
+                    enterMyProjectsProjectAnalysisView();
                 });
             }
         }
@@ -5844,6 +5864,8 @@ const projectFormHTML = `
     let myProjectsLessonsCategoriesRequestToken = 0;
     let myProjectsLessonsResultsRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
+    let myProjectsProjectAnalysisViewActive = false;
+    let myProjectsLessonsResultsVisibilityBeforeAnalysis = false;
 
     async function loadOrganizationProjectsForSearch() {
         if (!organizationId) {
@@ -6037,6 +6059,7 @@ const projectFormHTML = `
 
     function hideMyProjectsProjectWorkspace() {
         hideMyProjectsLessonFullView();
+        resetMyProjectsProjectAnalysisShell();
         const topNav = document.getElementById('myProjectsWorkspaceTopNav');
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const main = document.getElementById('searchProjectsMain');
@@ -6052,6 +6075,7 @@ const projectFormHTML = `
     }
 
     async function showMyProjectsWorkspace(project) {
+        resetMyProjectsProjectAnalysisShell();
         const topNav = document.getElementById('myProjectsWorkspaceTopNav');
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
@@ -6068,7 +6092,7 @@ const projectFormHTML = `
         }
 
         if (main) main.style.display = 'none';
-        if (topNav) topNav.style.display = 'block';
+        if (topNav) topNav.style.display = 'flex';
         panel.style.display = 'block';
         setMyProjectsLessonsResultsPanelVisible(false);
         updateSearchProjectsNameList(document.getElementById('searchProjectsInput')?.value || '');
@@ -6089,6 +6113,49 @@ const projectFormHTML = `
         }
         await loadMyProjectsLessonsCategories(project);
         loadMyProjectsLessonsForSelectedCategory(project, '');
+    }
+
+    function resetMyProjectsProjectAnalysisShell() {
+        myProjectsProjectAnalysisViewActive = false;
+        const analysisPanel = document.getElementById('myProjectsProjectAnalysisPanel');
+        const mount = document.getElementById('myProjectsProjectAnalysisMount');
+        if (analysisPanel) analysisPanel.style.display = 'none';
+        if (mount) clearProjectAnalysisPortal(mount);
+    }
+
+    function enterMyProjectsProjectAnalysisView() {
+        const workspacePanel = document.getElementById('myProjectsWorkspacePanel');
+        const resultsPanel = document.getElementById('myProjectsLessonsResultsPanel');
+        const analysisPanel = document.getElementById('myProjectsProjectAnalysisPanel');
+        const mount = document.getElementById('myProjectsProjectAnalysisMount');
+        if (!workspacePanel || !analysisPanel || !mount) return;
+
+        myProjectsLessonsResultsVisibilityBeforeAnalysis =
+            Boolean(resultsPanel && resultsPanel.style.display !== 'none');
+
+        workspacePanel.style.display = 'none';
+        setMyProjectsLessonsResultsPanelVisible(false);
+
+        analysisPanel.style.display = 'block';
+        myProjectsProjectAnalysisViewActive = true;
+        mountProjectAnalysisPortal({
+            mountEl: mount,
+            project: searchProjectsSelectedProject,
+            ctUser,
+        });
+        analysisPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function exitMyProjectsProjectAnalysisView() {
+        const workspacePanel = document.getElementById('myProjectsWorkspacePanel');
+        const analysisPanel = document.getElementById('myProjectsProjectAnalysisPanel');
+        const mount = document.getElementById('myProjectsProjectAnalysisMount');
+
+        myProjectsProjectAnalysisViewActive = false;
+        if (mount) clearProjectAnalysisPortal(mount);
+        if (analysisPanel) analysisPanel.style.display = 'none';
+        if (workspacePanel) workspacePanel.style.display = 'block';
+        setMyProjectsLessonsResultsPanelVisible(myProjectsLessonsResultsVisibilityBeforeAnalysis);
     }
 
     async function loadMyProjectsLessonsCategories(project) {

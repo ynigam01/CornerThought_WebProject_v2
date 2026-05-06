@@ -1109,6 +1109,31 @@ body {
 }
 
 /* === User Portal Search Projects list === */
+.my-projects-workspace-top-nav {
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.my-projects-project-analysis-panel {
+    margin-top: 0;
+}
+
+.my-projects-project-analysis-placeholder {
+    padding: 20px 8px;
+}
+
+.my-projects-project-analysis-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.my-projects-project-analysis-actions .side-button {
+    margin: 0;
+}
+
 #myProjectsWorkspacePanel.my-projects-submodule-panel {
     max-width: 100%;
 }
