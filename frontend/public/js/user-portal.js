@@ -5422,6 +5422,7 @@ const projectFormHTML = `
         if (workspaceEnabled) {
             myProjectsProjectAnalysisViewActive = false;
             myProjectsLessonsResultsVisibilityBeforeAnalysis = false;
+            myProjectsWorkshopViewActive = false;
         }
 
         // Re-render from scratch each time we enter this route.
@@ -5430,7 +5431,10 @@ const projectFormHTML = `
             ${workspaceEnabled ? `
                 <div id="myProjectsWorkspaceTopNav" class="my-projects-workspace-top-nav" style="display: none; margin: 0 0 14px;">
                     <button type="button" id="myProjectsWorkspaceBack" class="secondary-button">Go Back</button>
-                    ${showMyProjectsProjectAnalysisButton ? '<button type="button" id="myProjectsProjectAnalysisButton" class="side-button">Project Analysis</button>' : ''}
+                    ${showMyProjectsProjectAnalysisButton ? `
+                        <button type="button" id="myProjectsProjectAnalysisButton" class="side-button">Project Analysis</button>
+                        <button type="button" id="myProjectsSetupWorkshopButton" class="side-button">Setup Workshop</button>
+                    ` : ''}
                 </div>
                 <div id="myProjectsWorkspacePanel" class="project-types-panel my-projects-submodule-panel" style="display: none;">
                     <div class="form-group" style="margin-bottom: 0;">
@@ -5467,6 +5471,9 @@ const projectFormHTML = `
                 </div>
                 <div id="myProjectsProjectAnalysisPanel" class="project-types-panel my-projects-project-analysis-panel" style="display: none;">
                     <div id="myProjectsProjectAnalysisMount" class="my-projects-project-analysis-mount"></div>
+                </div>
+                <div id="myProjectsWorkshopPanel" class="project-types-panel my-projects-workshop-panel" style="display: none;">
+                    <p class="subtitle" style="margin: 0;">Workshop Module Coming Soon</p>
                 </div>
                 <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
                     <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
@@ -5655,6 +5662,8 @@ const projectFormHTML = `
                 workspaceBack.addEventListener('click', () => {
                     if (myProjectsProjectAnalysisViewActive) {
                         exitMyProjectsProjectAnalysisView();
+                    } else if (myProjectsWorkshopViewActive) {
+                        exitMyProjectsWorkshopView();
                     } else {
                         hideMyProjectsProjectWorkspace();
                     }
@@ -5664,6 +5673,12 @@ const projectFormHTML = `
             if (projectAnalysisBtn) {
                 projectAnalysisBtn.addEventListener('click', () => {
                     enterMyProjectsProjectAnalysisView();
+                });
+            }
+            const setupWorkshopBtn = document.getElementById('myProjectsSetupWorkshopButton');
+            if (setupWorkshopBtn) {
+                setupWorkshopBtn.addEventListener('click', () => {
+                    enterMyProjectsWorkshopView();
                 });
             }
         }
@@ -5862,10 +5877,14 @@ const projectFormHTML = `
     let myProjectsWorkspaceAssignedMetadataListIds = null;
     let myProjectsWorkspaceAssignedForProjectId = null;
     let myProjectsLessonsCategoriesRequestToken = 0;
+    /** Separate token so Project Analysis category dropdown loads do not cancel the workspace categories request (and vice versa). */
+    let myProjectsAnalysisLessonsCategoriesRequestToken = 0;
     let myProjectsLessonsResultsRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
     let myProjectsProjectAnalysisViewActive = false;
     let myProjectsLessonsResultsVisibilityBeforeAnalysis = false;
+    let myProjectsWorkshopViewActive = false;
+    let myProjectsLessonsResultsVisibilityBeforeWorkshop = false;
 
     async function loadOrganizationProjectsForSearch() {
         if (!organizationId) {
@@ -6060,6 +6079,7 @@ const projectFormHTML = `
     function hideMyProjectsProjectWorkspace() {
         hideMyProjectsLessonFullView();
         resetMyProjectsProjectAnalysisShell();
+        resetMyProjectsWorkshopShell();
         const topNav = document.getElementById('myProjectsWorkspaceTopNav');
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const main = document.getElementById('searchProjectsMain');
@@ -6076,6 +6096,7 @@ const projectFormHTML = `
 
     async function showMyProjectsWorkspace(project) {
         resetMyProjectsProjectAnalysisShell();
+        resetMyProjectsWorkshopShell();
         const topNav = document.getElementById('myProjectsWorkspaceTopNav');
         const panel = document.getElementById('myProjectsWorkspacePanel');
         const pageTitleEl = document.getElementById('searchProjectsPageTitle');
@@ -6123,12 +6144,55 @@ const projectFormHTML = `
         if (mount) clearProjectAnalysisPortal(mount);
     }
 
+    function resetMyProjectsWorkshopShell() {
+        myProjectsWorkshopViewActive = false;
+        const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+        if (workshopPanel) workshopPanel.style.display = 'none';
+    }
+
+    function enterMyProjectsWorkshopView() {
+        if (myProjectsProjectAnalysisViewActive) {
+            exitMyProjectsProjectAnalysisView();
+        }
+
+        const workspacePanel = document.getElementById('myProjectsWorkspacePanel');
+        const resultsPanel = document.getElementById('myProjectsLessonsResultsPanel');
+        const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+        if (!workspacePanel || !workshopPanel) return;
+
+        myProjectsLessonsResultsVisibilityBeforeWorkshop =
+            Boolean(resultsPanel && resultsPanel.style.display !== 'none');
+
+        workspacePanel.style.display = 'none';
+        setMyProjectsLessonsResultsPanelVisible(false);
+
+        workshopPanel.style.display = 'block';
+        myProjectsWorkshopViewActive = true;
+        workshopPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function exitMyProjectsWorkshopView() {
+        const workspacePanel = document.getElementById('myProjectsWorkspacePanel');
+        const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+
+        myProjectsWorkshopViewActive = false;
+        if (workshopPanel) workshopPanel.style.display = 'none';
+        if (workspacePanel) workspacePanel.style.display = 'block';
+        setMyProjectsLessonsResultsPanelVisible(myProjectsLessonsResultsVisibilityBeforeWorkshop);
+    }
+
     function enterMyProjectsProjectAnalysisView() {
         const workspacePanel = document.getElementById('myProjectsWorkspacePanel');
         const resultsPanel = document.getElementById('myProjectsLessonsResultsPanel');
         const analysisPanel = document.getElementById('myProjectsProjectAnalysisPanel');
         const mount = document.getElementById('myProjectsProjectAnalysisMount');
         if (!workspacePanel || !analysisPanel || !mount) return;
+
+        if (myProjectsWorkshopViewActive) {
+            const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+            myProjectsWorkshopViewActive = false;
+            if (workshopPanel) workshopPanel.style.display = 'none';
+        }
 
         myProjectsLessonsResultsVisibilityBeforeAnalysis =
             Boolean(resultsPanel && resultsPanel.style.display !== 'none');
@@ -6142,6 +6206,12 @@ const projectFormHTML = `
             mountEl: mount,
             project: searchProjectsSelectedProject,
             ctUser,
+            loadLessonsCategoriesForSelect: (selectEl) =>
+                loadMyProjectsLessonsCategories(
+                    searchProjectsSelectedProject,
+                    selectEl,
+                    'analysis'
+                ),
         });
         analysisPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -6158,9 +6228,30 @@ const projectFormHTML = `
         setMyProjectsLessonsResultsPanelVisible(myProjectsLessonsResultsVisibilityBeforeAnalysis);
     }
 
-    async function loadMyProjectsLessonsCategories(project) {
-        const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+    /**
+     * @param {{ project_id?: unknown } | null} project
+     * @param {HTMLSelectElement | null} [categoriesSelectOverride]
+     * @param {'workspace' | 'analysis'} [categoriesTokenScope]
+     */
+    async function loadMyProjectsLessonsCategories(
+        project,
+        categoriesSelectOverride = null,
+        categoriesTokenScope = 'workspace'
+    ) {
+        const categoriesSelect =
+            categoriesSelectOverride || document.getElementById('myProjectsLessonsCategoriesSelect');
         if (!categoriesSelect) return;
+
+        const tokenScope = categoriesTokenScope === 'analysis' ? 'analysis' : 'workspace';
+        const bumpCategoriesRequestToken = () =>
+            tokenScope === 'analysis'
+                ? ++myProjectsAnalysisLessonsCategoriesRequestToken
+                : ++myProjectsLessonsCategoriesRequestToken;
+        const categoriesRequestIsStale = (requestToken) =>
+            requestToken !==
+            (tokenScope === 'analysis'
+                ? myProjectsAnalysisLessonsCategoriesRequestToken
+                : myProjectsLessonsCategoriesRequestToken);
 
         const setSingleOption = (text) => {
             categoriesSelect.innerHTML = '';
@@ -6181,7 +6272,7 @@ const projectFormHTML = `
             return;
         }
 
-        const requestToken = ++myProjectsLessonsCategoriesRequestToken;
+        const requestToken = bumpCategoriesRequestToken();
         setSingleOption('Loading categories...');
 
         try {
@@ -6195,7 +6286,7 @@ const projectFormHTML = `
                     .eq('project_id', projectId)
                     .limit(5000);
 
-                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+                if (categoriesRequestIsStale(requestToken)) return;
 
                 if (linkErr) {
                     console.error('Error loading My Projects lessons categories for Project Manager:', linkErr);
@@ -6224,7 +6315,7 @@ const projectFormHTML = `
                     .in('id', metadataListIds)
                     .limit(5000);
 
-                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+                if (categoriesRequestIsStale(requestToken)) return;
 
                 if (metadataErr) {
                     console.error('Error loading metadata list rows for Project Manager categories:', metadataErr);
@@ -6246,7 +6337,7 @@ const projectFormHTML = `
                     .eq('user_id', userId)
                     .limit(5000);
 
-                if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+                if (categoriesRequestIsStale(requestToken)) return;
 
                 if (error) {
                     console.error('Error loading My Projects lessons categories:', error);
@@ -6257,7 +6348,7 @@ const projectFormHTML = `
                 rows = Array.isArray(data) ? data : [];
             }
 
-            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+            if (categoriesRequestIsStale(requestToken)) return;
             if (rows.length === 0) {
                 setSingleOption('No categories available yet');
                 return;
@@ -6318,7 +6409,7 @@ const projectFormHTML = `
 
             categoriesSelect.value = '';
         } catch (err) {
-            if (requestToken !== myProjectsLessonsCategoriesRequestToken) return;
+            if (categoriesRequestIsStale(requestToken)) return;
             console.error('Unexpected error loading My Projects lessons categories:', err);
             setSingleOption('Failed to load categories');
         }

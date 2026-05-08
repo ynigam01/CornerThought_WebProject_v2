@@ -1134,6 +1134,10 @@ body {
     margin: 0;
 }
 
+.my-projects-project-analysis-category-panel {
+    margin-top: 14px;
+}
+
 #myProjectsWorkspacePanel.my-projects-submodule-panel {
     max-width: 100%;
 }
