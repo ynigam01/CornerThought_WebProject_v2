@@ -1115,6 +1115,18 @@ body {
     flex-wrap: wrap;
 }
 
+.my-projects-workshop-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.my-projects-workshop-toolbar .side-button {
+    margin: 0;
+}
+
 .my-projects-project-analysis-panel {
     margin-top: 0;
 }
@@ -2382,6 +2394,46 @@ body {
 
 .add-data-metadata-modal .choices {
     width: 100%;
+}
+
+/* Create New Workshop modal — inset content from card edges */
+.create-workshop-modal .modal-content {
+    padding: 28px 34px 26px;
+    box-sizing: border-box;
+}
+
+.create-workshop-modal .modal-content h3 {
+    margin: 0 0 10px;
+    padding-right: 44px;
+}
+
+.create-workshop-modal .modal-content .subtitle {
+    margin: 0 0 18px;
+}
+
+.create-workshop-modal #createWorkshopForm {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.create-workshop-modal #createWorkshopForm .input-group {
+    margin-top: 12px;
+}
+
+.create-workshop-modal #createWorkshopForm .input-group:first-of-type {
+    margin-top: 0;
+}
+
+.create-workshop-modal #createWorkshopModalStatus {
+    margin-top: 14px;
+}
+
+.create-workshop-modal .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
 }
 
 /* Edit User modal spacing */

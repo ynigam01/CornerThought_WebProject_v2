@@ -12,6 +12,12 @@ import {
     markReviewNotificationsNotifiedForLesson,
 } from './notifications.js';
 import { mountProjectAnalysisPortal, clearProjectAnalysisPortal } from './project_analysis_portal.js';
+import {
+    mountWorkshopModule,
+    clearWorkshopModule,
+    buildWorkshopsInsertRow,
+    insertWorkshop,
+} from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
 try {
@@ -3553,11 +3559,70 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const createWorkshopModalHTML = `
+    <div class="modal modal--center create-workshop-modal" id="createWorkshopModal">
+        <div class="modal-content create-workshop-modal-content" style="max-width: 520px;">
+            <span class="close-button" id="closeCreateWorkshopModal">&times;</span>
+            <h3>Create New Workshop</h3>
+            <p class="subtitle">Add workshop details for this project.</p>
+            <form id="createWorkshopForm">
+                <div class="input-group">
+                    <label for="createWorkshopTitle">Workshop name</label>
+                    <input type="text" id="createWorkshopTitle" required maxlength="500" autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <label for="createWorkshopDescription">Description</label>
+                    <textarea id="createWorkshopDescription" rows="3"></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="createWorkshopDate">Date</label>
+                    <input type="date" id="createWorkshopDate" required>
+                </div>
+                <div class="input-group">
+                    <label for="createWorkshopStartTime">Start time</label>
+                    <input type="time" id="createWorkshopStartTime" required>
+                </div>
+                <div class="input-group">
+                    <label for="createWorkshopDuration">Duration</label>
+                    <select id="createWorkshopDuration" required>
+                        <option value="">Select duration</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="45">45 minutes</option>
+                        <option value="60">1 hour</option>
+                        <option value="90">1.5 hours</option>
+                        <option value="120">2 hours</option>
+                        <option value="180">3 hours</option>
+                        <option value="240">4 hours</option>
+                    </select>
+                </div>
+                <div id="createWorkshopModalStatus" class="upload-message" aria-live="polite"></div>
+                <div class="modal-actions">
+                    <button type="button" id="cancelCreateWorkshop">Cancel</button>
+                    <button type="submit" id="saveCreateWorkshop">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+
     document.body.insertAdjacentHTML("beforeend", projectFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
     document.body.insertAdjacentHTML("beforeend", addDataMetadataModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
+    document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
+
+    function closeCreateWorkshopModal() {
+        const m = document.getElementById('createWorkshopModal');
+        const f = document.getElementById('createWorkshopForm');
+        const st = document.getElementById('createWorkshopModalStatus');
+        if (m) m.classList.remove('show');
+        if (f && typeof f.reset === 'function') f.reset();
+        if (st) {
+            st.textContent = '';
+            st.classList.remove('upload-message--error', 'upload-message--success');
+        }
+    }
 
     const addDataButton = document.querySelector(".add-data-button");
     const logoutButton = document.querySelector(".logout-button");
@@ -3614,6 +3679,89 @@ const projectFormHTML = `
     }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
+
+    const closeCreateWorkshopModalBtn = document.getElementById('closeCreateWorkshopModal');
+    const cancelCreateWorkshopBtn = document.getElementById('cancelCreateWorkshop');
+    const createWorkshopFormEl = document.getElementById('createWorkshopForm');
+    if (closeCreateWorkshopModalBtn) {
+        closeCreateWorkshopModalBtn.onclick = () => closeCreateWorkshopModal();
+    }
+    if (cancelCreateWorkshopBtn) {
+        cancelCreateWorkshopBtn.onclick = () => closeCreateWorkshopModal();
+    }
+    if (createWorkshopFormEl) {
+        createWorkshopFormEl.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const statusEl = document.getElementById('createWorkshopModalStatus');
+            const titleEl = document.getElementById('createWorkshopTitle');
+            const descEl = document.getElementById('createWorkshopDescription');
+            const dateEl = document.getElementById('createWorkshopDate');
+            const startEl = document.getElementById('createWorkshopStartTime');
+            const durEl = document.getElementById('createWorkshopDuration');
+            if (!statusEl || !titleEl || !dateEl || !startEl || !durEl) return;
+
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error', 'upload-message--success');
+
+            const projectRow = searchProjectsSelectedProject;
+            const projectId = projectRow && projectRow.project_id != null ? projectRow.project_id : null;
+            if (projectId == null) {
+                statusEl.textContent = 'No project is selected. Open a project from My Projects first.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+            if (!organizationId || ctUser == null || ctUser.id == null) {
+                statusEl.textContent = 'Missing organization or user session.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const durationMinutes = parseInt(String(durEl.value || ''), 10);
+            if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+                statusEl.textContent = 'Please select a duration.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            let row;
+            try {
+                row = buildWorkshopsInsertRow(
+                    {
+                        title: titleEl.value,
+                        description: descEl ? descEl.value : '',
+                        dateStr: dateEl.value,
+                        startTime: startEl.value,
+                        durationMinutes,
+                    },
+                    {
+                        projectId,
+                        organizationId,
+                        createdByUserId: ctUser.id,
+                    }
+                );
+            } catch (err) {
+                statusEl.textContent = err && err.message ? String(err.message) : 'Invalid workshop details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const saveBtn = document.getElementById('saveCreateWorkshop');
+            if (saveBtn) saveBtn.disabled = true;
+            statusEl.textContent = 'Saving…';
+
+            const { error } = await insertWorkshop(supabase, row);
+            if (saveBtn) saveBtn.disabled = false;
+
+            if (error) {
+                console.error('Workshop insert error:', error);
+                statusEl.textContent = error.message || 'Failed to save workshop.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            closeCreateWorkshopModal();
+        });
+    }
     if (closeEditOrgUserModalButton) {
         closeEditOrgUserModalButton.onclick = () => {
             selectedOrgManageUserId = null;
@@ -3673,6 +3821,10 @@ const projectFormHTML = `
         if (editOrgUserForm && typeof editOrgUserForm.reset === 'function') editOrgUserForm.reset();
         if (editOrgUserStatus) editOrgUserStatus.style.display = 'none';
         editOrgUserModal.classList.remove("show");
+    }
+    const createWorkshopModalEl = document.getElementById('createWorkshopModal');
+    if (createWorkshopModalEl && e.target === createWorkshopModalEl) {
+        closeCreateWorkshopModal();
     }
     };
 
@@ -5153,8 +5305,14 @@ const projectFormHTML = `
 
     // Close modal with Escape key
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && editModal.classList.contains('show')) {
+        if (e.key !== 'Escape') return;
+        if (editModal.classList.contains('show')) {
             closeEditModalFunc();
+            return;
+        }
+        const cwm = document.getElementById('createWorkshopModal');
+        if (cwm && cwm.classList.contains('show')) {
+            closeCreateWorkshopModal();
         }
     });
 
@@ -5473,7 +5631,11 @@ const projectFormHTML = `
                     <div id="myProjectsProjectAnalysisMount" class="my-projects-project-analysis-mount"></div>
                 </div>
                 <div id="myProjectsWorkshopPanel" class="project-types-panel my-projects-workshop-panel" style="display: none;">
-                    <p class="subtitle" style="margin: 0;">Workshop Module Coming Soon</p>
+                    <div class="my-projects-workshop-toolbar">
+                        <button type="button" id="myProjectsCreateWorkshopButton" class="side-button">Create New Workshop</button>
+                        <button type="button" id="myProjectsManageWorkshopsButton" class="side-button">Manage Workshops</button>
+                    </div>
+                    <div id="myProjectsWorkshopMount" class="my-projects-workshop-mount"></div>
                 </div>
                 <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
                     <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
@@ -5681,6 +5843,32 @@ const projectFormHTML = `
                     enterMyProjectsWorkshopView();
                 });
             }
+            const createWorkshopBtn = document.getElementById('myProjectsCreateWorkshopButton');
+            if (createWorkshopBtn) {
+                createWorkshopBtn.addEventListener('click', () => {
+                    if (!searchProjectsSelectedProject || searchProjectsSelectedProject.project_id == null) {
+                        alert('Select a project first.');
+                        return;
+                    }
+                    if (!organizationId) {
+                        alert('Organization not found for this user.');
+                        return;
+                    }
+                    if (!ctUser || ctUser.id == null) {
+                        alert('User session not found.');
+                        return;
+                    }
+                    const modal = document.getElementById('createWorkshopModal');
+                    const form = document.getElementById('createWorkshopForm');
+                    const status = document.getElementById('createWorkshopModalStatus');
+                    if (status) {
+                        status.textContent = '';
+                        status.classList.remove('upload-message--error', 'upload-message--success');
+                    }
+                    if (form && typeof form.reset === 'function') form.reset();
+                    if (modal) modal.classList.add('show');
+                });
+            }
         }
 
         const input = document.getElementById('searchProjectsInput');
@@ -5879,6 +6067,8 @@ const projectFormHTML = `
     let myProjectsLessonsCategoriesRequestToken = 0;
     /** Separate token so Project Analysis category dropdown loads do not cancel the workspace categories request (and vice versa). */
     let myProjectsAnalysisLessonsCategoriesRequestToken = 0;
+    /** Separate token for the Workshop module category dropdown. */
+    let myProjectsWorkshopLessonsCategoriesRequestToken = 0;
     let myProjectsLessonsResultsRequestToken = 0;
     let searchProjectsMetadataRowsCache = [];
     let myProjectsProjectAnalysisViewActive = false;
@@ -6147,6 +6337,8 @@ const projectFormHTML = `
     function resetMyProjectsWorkshopShell() {
         myProjectsWorkshopViewActive = false;
         const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+        const workshopMount = document.getElementById('myProjectsWorkshopMount');
+        if (workshopMount) clearWorkshopModule(workshopMount);
         if (workshopPanel) workshopPanel.style.display = 'none';
     }
 
@@ -6168,6 +6360,13 @@ const projectFormHTML = `
 
         workshopPanel.style.display = 'block';
         myProjectsWorkshopViewActive = true;
+        mountWorkshopModule({
+            mountEl: document.getElementById('myProjectsWorkshopMount'),
+            project: searchProjectsSelectedProject,
+            ctUser,
+            loadLessonsCategoriesForSelect: (selectEl) =>
+                loadMyProjectsLessonsCategories(searchProjectsSelectedProject, selectEl, 'workshop'),
+        });
         workshopPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -6190,8 +6389,10 @@ const projectFormHTML = `
 
         if (myProjectsWorkshopViewActive) {
             const workshopPanel = document.getElementById('myProjectsWorkshopPanel');
+            const workshopMount = document.getElementById('myProjectsWorkshopMount');
             myProjectsWorkshopViewActive = false;
             if (workshopPanel) workshopPanel.style.display = 'none';
+            if (workshopMount) clearWorkshopModule(workshopMount);
         }
 
         myProjectsLessonsResultsVisibilityBeforeAnalysis =
@@ -6231,7 +6432,7 @@ const projectFormHTML = `
     /**
      * @param {{ project_id?: unknown } | null} project
      * @param {HTMLSelectElement | null} [categoriesSelectOverride]
-     * @param {'workspace' | 'analysis'} [categoriesTokenScope]
+     * @param {'workspace' | 'analysis' | 'workshop'} [categoriesTokenScope]
      */
     async function loadMyProjectsLessonsCategories(
         project,
@@ -6242,16 +6443,24 @@ const projectFormHTML = `
             categoriesSelectOverride || document.getElementById('myProjectsLessonsCategoriesSelect');
         if (!categoriesSelect) return;
 
-        const tokenScope = categoriesTokenScope === 'analysis' ? 'analysis' : 'workspace';
-        const bumpCategoriesRequestToken = () =>
-            tokenScope === 'analysis'
-                ? ++myProjectsAnalysisLessonsCategoriesRequestToken
-                : ++myProjectsLessonsCategoriesRequestToken;
-        const categoriesRequestIsStale = (requestToken) =>
-            requestToken !==
-            (tokenScope === 'analysis'
-                ? myProjectsAnalysisLessonsCategoriesRequestToken
-                : myProjectsLessonsCategoriesRequestToken);
+        const tokenScope =
+            categoriesTokenScope === 'analysis'
+                ? 'analysis'
+                : categoriesTokenScope === 'workshop'
+                  ? 'workshop'
+                  : 'workspace';
+        const bumpCategoriesRequestToken = () => {
+            if (tokenScope === 'analysis') return ++myProjectsAnalysisLessonsCategoriesRequestToken;
+            if (tokenScope === 'workshop') return ++myProjectsWorkshopLessonsCategoriesRequestToken;
+            return ++myProjectsLessonsCategoriesRequestToken;
+        };
+        const categoriesRequestIsStale = (requestToken) => {
+            if (tokenScope === 'analysis')
+                return requestToken !== myProjectsAnalysisLessonsCategoriesRequestToken;
+            if (tokenScope === 'workshop')
+                return requestToken !== myProjectsWorkshopLessonsCategoriesRequestToken;
+            return requestToken !== myProjectsLessonsCategoriesRequestToken;
+        };
 
         const setSingleOption = (text) => {
             categoriesSelect.innerHTML = '';
