@@ -1127,6 +1127,43 @@ body {
     margin: 0;
 }
 
+.workshop-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.workshop-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.06);
+    color: #444;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.workshop-icon-btn:hover {
+    background: rgba(0, 0, 0, 0.13);
+    color: #111;
+}
+
+.workshop-icon-btn--danger {
+    color: #c0392b;
+}
+
+.workshop-icon-btn--danger:hover {
+    background: #fdecea;
+    color: #c0392b;
+}
+
 .my-projects-project-analysis-panel {
     margin-top: 0;
 }
@@ -2397,21 +2434,25 @@ body {
 }
 
 /* Create New Workshop modal — inset content from card edges */
-.create-workshop-modal .modal-content {
+.create-workshop-modal .modal-content,
+.edit-workshop-modal .modal-content {
     padding: 28px 34px 26px;
     box-sizing: border-box;
 }
 
-.create-workshop-modal .modal-content h3 {
+.create-workshop-modal .modal-content h3,
+.edit-workshop-modal .modal-content h3 {
     margin: 0 0 10px;
     padding-right: 44px;
 }
 
-.create-workshop-modal .modal-content .subtitle {
+.create-workshop-modal .modal-content .subtitle,
+.edit-workshop-modal .modal-content .subtitle {
     margin: 0 0 18px;
 }
 
-.create-workshop-modal #createWorkshopForm {
+.create-workshop-modal #createWorkshopForm,
+.edit-workshop-modal #editWorkshopForm {
     display: flex;
     flex-direction: column;
     gap: 2px;

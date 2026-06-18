@@ -90,6 +90,215 @@ export async function insertWorkshop(supabase, row) {
 }
 
 /**
+ * Update an existing workshop row by id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ * @param {Record<string, unknown>} row
+ */
+export async function updateWorkshop(supabase, workshopId, row) {
+    return supabase.from('workshops').update(row).eq('id', workshopId);
+}
+
+/**
+ * Delete a workshop row by id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function deleteWorkshop(supabase, workshopId) {
+    return supabase.from('workshops').delete().eq('id', workshopId);
+}
+
+/**
+ * Compute the duration in minutes between two HH:MM(:SS) time strings.
+ * Handles overnight wrap-around.
+ * @param {string} startTime
+ * @param {string} endTime
+ * @returns {number}
+ */
+export function computeWorkshopDurationMinutes(startTime, endTime) {
+    const toMins = (t) => {
+        const parts = String(t || '').split(':');
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1] || '0', 10);
+        return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
+    };
+    const diff = toMins(endTime) - toMins(startTime);
+    return diff < 0 ? diff + 24 * 60 : diff;
+}
+
+/**
+ * Fetch all workshops for a given project, ordered newest date first.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} projectId
+ */
+export async function fetchWorkshopsForProject(supabase, projectId) {
+    return supabase
+        .from('workshops')
+        .select('id, workshop_title, workshop_description, date, start_time, end_time')
+        .eq('project_id', projectId)
+        .order('date', { ascending: false });
+}
+
+/** @param {string} timeHHMMSS */
+function formatWorkshopTime(timeHHMMSS) {
+    const parts = String(timeHHMMSS || '').split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parts[1] || '00';
+    if (!Number.isFinite(h)) return timeHHMMSS;
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${m} ${period}`;
+}
+
+/**
+ * Renders the categories dropdown + a list of workshops (or a loading/error/empty state) into mountEl.
+ * @param {{
+ *   mountEl: HTMLElement | null,
+ *   workshops?: Array<Record<string, unknown>> | null,
+ *   loading?: boolean,
+ *   error?: { message?: string } | null,
+ *   loadLessonsCategoriesForSelect?: (selectEl: HTMLSelectElement) => Promise<void>,
+ *   onEdit?: (workshop: Record<string, unknown>) => void,
+ *   onDelete?: (workshop: Record<string, unknown>) => void,
+ * }} ctx
+ */
+export function mountManageWorkshopsPanel({ mountEl, workshops, loading, error, loadLessonsCategoriesForSelect, onEdit, onDelete }) {
+    if (!mountEl) return;
+    mountEl.innerHTML = '';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'my-projects-workshop-mount-inner';
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', 'Workshops list');
+
+    // Categories dropdown (always present)
+    const categoriesGroup = document.createElement('div');
+    categoriesGroup.className = 'form-group';
+    categoriesGroup.style.marginBottom = '14px';
+
+    const categoriesLabel = document.createElement('label');
+    const categoriesSelect = document.createElement('select');
+    categoriesSelect.id = 'myProjectsWorkshopCategoriesSelect';
+    categoriesSelect.setAttribute('aria-label', 'Lessons Learned Categories');
+    categoriesLabel.setAttribute('for', categoriesSelect.id);
+    categoriesLabel.textContent = 'Lessons Learned Categories';
+
+    const placeholderOpt = document.createElement('option');
+    placeholderOpt.value = '';
+    placeholderOpt.textContent = 'Select a category';
+    categoriesSelect.appendChild(placeholderOpt);
+
+    categoriesGroup.appendChild(categoriesLabel);
+    categoriesGroup.appendChild(categoriesSelect);
+    wrap.appendChild(categoriesGroup);
+
+    if (typeof loadLessonsCategoriesForSelect === 'function') {
+        loadLessonsCategoriesForSelect(categoriesSelect).catch((err) => {
+            console.error('Manage Workshops: failed to load lessons categories', err);
+        });
+    }
+
+    // Workshops content area
+    if (loading) {
+        const msg = document.createElement('p');
+        msg.className = 'subtitle';
+        msg.style.margin = '0';
+        msg.textContent = 'Loading workshops…';
+        wrap.appendChild(msg);
+    } else if (error) {
+        const msg = document.createElement('p');
+        msg.className = 'upload-message upload-message--error';
+        msg.textContent = error.message || 'Failed to load workshops.';
+        wrap.appendChild(msg);
+    } else if (!workshops || workshops.length === 0) {
+        const msg = document.createElement('p');
+        msg.className = 'subtitle';
+        msg.style.margin = '0';
+        msg.textContent = 'No workshops have been created for this project yet.';
+        wrap.appendChild(msg);
+    } else {
+        const heading = document.createElement('p');
+        heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
+        heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
+        wrap.appendChild(heading);
+
+        const list = document.createElement('div');
+        list.className = 'lessons-results';
+        list.style.marginTop = '0';
+
+        workshops.forEach((w) => {
+            const card = document.createElement('div');
+            card.className = 'lesson-card';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 6px;';
+            title.textContent = String(w.workshop_title || '');
+            card.appendChild(title);
+
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size: 13px; color: #555; display: flex; gap: 16px; flex-wrap: wrap;';
+
+            if (w.date) {
+                const dateSpan = document.createElement('span');
+                dateSpan.textContent = `\uD83D\uDCC5 ${w.date}`;
+                meta.appendChild(dateSpan);
+            }
+            if (w.start_time) {
+                const timeSpan = document.createElement('span');
+                const startFmt = formatWorkshopTime(w.start_time);
+                const endFmt = w.end_time ? ` \u2013 ${formatWorkshopTime(w.end_time)}` : '';
+                timeSpan.textContent = `\u23F0 ${startFmt}${endFmt}`;
+                meta.appendChild(timeSpan);
+            }
+            card.appendChild(meta);
+
+            if (w.workshop_description) {
+                const desc = document.createElement('div');
+                desc.style.cssText = 'margin-top: 8px; font-size: 14px; color: #444;';
+                desc.textContent = String(w.workshop_description);
+                card.appendChild(desc);
+            }
+
+            // Icon action buttons
+            const actions = document.createElement('div');
+            actions.className = 'workshop-card-actions';
+
+            const iconBtn = (faClass, label, danger = false) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'workshop-icon-btn' + (danger ? ' workshop-icon-btn--danger' : '');
+                btn.title = label;
+                btn.setAttribute('aria-label', label);
+                btn.innerHTML = `<i class="${faClass}"></i>`;
+                return btn;
+            };
+
+            const editBtn = iconBtn('fa-solid fa-pen', 'Edit Workshop Details');
+            editBtn.addEventListener('click', () => onEdit && onEdit(w));
+
+            const attendeesBtn = iconBtn('fa-solid fa-user-plus', 'Add Attendees');
+
+            const lessonsBtn = iconBtn('fa-solid fa-lightbulb', 'Add Lessons Learned');
+
+            const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);
+            deleteBtn.addEventListener('click', () => onDelete && onDelete(w));
+
+            actions.appendChild(editBtn);
+            actions.appendChild(attendeesBtn);
+            actions.appendChild(lessonsBtn);
+            actions.appendChild(deleteBtn);
+            card.appendChild(actions);
+
+            list.appendChild(card);
+        });
+
+        wrap.appendChild(list);
+    }
+
+    mountEl.appendChild(wrap);
+}
+
+/**
  * @param {{
  *   mountEl: HTMLElement | null,
  *   project?: { project_id?: string | number, project_name?: string, [key: string]: unknown } | null,

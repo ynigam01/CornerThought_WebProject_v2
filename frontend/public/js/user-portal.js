@@ -17,6 +17,11 @@ import {
     clearWorkshopModule,
     buildWorkshopsInsertRow,
     insertWorkshop,
+    updateWorkshop,
+    deleteWorkshop,
+    fetchWorkshopsForProject,
+    mountManageWorkshopsPanel,
+    computeWorkshopDurationMinutes,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -3605,12 +3610,60 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const editWorkshopModalHTML = `
+    <div class="modal modal--center edit-workshop-modal" id="editWorkshopModal">
+        <div class="modal-content edit-workshop-modal-content" style="max-width: 520px;">
+            <span class="close-button" id="closeEditWorkshopModal">&times;</span>
+            <h3>Edit Workshop</h3>
+            <p class="subtitle">Update the details for this workshop.</p>
+            <form id="editWorkshopForm">
+                <input type="hidden" id="editWorkshopId">
+                <div class="input-group">
+                    <label for="editWorkshopTitle">Workshop name</label>
+                    <input type="text" id="editWorkshopTitle" required maxlength="500" autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <label for="editWorkshopDescription">Description</label>
+                    <textarea id="editWorkshopDescription" rows="3"></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="editWorkshopDate">Date</label>
+                    <input type="date" id="editWorkshopDate" required>
+                </div>
+                <div class="input-group">
+                    <label for="editWorkshopStartTime">Start time</label>
+                    <input type="time" id="editWorkshopStartTime" required>
+                </div>
+                <div class="input-group">
+                    <label for="editWorkshopDuration">Duration</label>
+                    <select id="editWorkshopDuration" required>
+                        <option value="">Select duration</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="45">45 minutes</option>
+                        <option value="60">1 hour</option>
+                        <option value="90">1.5 hours</option>
+                        <option value="120">2 hours</option>
+                        <option value="180">3 hours</option>
+                        <option value="240">4 hours</option>
+                    </select>
+                </div>
+                <div id="editWorkshopModalStatus" class="upload-message" aria-live="polite"></div>
+                <div class="modal-actions">
+                    <button type="button" id="cancelEditWorkshop">Cancel</button>
+                    <button type="submit" id="saveEditWorkshop">Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+
     document.body.insertAdjacentHTML("beforeend", projectFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
     document.body.insertAdjacentHTML("beforeend", addDataMetadataModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
     document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
+    document.body.insertAdjacentHTML("beforeend", editWorkshopModalHTML);
 
     function closeCreateWorkshopModal() {
         const m = document.getElementById('createWorkshopModal');
@@ -3622,6 +3675,123 @@ const projectFormHTML = `
             st.textContent = '';
             st.classList.remove('upload-message--error', 'upload-message--success');
         }
+    }
+
+    let editWorkshopSuccessCallback = null;
+
+    function openEditWorkshopModal(workshop, onSuccess) {
+        editWorkshopSuccessCallback = onSuccess || null;
+        const idEl = document.getElementById('editWorkshopId');
+        const titleEl = document.getElementById('editWorkshopTitle');
+        const descEl = document.getElementById('editWorkshopDescription');
+        const dateEl = document.getElementById('editWorkshopDate');
+        const startEl = document.getElementById('editWorkshopStartTime');
+        const durEl = document.getElementById('editWorkshopDuration');
+        const st = document.getElementById('editWorkshopModalStatus');
+
+        if (idEl) idEl.value = workshop.id != null ? String(workshop.id) : '';
+        if (titleEl) titleEl.value = String(workshop.workshop_title || '');
+        if (descEl) descEl.value = String(workshop.workshop_description || '');
+        if (dateEl) dateEl.value = String(workshop.date || '');
+        if (startEl) startEl.value = String(workshop.start_time || '').substring(0, 5);
+        if (durEl) {
+            const durMins = computeWorkshopDurationMinutes(workshop.start_time, workshop.end_time);
+            durEl.value = durMins > 0 ? String(durMins) : '';
+        }
+        if (st) {
+            st.textContent = '';
+            st.classList.remove('upload-message--error', 'upload-message--success');
+        }
+        const modal = document.getElementById('editWorkshopModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    function closeEditWorkshopModal() {
+        const m = document.getElementById('editWorkshopModal');
+        const f = document.getElementById('editWorkshopForm');
+        const st = document.getElementById('editWorkshopModalStatus');
+        if (m) m.classList.remove('show');
+        if (f && typeof f.reset === 'function') f.reset();
+        if (st) {
+            st.textContent = '';
+            st.classList.remove('upload-message--error', 'upload-message--success');
+        }
+        editWorkshopSuccessCallback = null;
+    }
+
+    document.getElementById('closeEditWorkshopModal').onclick = () => closeEditWorkshopModal();
+    document.getElementById('cancelEditWorkshop').onclick = () => closeEditWorkshopModal();
+
+    const editWorkshopFormEl = document.getElementById('editWorkshopForm');
+    if (editWorkshopFormEl) {
+        editWorkshopFormEl.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const statusEl = document.getElementById('editWorkshopModalStatus');
+            const idEl = document.getElementById('editWorkshopId');
+            const titleEl = document.getElementById('editWorkshopTitle');
+            const descEl = document.getElementById('editWorkshopDescription');
+            const dateEl = document.getElementById('editWorkshopDate');
+            const startEl = document.getElementById('editWorkshopStartTime');
+            const durEl = document.getElementById('editWorkshopDuration');
+            if (!statusEl || !idEl || !titleEl || !dateEl || !startEl || !durEl) return;
+
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error', 'upload-message--success');
+
+            const workshopId = idEl.value;
+            if (!workshopId) {
+                statusEl.textContent = 'Workshop ID missing.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const durationMinutes = parseInt(String(durEl.value || ''), 10);
+            if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+                statusEl.textContent = 'Please select a duration.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            let row;
+            try {
+                row = buildWorkshopsInsertRow(
+                    {
+                        title: titleEl.value,
+                        description: descEl ? descEl.value : '',
+                        dateStr: dateEl.value,
+                        startTime: startEl.value,
+                        durationMinutes,
+                    },
+                    {
+                        projectId: searchProjectsSelectedProject ? searchProjectsSelectedProject.project_id : null,
+                        organizationId,
+                        createdByUserId: ctUser ? ctUser.id : null,
+                    }
+                );
+            } catch (err) {
+                statusEl.textContent = err && err.message ? String(err.message) : 'Invalid workshop details.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const saveBtn = document.getElementById('saveEditWorkshop');
+            if (saveBtn) saveBtn.disabled = true;
+            statusEl.textContent = 'Saving…';
+
+            const { error } = await updateWorkshop(supabase, workshopId, row);
+            if (saveBtn) saveBtn.disabled = false;
+
+            if (error) {
+                console.error('Workshop update error:', error);
+                statusEl.textContent = error.message || 'Failed to save changes.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const cb = editWorkshopSuccessCallback;
+            closeEditWorkshopModal();
+            if (typeof cb === 'function') await cb();
+        });
     }
 
     const addDataButton = document.querySelector(".add-data-button");
@@ -3825,6 +3995,10 @@ const projectFormHTML = `
     const createWorkshopModalEl = document.getElementById('createWorkshopModal');
     if (createWorkshopModalEl && e.target === createWorkshopModalEl) {
         closeCreateWorkshopModal();
+    }
+    const editWorkshopModalEl = document.getElementById('editWorkshopModal');
+    if (editWorkshopModalEl && e.target === editWorkshopModalEl) {
+        closeEditWorkshopModal();
     }
     };
 
@@ -5867,6 +6041,60 @@ const projectFormHTML = `
                     }
                     if (form && typeof form.reset === 'function') form.reset();
                     if (modal) modal.classList.add('show');
+                });
+            }
+            const manageWorkshopsBtn = document.getElementById('myProjectsManageWorkshopsButton');
+            if (manageWorkshopsBtn) {
+                manageWorkshopsBtn.addEventListener('click', async () => {
+                    if (!searchProjectsSelectedProject || searchProjectsSelectedProject.project_id == null) {
+                        alert('Select a project first.');
+                        return;
+                    }
+                    const mountEl = document.getElementById('myProjectsWorkshopMount');
+                    if (!mountEl) return;
+
+                    const projectId = searchProjectsSelectedProject.project_id;
+                    const loadCats = (selectEl) =>
+                        loadMyProjectsLessonsCategories(searchProjectsSelectedProject, selectEl, 'workshop');
+
+                    let refreshList;
+
+                    const handleEdit = (workshop) => {
+                        openEditWorkshopModal(workshop, async () => {
+                            if (refreshList) await refreshList();
+                        });
+                    };
+
+                    const handleDelete = async (workshop) => {
+                        if (!confirm(`Delete "${workshop.workshop_title}"? This cannot be undone.`)) return;
+                        const { error } = await deleteWorkshop(supabase, workshop.id);
+                        if (error) {
+                            alert(error.message || 'Failed to delete workshop.');
+                            return;
+                        }
+                        if (refreshList) await refreshList();
+                    };
+
+                    refreshList = async () => {
+                        mountManageWorkshopsPanel({
+                            mountEl,
+                            loading: true,
+                            loadLessonsCategoriesForSelect: loadCats,
+                            onEdit: handleEdit,
+                            onDelete: handleDelete,
+                        });
+                        const { data, error } = await fetchWorkshopsForProject(supabase, projectId);
+                        mountManageWorkshopsPanel({
+                            mountEl,
+                            workshops: data || [],
+                            error: error || null,
+                            loadLessonsCategoriesForSelect: loadCats,
+                            onEdit: handleEdit,
+                            onDelete: handleDelete,
+                        });
+                    };
+
+                    await refreshList();
                 });
             }
         }
