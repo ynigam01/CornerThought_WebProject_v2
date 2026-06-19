@@ -167,6 +167,51 @@ export async function removeLessonFromWorkshop(supabase, linkRowId) {
 }
 
 /**
+ * Fetch all workshop_attendees rows for a workshop.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function fetchWorkshopAttendees(supabase, workshopId) {
+    return supabase
+        .from('workshop_attendees')
+        .select('id, user_id, name, email')
+        .eq('workshop_id', workshopId);
+}
+
+/**
+ * Insert a row into workshop_attendees.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ workshopId: string | number, userId: string | number, name: string, email: string }} params
+ */
+export async function addAttendeeToWorkshop(supabase, { workshopId, userId, name, email }) {
+    return supabase
+        .from('workshop_attendees')
+        .insert({
+            workshop_id: Number(workshopId),
+            user_id: Number(userId),
+            name: name || null,
+            email: email || null,
+            confirmation: false,
+            attendance: false,
+            internal_attendee: true,
+        })
+        .select('id, user_id, name, email')
+        .single();
+}
+
+/**
+ * Delete a workshop_attendees row by its own id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} attendeeRowId
+ */
+export async function removeAttendeeFromWorkshop(supabase, attendeeRowId) {
+    return supabase
+        .from('workshop_attendees')
+        .delete()
+        .eq('id', attendeeRowId);
+}
+
+/**
  * Fetch all workshops for a given project, ordered newest date first.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | number} projectId
@@ -191,7 +236,7 @@ function formatWorkshopTime(timeHHMMSS) {
 }
 
 /**
- * Renders the categories dropdown + a list of workshops (or a loading/error/empty state) into mountEl.
+ * Renders the categories / attendees dropdown + a list of workshops into mountEl.
  * @param {{
  *   mountEl: HTMLElement | null,
  *   workshops?: Array<Record<string, unknown>> | null,
@@ -204,6 +249,12 @@ function formatWorkshopTime(timeHHMMSS) {
  *   onCancelLessons?: () => void,
  *   lessonsWorkshopId?: string | number | null,
  *   onMountLessons?: (containerEl: HTMLElement, categoryId: string) => void,
+ *   onAddAttendees?: (workshop: Record<string, unknown>) => void,
+ *   onCancelAttendees?: () => void,
+ *   attendeesWorkshopId?: string | number | null,
+ *   onMountAttendees?: (containerEl: HTMLElement, workshopId: string | number) => void,
+ *   onAddAttendee?: (user: { userId: string, name: string, email: string }, containerEl: HTMLElement, selectEl: HTMLSelectElement) => void,
+ *   loadAttendeesForSelect?: (selectEl: HTMLSelectElement, workshopId: string | number) => Promise<void>,
  * }} ctx
  */
 export function mountManageWorkshopsPanel({
@@ -212,11 +263,15 @@ export function mountManageWorkshopsPanel({
     onEdit, onDelete, onAddLessons, onCancelLessons,
     lessonsWorkshopId = null,
     onMountLessons,
+    onAddAttendees, onCancelAttendees,
+    attendeesWorkshopId = null,
+    onMountAttendees, onAddAttendee, loadAttendeesForSelect,
 }) {
     if (!mountEl) return;
     mountEl.innerHTML = '';
 
     const inLessonsMode = lessonsWorkshopId != null;
+    const inAttendeesMode = attendeesWorkshopId != null;
 
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-workshop-mount-inner';
@@ -245,8 +300,31 @@ export function mountManageWorkshopsPanel({
     categoriesGroup.appendChild(categoriesSelect);
     wrap.appendChild(categoriesGroup);
 
-    // Track the lessons container so the dropdown change handler can reference it
+    // Attendees dropdown — only visible in attendees mode
+    const attendeesGroup = document.createElement('div');
+    attendeesGroup.className = 'form-group';
+    attendeesGroup.style.marginBottom = '14px';
+    attendeesGroup.style.display = inAttendeesMode ? '' : 'none';
+
+    const attendeesLabel = document.createElement('label');
+    const attendeesSelect = document.createElement('select');
+    attendeesSelect.id = 'myProjectsWorkshopAttendeesSelect';
+    attendeesSelect.setAttribute('aria-label', 'Add Attendee');
+    attendeesLabel.setAttribute('for', attendeesSelect.id);
+    attendeesLabel.textContent = 'Add Attendee';
+
+    const attendeesPlaceholderOpt = document.createElement('option');
+    attendeesPlaceholderOpt.value = '';
+    attendeesPlaceholderOpt.textContent = 'Select a user to add…';
+    attendeesSelect.appendChild(attendeesPlaceholderOpt);
+
+    attendeesGroup.appendChild(attendeesLabel);
+    attendeesGroup.appendChild(attendeesSelect);
+    wrap.appendChild(attendeesGroup);
+
+    // Track the lessons/attendees containers so handlers can reference them
     let lessonsContainer = null;
+    let attendeesContainer = null;
 
     if (inLessonsMode) {
         if (typeof loadLessonsCategoriesForSelect === 'function') {
@@ -257,6 +335,25 @@ export function mountManageWorkshopsPanel({
         categoriesSelect.addEventListener('change', () => {
             if (lessonsContainer && typeof onMountLessons === 'function') {
                 onMountLessons(lessonsContainer, categoriesSelect.value || '');
+            }
+        });
+    }
+
+    if (inAttendeesMode) {
+        if (typeof loadAttendeesForSelect === 'function') {
+            loadAttendeesForSelect(attendeesSelect, attendeesWorkshopId).catch((err) => {
+                console.error('Manage Workshops: failed to load attendees for select', err);
+            });
+        }
+        attendeesSelect.addEventListener('change', () => {
+            if (!attendeesSelect.value) return;
+            const selectedOption = attendeesSelect.options[attendeesSelect.selectedIndex];
+            const userId = attendeesSelect.value;
+            const name = selectedOption.dataset.name || '';
+            const email = selectedOption.dataset.email || '';
+            attendeesSelect.value = '';
+            if (attendeesContainer && typeof onAddAttendee === 'function') {
+                onAddAttendee({ userId, name, email }, attendeesContainer, attendeesSelect);
             }
         });
     }
@@ -280,12 +377,13 @@ export function mountManageWorkshopsPanel({
         msg.textContent = 'No workshops have been created for this project yet.';
         wrap.appendChild(msg);
     } else {
-        // In lessons mode only show the selected card; otherwise show all
-        const displayWorkshops = inLessonsMode
-            ? workshops.filter((w) => String(w.id) === String(lessonsWorkshopId))
+        // In lessons/attendees mode only show the selected card; otherwise show all
+        const activeId = inLessonsMode ? lessonsWorkshopId : inAttendeesMode ? attendeesWorkshopId : null;
+        const displayWorkshops = activeId != null
+            ? workshops.filter((w) => String(w.id) === String(activeId))
             : workshops;
 
-        if (!inLessonsMode) {
+        if (!inLessonsMode && !inAttendeesMode) {
             const heading = document.createElement('p');
             heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
             heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
@@ -330,7 +428,6 @@ export function mountManageWorkshopsPanel({
             }
 
             if (inLessonsMode) {
-                // Go Back button replaces the action icons in lessons mode
                 const goBackBtn = document.createElement('button');
                 goBackBtn.type = 'button';
                 goBackBtn.className = 'secondary-button';
@@ -341,7 +438,6 @@ export function mountManageWorkshopsPanel({
 
                 list.appendChild(card);
 
-                // Lessons container — populated by onMountLessons
                 lessonsContainer = document.createElement('div');
                 lessonsContainer.className = 'workshop-lessons-container';
                 list.appendChild(lessonsContainer);
@@ -350,6 +446,29 @@ export function mountManageWorkshopsPanel({
 
                 if (typeof onMountLessons === 'function') {
                     onMountLessons(lessonsContainer, '');
+                }
+
+                mountEl.appendChild(wrap);
+                return;
+            } else if (inAttendeesMode) {
+                const goBackBtn = document.createElement('button');
+                goBackBtn.type = 'button';
+                goBackBtn.className = 'secondary-button';
+                goBackBtn.style.cssText = 'margin-top: 12px; font-size: 13px;';
+                goBackBtn.textContent = 'Go Back';
+                goBackBtn.addEventListener('click', () => onCancelAttendees && onCancelAttendees());
+                card.appendChild(goBackBtn);
+
+                list.appendChild(card);
+
+                attendeesContainer = document.createElement('div');
+                attendeesContainer.className = 'workshop-attendees-container';
+                list.appendChild(attendeesContainer);
+
+                wrap.appendChild(list);
+
+                if (typeof onMountAttendees === 'function') {
+                    onMountAttendees(attendeesContainer, attendeesWorkshopId);
                 }
 
                 mountEl.appendChild(wrap);
@@ -373,6 +492,7 @@ export function mountManageWorkshopsPanel({
                 editBtn.addEventListener('click', () => onEdit && onEdit(w));
 
                 const attendeesBtn = iconBtn('fa-solid fa-user-plus', 'Add Attendees');
+                attendeesBtn.addEventListener('click', () => onAddAttendees && onAddAttendees(w));
 
                 const lessonsBtn = iconBtn('fa-solid fa-lightbulb', 'Add Lessons Learned');
                 lessonsBtn.innerHTML = `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;"><i class="fa-solid fa-lightbulb"></i><i class="fa-solid fa-plus" style="position:absolute;font-size:0.52em;bottom:-1px;right:-4px;"></i></span>`;

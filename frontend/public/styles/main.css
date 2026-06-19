@@ -1342,6 +1342,54 @@ body {
     background: #fdecea;
 }
 
+/* === Workshop: attendees list === */
+.workshop-attendees-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.workshop-attendee-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #f0f7ff;
+    border: 1px solid #cde3f7;
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+.workshop-attendee-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.workshop-attendee-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #2c3e50;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.workshop-attendee-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1a6fa8;
+    background: #d6eaf8;
+    border-radius: 20px;
+    padding: 2px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* === My Projects: expandable organizational lesson structure === */
 .my-projects-lesson-wrap {
     margin-bottom: 14px;

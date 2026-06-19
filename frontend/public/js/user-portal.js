@@ -23,6 +23,9 @@ import {
     fetchWorkshopLessons,
     addLessonToWorkshop,
     removeLessonFromWorkshop,
+    fetchWorkshopAttendees,
+    addAttendeeToWorkshop,
+    removeAttendeeFromWorkshop,
     mountManageWorkshopsPanel,
     computeWorkshopDurationMinutes,
 } from './workshop.js';
@@ -6548,6 +6551,7 @@ const projectFormHTML = `
         let workshopsData = [];
         let refreshList;
         let currentLessonsWorkshopId = null;
+        let currentAttendeesWorkshopId = null;
 
         const panelProps = (extra = {}) => ({
             mountEl,
@@ -6557,11 +6561,16 @@ const projectFormHTML = `
             onAddLessons: handleAddLessons,
             onCancelLessons: handleCancelLessons,
             onMountLessons: handleMountLessons,
+            onAddAttendees: handleAddAttendees,
+            onCancelAttendees: handleCancelAttendees,
+            onMountAttendees: handleMountAttendees,
+            onAddAttendee: handleAddAttendee,
+            loadAttendeesForSelect,
             ...extra,
         });
 
-        const renderPanel = (lessonsWorkshopId = null) => {
-            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId }));
+        const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null) => {
+            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId }));
         };
 
         const handleEdit = (workshop) => {
@@ -6582,11 +6591,186 @@ const projectFormHTML = `
 
         const handleAddLessons = (workshop) => {
             currentLessonsWorkshopId = String(workshop.id);
-            renderPanel(String(workshop.id));
+            renderPanel(String(workshop.id), null);
         };
         const handleCancelLessons = () => {
             currentLessonsWorkshopId = null;
-            renderPanel(null);
+            renderPanel(null, null);
+        };
+
+        const handleAddAttendees = (workshop) => {
+            currentAttendeesWorkshopId = String(workshop.id);
+            renderPanel(null, String(workshop.id));
+        };
+        const handleCancelAttendees = () => {
+            currentAttendeesWorkshopId = null;
+            renderPanel(null, null);
+        };
+
+        const loadAttendeesForSelect = async (selectEl, workshopId) => {
+            try {
+                const pid = Number(projectId);
+                const oid = organizationId != null ? Number(organizationId) : null;
+                if (!oid) return;
+
+                const [teamResult, usersResult, existingResult] = await Promise.all([
+                    supabase
+                        .from('project_team_members')
+                        .select('user_id, name')
+                        .eq('project_id', pid)
+                        .eq('organization_id', oid),
+                    supabase
+                        .from('users')
+                        .select('id, name, email')
+                        .eq('organizationid', oid)
+                        .order('name', { ascending: true }),
+                    fetchWorkshopAttendees(supabase, workshopId),
+                ]);
+
+                const teamMembers = teamResult.data || [];
+                const orgUsers = usersResult.data || [];
+                const existing = existingResult.data || [];
+
+                const addedUserIds = new Set(existing.map((a) => String(a.user_id)));
+                const projectUserIds = new Set(teamMembers.map((m) => String(m.user_id)));
+
+                const projectMembers = orgUsers
+                    .filter((u) => projectUserIds.has(String(u.id)) && !addedUserIds.has(String(u.id)))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+                const otherMembers = orgUsers
+                    .filter((u) => !projectUserIds.has(String(u.id)) && !addedUserIds.has(String(u.id)))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+                while (selectEl.children.length > 1) selectEl.removeChild(selectEl.children[1]);
+
+                if (projectMembers.length > 0) {
+                    const group = document.createElement('optgroup');
+                    group.label = '— Project Team Members —';
+                    projectMembers.forEach((u) => {
+                        const opt = document.createElement('option');
+                        opt.value = String(u.id);
+                        opt.textContent = u.name || u.email || String(u.id);
+                        opt.dataset.name = u.name || '';
+                        opt.dataset.email = u.email || '';
+                        group.appendChild(opt);
+                    });
+                    selectEl.appendChild(group);
+                }
+
+                if (otherMembers.length > 0) {
+                    const group = document.createElement('optgroup');
+                    group.label = '— Other Organization Members —';
+                    otherMembers.forEach((u) => {
+                        const opt = document.createElement('option');
+                        opt.value = String(u.id);
+                        opt.textContent = u.name || u.email || String(u.id);
+                        opt.dataset.name = u.name || '';
+                        opt.dataset.email = u.email || '';
+                        group.appendChild(opt);
+                    });
+                    selectEl.appendChild(group);
+                }
+
+                if (projectMembers.length === 0 && otherMembers.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'All users have been added';
+                    opt.disabled = true;
+                    selectEl.appendChild(opt);
+                }
+            } catch (err) {
+                console.error('loadAttendeesForSelect error:', err);
+            }
+        };
+
+        const handleMountAttendees = async (containerEl, workshopId) => {
+            containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading attendees…</p>';
+            try {
+                const { data: attendees, error } = await fetchWorkshopAttendees(supabase, workshopId);
+                if (error) throw error;
+                containerEl.innerHTML = '';
+                if (!attendees || attendees.length === 0) {
+                    const msg = document.createElement('p');
+                    msg.className = 'subtitle';
+                    msg.style.cssText = 'margin: 16px 0 0;';
+                    msg.textContent = 'No attendees have been added yet.';
+                    containerEl.appendChild(msg);
+                    return;
+                }
+                renderAttendeesList(containerEl, attendees, workshopId);
+            } catch (err) {
+                console.error('handleMountAttendees error:', err);
+                containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load attendees.'}</p>`;
+            }
+        };
+
+        const renderAttendeesList = (containerEl, attendees, workshopId) => {
+            containerEl.innerHTML = '';
+
+            const heading = document.createElement('p');
+            heading.style.cssText = 'font-weight: 600; margin: 16px 0 8px; font-size: 14px; color: #444;';
+            heading.textContent = `${attendees.length} invited attendee${attendees.length !== 1 ? 's' : ''}`;
+            containerEl.appendChild(heading);
+
+            const list = document.createElement('div');
+            list.className = 'workshop-attendees-list';
+
+            attendees.forEach((a) => {
+                const item = document.createElement('div');
+                item.className = 'workshop-attendee-item';
+
+                const info = document.createElement('div');
+                info.className = 'workshop-attendee-info';
+
+                const nameEl = document.createElement('span');
+                nameEl.className = 'workshop-attendee-name';
+                nameEl.textContent = a.name || a.email || String(a.user_id);
+                info.appendChild(nameEl);
+
+                const badge = document.createElement('span');
+                badge.className = 'workshop-attendee-badge';
+                badge.textContent = 'Invited';
+                info.appendChild(badge);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'workshop-lesson-toggle-btn workshop-lesson-toggle-btn--remove';
+                removeBtn.title = 'Remove attendee';
+                removeBtn.setAttribute('aria-label', 'Remove attendee');
+                removeBtn.innerHTML = '<i class="fa-solid fa-circle-minus"></i> Remove';
+
+                removeBtn.addEventListener('click', async () => {
+                    removeBtn.disabled = true;
+                    const { error } = await removeAttendeeFromWorkshop(supabase, a.id);
+                    if (error) {
+                        console.error('removeAttendeeFromWorkshop error:', error);
+                        removeBtn.disabled = false;
+                        return;
+                    }
+                    await handleMountAttendees(containerEl, workshopId);
+                    const selectEl = document.getElementById('myProjectsWorkshopAttendeesSelect');
+                    if (selectEl) await loadAttendeesForSelect(selectEl, workshopId);
+                });
+
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                list.appendChild(item);
+            });
+
+            containerEl.appendChild(list);
+        };
+
+        const handleAddAttendee = async ({ userId, name, email }, containerEl, selectEl) => {
+            const wId = currentAttendeesWorkshopId;
+            if (!wId) return;
+            const { error } = await addAttendeeToWorkshop(supabase, { workshopId: wId, userId, name, email });
+            if (error) {
+                console.error('addAttendeeToWorkshop error:', error);
+                return;
+            }
+            await handleMountAttendees(containerEl, wId);
+            if (selectEl) await loadAttendeesForSelect(selectEl, wId);
         };
 
         const handleMountLessons = async (containerEl, categoryId) => {
@@ -6804,7 +6988,7 @@ const projectFormHTML = `
                 mountManageWorkshopsPanel(panelProps({ workshops: [], error }));
                 return;
             }
-            renderPanel(null);
+            renderPanel(null, null);
         };
 
         await refreshList();
