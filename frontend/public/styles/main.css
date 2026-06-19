@@ -1305,6 +1305,43 @@ body {
     border-color: #f0e0b2;
 }
 
+.my-projects-lesson-card--workshop-added {
+    background-color: #ffb347; /* bright orange */
+    border-color: #f39c12;
+}
+
+.workshop-lesson-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.07);
+    color: #333;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.workshop-lesson-toggle-btn:hover {
+    background: rgba(0, 0, 0, 0.14);
+}
+
+.workshop-lesson-toggle-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.workshop-lesson-toggle-btn--remove {
+    color: #c0392b;
+}
+
+.workshop-lesson-toggle-btn--remove:hover {
+    background: #fdecea;
+}
+
 /* === My Projects: expandable organizational lesson structure === */
 .my-projects-lesson-wrap {
     margin-bottom: 14px;

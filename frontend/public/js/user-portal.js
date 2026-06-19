@@ -20,6 +20,9 @@ import {
     updateWorkshop,
     deleteWorkshop,
     fetchWorkshopsForProject,
+    fetchWorkshopLessons,
+    addLessonToWorkshop,
+    removeLessonFromWorkshop,
     mountManageWorkshopsPanel,
     computeWorkshopDurationMinutes,
 } from './workshop.js';
@@ -5807,7 +5810,6 @@ const projectFormHTML = `
                 <div id="myProjectsWorkshopPanel" class="project-types-panel my-projects-workshop-panel" style="display: none;">
                     <div class="my-projects-workshop-toolbar">
                         <button type="button" id="myProjectsCreateWorkshopButton" class="side-button">Create New Workshop</button>
-                        <button type="button" id="myProjectsManageWorkshopsButton" class="side-button">Manage Workshops</button>
                     </div>
                     <div id="myProjectsWorkshopMount" class="my-projects-workshop-mount"></div>
                 </div>
@@ -6041,60 +6043,6 @@ const projectFormHTML = `
                     }
                     if (form && typeof form.reset === 'function') form.reset();
                     if (modal) modal.classList.add('show');
-                });
-            }
-            const manageWorkshopsBtn = document.getElementById('myProjectsManageWorkshopsButton');
-            if (manageWorkshopsBtn) {
-                manageWorkshopsBtn.addEventListener('click', async () => {
-                    if (!searchProjectsSelectedProject || searchProjectsSelectedProject.project_id == null) {
-                        alert('Select a project first.');
-                        return;
-                    }
-                    const mountEl = document.getElementById('myProjectsWorkshopMount');
-                    if (!mountEl) return;
-
-                    const projectId = searchProjectsSelectedProject.project_id;
-                    const loadCats = (selectEl) =>
-                        loadMyProjectsLessonsCategories(searchProjectsSelectedProject, selectEl, 'workshop');
-
-                    let refreshList;
-
-                    const handleEdit = (workshop) => {
-                        openEditWorkshopModal(workshop, async () => {
-                            if (refreshList) await refreshList();
-                        });
-                    };
-
-                    const handleDelete = async (workshop) => {
-                        if (!confirm(`Delete "${workshop.workshop_title}"? This cannot be undone.`)) return;
-                        const { error } = await deleteWorkshop(supabase, workshop.id);
-                        if (error) {
-                            alert(error.message || 'Failed to delete workshop.');
-                            return;
-                        }
-                        if (refreshList) await refreshList();
-                    };
-
-                    refreshList = async () => {
-                        mountManageWorkshopsPanel({
-                            mountEl,
-                            loading: true,
-                            loadLessonsCategoriesForSelect: loadCats,
-                            onEdit: handleEdit,
-                            onDelete: handleDelete,
-                        });
-                        const { data, error } = await fetchWorkshopsForProject(supabase, projectId);
-                        mountManageWorkshopsPanel({
-                            mountEl,
-                            workshops: data || [],
-                            error: error || null,
-                            loadLessonsCategoriesForSelect: loadCats,
-                            onEdit: handleEdit,
-                            onDelete: handleDelete,
-                        });
-                    };
-
-                    await refreshList();
                 });
             }
         }
@@ -6570,7 +6518,7 @@ const projectFormHTML = `
         if (workshopPanel) workshopPanel.style.display = 'none';
     }
 
-    function enterMyProjectsWorkshopView() {
+    async function enterMyProjectsWorkshopView() {
         if (myProjectsProjectAnalysisViewActive) {
             exitMyProjectsProjectAnalysisView();
         }
@@ -6588,14 +6536,278 @@ const projectFormHTML = `
 
         workshopPanel.style.display = 'block';
         myProjectsWorkshopViewActive = true;
-        mountWorkshopModule({
-            mountEl: document.getElementById('myProjectsWorkshopMount'),
-            project: searchProjectsSelectedProject,
-            ctUser,
-            loadLessonsCategoriesForSelect: (selectEl) =>
-                loadMyProjectsLessonsCategories(searchProjectsSelectedProject, selectEl, 'workshop'),
-        });
         workshopPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        const mountEl = document.getElementById('myProjectsWorkshopMount');
+        if (!mountEl || !searchProjectsSelectedProject || searchProjectsSelectedProject.project_id == null) return;
+
+        const projectId = searchProjectsSelectedProject.project_id;
+        const loadCats = (selectEl) =>
+            loadMyProjectsLessonsCategories(searchProjectsSelectedProject, selectEl, 'workshop');
+
+        let workshopsData = [];
+        let refreshList;
+        let currentLessonsWorkshopId = null;
+
+        const panelProps = (extra = {}) => ({
+            mountEl,
+            loadLessonsCategoriesForSelect: loadCats,
+            onEdit: handleEdit,
+            onDelete: handleDelete,
+            onAddLessons: handleAddLessons,
+            onCancelLessons: handleCancelLessons,
+            onMountLessons: handleMountLessons,
+            ...extra,
+        });
+
+        const renderPanel = (lessonsWorkshopId = null) => {
+            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId }));
+        };
+
+        const handleEdit = (workshop) => {
+            openEditWorkshopModal(workshop, async () => {
+                if (refreshList) await refreshList();
+            });
+        };
+
+        const handleDelete = async (workshop) => {
+            if (!confirm(`Delete "${workshop.workshop_title}"? This cannot be undone.`)) return;
+            const { error } = await deleteWorkshop(supabase, workshop.id);
+            if (error) {
+                alert(error.message || 'Failed to delete workshop.');
+                return;
+            }
+            if (refreshList) await refreshList();
+        };
+
+        const handleAddLessons = (workshop) => {
+            currentLessonsWorkshopId = String(workshop.id);
+            renderPanel(String(workshop.id));
+        };
+        const handleCancelLessons = () => {
+            currentLessonsWorkshopId = null;
+            renderPanel(null);
+        };
+
+        const handleMountLessons = async (containerEl, categoryId) => {
+            containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading lessons…</p>';
+
+            try {
+                const pid = Number(projectId);
+                const oid = organizationId != null ? Number(organizationId) : null;
+                if (!oid) { containerEl.innerHTML = ''; return; }
+
+                // Pre-fetch which lessons are already in this workshop
+                const wlId = currentLessonsWorkshopId;
+                const { data: wlRows } = wlId
+                    ? await fetchWorkshopLessons(supabase, wlId)
+                    : { data: [] };
+                // lessonId (string) → workshop_lessons_learned row id
+                const workshopLessonMap = new Map(
+                    (wlRows || []).map((r) => [String(r.lessons_learned_id), r.id])
+                );
+
+                let lessonIds = null;
+
+                if (categoryId) {
+                    const { data: links } = await supabase
+                        .from('lessons_learned_metadata')
+                        .select('lessons_learned_id')
+                        .eq('organization_id', oid)
+                        .eq('project_id', pid)
+                        .eq('lessons_learned_metadata_list_id', categoryId)
+                        .limit(5000);
+                    lessonIds = (links || []).map((l) => l.lessons_learned_id).filter(Boolean);
+                    if (lessonIds.length === 0) {
+                        containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">No "for review" lessons in this category.</p>';
+                        return;
+                    }
+                }
+
+                let query = supabase
+                    .from('lessons_learned')
+                    .select('id, title, category, review, created_by')
+                    .eq('organization_id', oid)
+                    .eq('project_id', pid)
+                    .eq('review', 'for review')
+                    .order('id', { ascending: false });
+                if (lessonIds) query = query.in('id', lessonIds);
+
+                const { data: lessons, error: lessonErr } = await query;
+                if (lessonErr) throw lessonErr;
+
+                containerEl.innerHTML = '';
+
+                if (!lessons || lessons.length === 0) {
+                    const msg = document.createElement('p');
+                    msg.className = 'subtitle';
+                    msg.style.cssText = 'margin: 16px 0 0;';
+                    msg.textContent = 'No "for review" lessons found for this project.';
+                    containerEl.appendChild(msg);
+                    return;
+                }
+
+                // Helper: build a lesson card wrap augmented with an add/remove toggle button.
+                // workshopLessonMap is shared by reference so all buttons stay in sync.
+                const buildAugmentedWrap = (row) => {
+                    const wrap = createMyProjectsLessonWrap(row, searchProjectsSelectedProject, {
+                        onOpenLesson: () => showMyProjectsLessonFullView(row, searchProjectsSelectedProject),
+                    });
+                    const card = wrap.querySelector('.my-projects-lesson-card');
+
+                    const applyAddedStyle = (added) => {
+                        if (!card) return;
+                        if (added) {
+                            card.classList.add('my-projects-lesson-card--workshop-added');
+                        } else {
+                            card.classList.remove('my-projects-lesson-card--workshop-added');
+                        }
+                    };
+
+                    const updateToggleBtn = (btn, added) => {
+                        btn.className = 'workshop-lesson-toggle-btn' + (added ? ' workshop-lesson-toggle-btn--remove' : '');
+                        btn.title = added ? 'Remove from workshop' : 'Add to workshop';
+                        btn.setAttribute('aria-label', added ? 'Remove from workshop' : 'Add to workshop');
+                        btn.innerHTML = added
+                            ? '<i class="fa-solid fa-circle-minus"></i> Remove from workshop'
+                            : '<i class="fa-solid fa-circle-plus"></i> Add to workshop';
+                    };
+
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.type = 'button';
+                    const initiallyAdded = workshopLessonMap.has(String(row.id));
+                    applyAddedStyle(initiallyAdded);
+                    updateToggleBtn(toggleBtn, initiallyAdded);
+
+                    toggleBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        toggleBtn.disabled = true;
+                        const lessonKey = String(row.id);
+                        if (workshopLessonMap.has(lessonKey)) {
+                            const linkId = workshopLessonMap.get(lessonKey);
+                            const { error } = await removeLessonFromWorkshop(supabase, linkId);
+                            if (!error) {
+                                workshopLessonMap.delete(lessonKey);
+                                applyAddedStyle(false);
+                                updateToggleBtn(toggleBtn, false);
+                            }
+                        } else {
+                            const { data: newRow, error } = await addLessonToWorkshop(
+                                supabase, wlId, row.id, ctUser ? ctUser.id : null
+                            );
+                            if (!error && newRow) {
+                                workshopLessonMap.set(lessonKey, newRow.id);
+                                applyAddedStyle(true);
+                                updateToggleBtn(toggleBtn, true);
+                            }
+                        }
+                        toggleBtn.disabled = false;
+                    });
+
+                    wrap.appendChild(toggleBtn);
+                    return wrap;
+                };
+
+                if (categoryId) {
+                    const summary = document.createElement('p');
+                    summary.className = 'upload-message upload-message--success';
+                    summary.style.marginTop = '16px';
+                    summary.textContent = `Showing ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} for this category.`;
+                    containerEl.appendChild(summary);
+
+                    const list = document.createElement('div');
+                    list.className = 'my-projects-lessons-results';
+                    list.style.marginTop = '10px';
+                    lessons.forEach((row) => list.appendChild(buildAugmentedWrap(row)));
+                    containerEl.appendChild(list);
+                } else {
+                    // Group by metadata category
+                    const { data: links } = await supabase
+                        .from('lessons_learned_metadata')
+                        .select('lessons_learned_id, lessons_learned_metadata_list_id')
+                        .eq('organization_id', oid)
+                        .eq('project_id', pid)
+                        .in('lessons_learned_id', lessons.map((l) => l.id))
+                        .limit(5000);
+
+                    const { data: metaList } = await supabase
+                        .from('lessons_learned_metadata_list')
+                        .select('id, metadata_type, metadata')
+                        .eq('organization_id', oid)
+                        .eq('project_id', pid)
+                        .limit(5000);
+
+                    const lessonById = new Map(lessons.map((l) => [String(l.id), l]));
+                    const metaById = new Map((metaList || []).map((m) => [String(m.id), m]));
+                    const groups = new Map();
+                    (links || []).forEach((link) => {
+                        const lesson = lessonById.get(String(link.lessons_learned_id));
+                        if (!lesson) return;
+                        const metaId = String(link.lessons_learned_metadata_list_id);
+                        if (!groups.has(metaId)) {
+                            const meta = metaById.get(metaId);
+                            groups.set(metaId, {
+                                label: meta ? (meta.metadata || meta.metadata_type || 'Unlabeled') : 'Unlabeled',
+                                lessons: [],
+                            });
+                        }
+                        groups.get(metaId).lessons.push(lesson);
+                    });
+
+                    const linkedIds = new Set((links || []).map((l) => String(l.lessons_learned_id)));
+                    const uncategorized = lessons.filter((l) => !linkedIds.has(String(l.id)));
+
+                    const totalCategories = groups.size + (uncategorized.length > 0 ? 1 : 0);
+                    const summary = document.createElement('p');
+                    summary.className = 'upload-message upload-message--success';
+                    summary.style.marginTop = '16px';
+                    summary.textContent = `Showing ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} across ${totalCategories} categor${totalCategories === 1 ? 'y' : 'ies'}.`;
+                    containerEl.appendChild(summary);
+
+                    const resultsWrap = document.createElement('div');
+                    resultsWrap.className = 'my-projects-lessons-results';
+                    resultsWrap.style.marginTop = '10px';
+
+                    groups.forEach(({ label, lessons: groupLessons }) => {
+                        const section = document.createElement('section');
+                        const heading = document.createElement('h3');
+                        heading.textContent = label;
+                        heading.style.cssText = 'font-size: 15px; font-weight: 700; margin: 0 0 8px; color: #2c3e50;';
+                        section.appendChild(heading);
+                        groupLessons.forEach((row) => section.appendChild(buildAugmentedWrap(row)));
+                        resultsWrap.appendChild(section);
+                    });
+
+                    if (uncategorized.length > 0) {
+                        const section = document.createElement('section');
+                        const heading = document.createElement('h3');
+                        heading.textContent = 'Uncategorized';
+                        heading.style.cssText = 'font-size: 15px; font-weight: 700; margin: 0 0 8px; color: #2c3e50;';
+                        section.appendChild(heading);
+                        uncategorized.forEach((row) => section.appendChild(buildAugmentedWrap(row)));
+                        resultsWrap.appendChild(section);
+                    }
+
+                    containerEl.appendChild(resultsWrap);
+                }
+            } catch (err) {
+                console.error('Workshop lessons load error:', err);
+                containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load lessons.'}</p>`;
+            }
+        };
+
+        refreshList = async () => {
+            mountManageWorkshopsPanel(panelProps({ loading: true }));
+            const { data, error } = await fetchWorkshopsForProject(supabase, projectId);
+            workshopsData = data || [];
+            if (error) {
+                mountManageWorkshopsPanel(panelProps({ workshops: [], error }));
+                return;
+            }
+            renderPanel(null);
+        };
+
+        await refreshList();
     }
 
     function exitMyProjectsWorkshopView() {

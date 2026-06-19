@@ -127,6 +127,46 @@ export function computeWorkshopDurationMinutes(startTime, endTime) {
 }
 
 /**
+ * Fetch all workshop_lessons_learned rows for a workshop.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function fetchWorkshopLessons(supabase, workshopId) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .select('id, lessons_learned_id')
+        .eq('workshop_id', workshopId);
+}
+
+/**
+ * Insert a row into workshop_lessons_learned.
+ * Returns the new row so the caller can capture its id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ * @param {string | number} lessonId
+ * @param {string | number} addedBy
+ */
+export async function addLessonToWorkshop(supabase, workshopId, lessonId, addedBy) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .insert({ workshop_id: Number(workshopId), lessons_learned_id: Number(lessonId), added_by: Number(addedBy) })
+        .select('id, lessons_learned_id')
+        .single();
+}
+
+/**
+ * Delete a workshop_lessons_learned row by its own id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} linkRowId
+ */
+export async function removeLessonFromWorkshop(supabase, linkRowId) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .delete()
+        .eq('id', linkRowId);
+}
+
+/**
  * Fetch all workshops for a given project, ordered newest date first.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | number} projectId
@@ -160,21 +200,34 @@ function formatWorkshopTime(timeHHMMSS) {
  *   loadLessonsCategoriesForSelect?: (selectEl: HTMLSelectElement) => Promise<void>,
  *   onEdit?: (workshop: Record<string, unknown>) => void,
  *   onDelete?: (workshop: Record<string, unknown>) => void,
+ *   onAddLessons?: (workshop: Record<string, unknown>) => void,
+ *   onCancelLessons?: () => void,
+ *   lessonsWorkshopId?: string | number | null,
+ *   onMountLessons?: (containerEl: HTMLElement, categoryId: string) => void,
  * }} ctx
  */
-export function mountManageWorkshopsPanel({ mountEl, workshops, loading, error, loadLessonsCategoriesForSelect, onEdit, onDelete }) {
+export function mountManageWorkshopsPanel({
+    mountEl, workshops, loading, error,
+    loadLessonsCategoriesForSelect,
+    onEdit, onDelete, onAddLessons, onCancelLessons,
+    lessonsWorkshopId = null,
+    onMountLessons,
+}) {
     if (!mountEl) return;
     mountEl.innerHTML = '';
+
+    const inLessonsMode = lessonsWorkshopId != null;
 
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-workshop-mount-inner';
     wrap.setAttribute('role', 'region');
     wrap.setAttribute('aria-label', 'Workshops list');
 
-    // Categories dropdown (always present)
+    // Categories dropdown — only visible in lessons mode
     const categoriesGroup = document.createElement('div');
     categoriesGroup.className = 'form-group';
     categoriesGroup.style.marginBottom = '14px';
+    categoriesGroup.style.display = inLessonsMode ? '' : 'none';
 
     const categoriesLabel = document.createElement('label');
     const categoriesSelect = document.createElement('select');
@@ -192,9 +245,19 @@ export function mountManageWorkshopsPanel({ mountEl, workshops, loading, error, 
     categoriesGroup.appendChild(categoriesSelect);
     wrap.appendChild(categoriesGroup);
 
-    if (typeof loadLessonsCategoriesForSelect === 'function') {
-        loadLessonsCategoriesForSelect(categoriesSelect).catch((err) => {
-            console.error('Manage Workshops: failed to load lessons categories', err);
+    // Track the lessons container so the dropdown change handler can reference it
+    let lessonsContainer = null;
+
+    if (inLessonsMode) {
+        if (typeof loadLessonsCategoriesForSelect === 'function') {
+            loadLessonsCategoriesForSelect(categoriesSelect).catch((err) => {
+                console.error('Manage Workshops: failed to load lessons categories', err);
+            });
+        }
+        categoriesSelect.addEventListener('change', () => {
+            if (lessonsContainer && typeof onMountLessons === 'function') {
+                onMountLessons(lessonsContainer, categoriesSelect.value || '');
+            }
         });
     }
 
@@ -217,16 +280,23 @@ export function mountManageWorkshopsPanel({ mountEl, workshops, loading, error, 
         msg.textContent = 'No workshops have been created for this project yet.';
         wrap.appendChild(msg);
     } else {
-        const heading = document.createElement('p');
-        heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
-        heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
-        wrap.appendChild(heading);
+        // In lessons mode only show the selected card; otherwise show all
+        const displayWorkshops = inLessonsMode
+            ? workshops.filter((w) => String(w.id) === String(lessonsWorkshopId))
+            : workshops;
+
+        if (!inLessonsMode) {
+            const heading = document.createElement('p');
+            heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
+            heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
+            wrap.appendChild(heading);
+        }
 
         const list = document.createElement('div');
         list.className = 'lessons-results';
         list.style.marginTop = '0';
 
-        workshops.forEach((w) => {
+        displayWorkshops.forEach((w) => {
             const card = document.createElement('div');
             card.className = 'lesson-card';
 
@@ -259,35 +329,64 @@ export function mountManageWorkshopsPanel({ mountEl, workshops, loading, error, 
                 card.appendChild(desc);
             }
 
-            // Icon action buttons
-            const actions = document.createElement('div');
-            actions.className = 'workshop-card-actions';
+            if (inLessonsMode) {
+                // Go Back button replaces the action icons in lessons mode
+                const goBackBtn = document.createElement('button');
+                goBackBtn.type = 'button';
+                goBackBtn.className = 'secondary-button';
+                goBackBtn.style.cssText = 'margin-top: 12px; font-size: 13px;';
+                goBackBtn.textContent = 'Go Back';
+                goBackBtn.addEventListener('click', () => onCancelLessons && onCancelLessons());
+                card.appendChild(goBackBtn);
 
-            const iconBtn = (faClass, label, danger = false) => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'workshop-icon-btn' + (danger ? ' workshop-icon-btn--danger' : '');
-                btn.title = label;
-                btn.setAttribute('aria-label', label);
-                btn.innerHTML = `<i class="${faClass}"></i>`;
-                return btn;
-            };
+                list.appendChild(card);
 
-            const editBtn = iconBtn('fa-solid fa-pen', 'Edit Workshop Details');
-            editBtn.addEventListener('click', () => onEdit && onEdit(w));
+                // Lessons container — populated by onMountLessons
+                lessonsContainer = document.createElement('div');
+                lessonsContainer.className = 'workshop-lessons-container';
+                list.appendChild(lessonsContainer);
 
-            const attendeesBtn = iconBtn('fa-solid fa-user-plus', 'Add Attendees');
+                wrap.appendChild(list);
 
-            const lessonsBtn = iconBtn('fa-solid fa-lightbulb', 'Add Lessons Learned');
+                if (typeof onMountLessons === 'function') {
+                    onMountLessons(lessonsContainer, '');
+                }
 
-            const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);
-            deleteBtn.addEventListener('click', () => onDelete && onDelete(w));
+                mountEl.appendChild(wrap);
+                return;
+            } else {
+                // Normal mode — icon action buttons
+                const actions = document.createElement('div');
+                actions.className = 'workshop-card-actions';
 
-            actions.appendChild(editBtn);
-            actions.appendChild(attendeesBtn);
-            actions.appendChild(lessonsBtn);
-            actions.appendChild(deleteBtn);
-            card.appendChild(actions);
+                const iconBtn = (faClass, label, danger = false) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'workshop-icon-btn' + (danger ? ' workshop-icon-btn--danger' : '');
+                    btn.title = label;
+                    btn.setAttribute('aria-label', label);
+                    btn.innerHTML = `<i class="${faClass}"></i>`;
+                    return btn;
+                };
+
+                const editBtn = iconBtn('fa-solid fa-pen', 'Edit Workshop Details');
+                editBtn.addEventListener('click', () => onEdit && onEdit(w));
+
+                const attendeesBtn = iconBtn('fa-solid fa-user-plus', 'Add Attendees');
+
+                const lessonsBtn = iconBtn('fa-solid fa-lightbulb', 'Add Lessons Learned');
+                lessonsBtn.innerHTML = `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;"><i class="fa-solid fa-lightbulb"></i><i class="fa-solid fa-plus" style="position:absolute;font-size:0.52em;bottom:-1px;right:-4px;"></i></span>`;
+                lessonsBtn.addEventListener('click', () => onAddLessons && onAddLessons(w));
+
+                const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);
+                deleteBtn.addEventListener('click', () => onDelete && onDelete(w));
+
+                actions.appendChild(editBtn);
+                actions.appendChild(attendeesBtn);
+                actions.appendChild(lessonsBtn);
+                actions.appendChild(deleteBtn);
+                card.appendChild(actions);
+            }
 
             list.appendChild(card);
         });
