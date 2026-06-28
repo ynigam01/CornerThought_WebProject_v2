@@ -134,7 +134,7 @@ export function computeWorkshopDurationMinutes(startTime, endTime) {
 export async function fetchWorkshopLessons(supabase, workshopId) {
     return supabase
         .from('workshop_lessons_learned')
-        .select('id, lessons_learned_id')
+        .select('id, lessons_learned_id, grouping_id')
         .eq('workshop_id', workshopId);
 }
 
@@ -236,6 +236,88 @@ function formatWorkshopTime(timeHHMMSS) {
 }
 
 /**
+ * Insert a new row into workshop_lessons_groupings.
+ * Returns the new row so the caller can capture its id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ groupingDescription: string, createdBy: string | number, workshopId: string | number }} params
+ */
+export async function insertWorkshopLessonsGrouping(supabase, { groupingDescription, createdBy, workshopId }) {
+    return supabase
+        .from('workshop_lessons_groupings')
+        .insert({
+            grouping_description: String(groupingDescription || '').trim(),
+            created_by: Number(createdBy),
+            workshop_id: Number(workshopId),
+        })
+        .select('id')
+        .single();
+}
+
+/**
+ * Set grouping_id on a list of workshop_lessons_learned rows.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Array<string | number>} wllIds  IDs of workshop_lessons_learned rows to update
+ * @param {string | number} groupingId
+ */
+export async function setGroupingOnWorkshopLessons(supabase, wllIds, groupingId) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .update({ grouping_id: Number(groupingId) })
+        .in('id', wllIds.map(Number));
+}
+
+/**
+ * Clear grouping_id (set to null) on a single workshop_lessons_learned row.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} wllId
+ */
+export async function clearGroupingFromWorkshopLesson(supabase, wllId) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .update({ grouping_id: null })
+        .eq('id', Number(wllId));
+}
+
+/**
+ * Clear grouping_id (set to null) on all workshop_lessons_learned rows that belong to a grouping.
+ * Call this before deleting the grouping to avoid orphaned references.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} groupingId
+ */
+export async function clearGroupingFromWorkshopLessons(supabase, groupingId) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .update({ grouping_id: null })
+        .eq('grouping_id', Number(groupingId));
+}
+
+/**
+ * Fetch all groupings for a workshop, ordered oldest first.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function fetchWorkshopGroupings(supabase, workshopId) {
+    return supabase
+        .from('workshop_lessons_groupings')
+        .select('id, grouping_description, created_by')
+        .eq('workshop_id', workshopId)
+        .order('id', { ascending: true });
+}
+
+/**
+ * Delete a workshop_lessons_groupings row by id.
+ * Clear all lesson grouping references first with clearGroupingFromWorkshopLessons.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} groupingId
+ */
+export async function deleteWorkshopGrouping(supabase, groupingId) {
+    return supabase
+        .from('workshop_lessons_groupings')
+        .delete()
+        .eq('id', Number(groupingId));
+}
+
+/**
  * Renders the categories / attendees dropdown + a list of workshops into mountEl.
  * @param {{
  *   mountEl: HTMLElement | null,
@@ -255,6 +337,10 @@ function formatWorkshopTime(timeHHMMSS) {
  *   onMountAttendees?: (containerEl: HTMLElement, workshopId: string | number) => void,
  *   onAddAttendee?: (user: { userId: string, name: string, email: string }, containerEl: HTMLElement, selectEl: HTMLSelectElement) => void,
  *   loadAttendeesForSelect?: (selectEl: HTMLSelectElement, workshopId: string | number) => Promise<void>,
+ *   onGroupLessons?: (workshop: Record<string, unknown>) => void,
+ *   onCancelGroupLessons?: () => void,
+ *   groupLessonsWorkshopId?: string | number | null,
+ *   onMountGroupLessons?: (containerEl: HTMLElement, workshopId: string | number) => void,
  * }} ctx
  */
 export function mountManageWorkshopsPanel({
@@ -266,12 +352,16 @@ export function mountManageWorkshopsPanel({
     onAddAttendees, onCancelAttendees,
     attendeesWorkshopId = null,
     onMountAttendees, onAddAttendee, loadAttendeesForSelect,
+    onGroupLessons, onCancelGroupLessons,
+    groupLessonsWorkshopId = null,
+    onMountGroupLessons,
 }) {
     if (!mountEl) return;
     mountEl.innerHTML = '';
 
     const inLessonsMode = lessonsWorkshopId != null;
     const inAttendeesMode = attendeesWorkshopId != null;
+    const inGroupLessonsMode = groupLessonsWorkshopId != null;
 
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-workshop-mount-inner';
@@ -377,13 +467,16 @@ export function mountManageWorkshopsPanel({
         msg.textContent = 'No workshops have been created for this project yet.';
         wrap.appendChild(msg);
     } else {
-        // In lessons/attendees mode only show the selected card; otherwise show all
-        const activeId = inLessonsMode ? lessonsWorkshopId : inAttendeesMode ? attendeesWorkshopId : null;
+        // In lessons/attendees/group-lessons mode only show the selected card; otherwise show all
+        const activeId = inLessonsMode ? lessonsWorkshopId
+            : inAttendeesMode ? attendeesWorkshopId
+            : inGroupLessonsMode ? groupLessonsWorkshopId
+            : null;
         const displayWorkshops = activeId != null
             ? workshops.filter((w) => String(w.id) === String(activeId))
             : workshops;
 
-        if (!inLessonsMode && !inAttendeesMode) {
+        if (!inLessonsMode && !inAttendeesMode && !inGroupLessonsMode) {
             const heading = document.createElement('p');
             heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
             heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
@@ -473,6 +566,29 @@ export function mountManageWorkshopsPanel({
 
                 mountEl.appendChild(wrap);
                 return;
+            } else if (inGroupLessonsMode) {
+                const goBackBtn = document.createElement('button');
+                goBackBtn.type = 'button';
+                goBackBtn.className = 'secondary-button';
+                goBackBtn.style.cssText = 'margin-top: 12px; font-size: 13px;';
+                goBackBtn.textContent = 'Go Back';
+                goBackBtn.addEventListener('click', () => onCancelGroupLessons && onCancelGroupLessons());
+                card.appendChild(goBackBtn);
+
+                list.appendChild(card);
+
+                const groupLessonsContainer = document.createElement('div');
+                groupLessonsContainer.className = 'workshop-group-lessons-container';
+                list.appendChild(groupLessonsContainer);
+
+                wrap.appendChild(list);
+
+                if (typeof onMountGroupLessons === 'function') {
+                    onMountGroupLessons(groupLessonsContainer, groupLessonsWorkshopId);
+                }
+
+                mountEl.appendChild(wrap);
+                return;
             } else {
                 // Normal mode — icon action buttons
                 const actions = document.createElement('div');
@@ -498,12 +614,16 @@ export function mountManageWorkshopsPanel({
                 lessonsBtn.innerHTML = `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;"><i class="fa-solid fa-lightbulb"></i><i class="fa-solid fa-plus" style="position:absolute;font-size:0.52em;bottom:-1px;right:-4px;"></i></span>`;
                 lessonsBtn.addEventListener('click', () => onAddLessons && onAddLessons(w));
 
+                const groupLessonsBtn = iconBtn('fa-solid fa-layer-group', 'Group Lessons Learned');
+                groupLessonsBtn.addEventListener('click', () => onGroupLessons && onGroupLessons(w));
+
                 const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);
                 deleteBtn.addEventListener('click', () => onDelete && onDelete(w));
 
                 actions.appendChild(editBtn);
                 actions.appendChild(attendeesBtn);
                 actions.appendChild(lessonsBtn);
+                actions.appendChild(groupLessonsBtn);
                 actions.appendChild(deleteBtn);
                 card.appendChild(actions);
             }

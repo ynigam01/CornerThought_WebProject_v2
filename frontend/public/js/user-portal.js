@@ -28,6 +28,12 @@ import {
     removeAttendeeFromWorkshop,
     mountManageWorkshopsPanel,
     computeWorkshopDurationMinutes,
+    insertWorkshopLessonsGrouping,
+    setGroupingOnWorkshopLessons,
+    clearGroupingFromWorkshopLesson,
+    clearGroupingFromWorkshopLessons,
+    fetchWorkshopGroupings,
+    deleteWorkshopGrouping,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -3670,6 +3676,25 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
     document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
     document.body.insertAdjacentHTML("beforeend", editWorkshopModalHTML);
+    document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal modal--center" id="createGroupingModal">
+        <div class="modal-content" style="max-width: 480px;">
+            <span class="close-button" id="closeCreateGroupingModal">&times;</span>
+            <h3>Create Grouping</h3>
+            <p class="subtitle">Describe what this group of lessons have in common.</p>
+            <form id="createGroupingForm">
+                <div class="input-group">
+                    <label for="createGroupingDescription">Grouping description</label>
+                    <textarea id="createGroupingDescription" rows="3" required></textarea>
+                </div>
+                <div id="createGroupingModalStatus" class="upload-message" aria-live="polite"></div>
+                <div class="modal-actions">
+                    <button type="button" id="cancelCreateGrouping">Cancel</button>
+                    <button type="submit" id="saveCreateGrouping">Save grouping</button>
+                </div>
+            </form>
+        </div>
+    </div>`);
 
     function closeCreateWorkshopModal() {
         const m = document.getElementById('createWorkshopModal');
@@ -3684,6 +3709,7 @@ const projectFormHTML = `
     }
 
     let editWorkshopSuccessCallback = null;
+    let createGroupingModalContext = null;
 
     function openEditWorkshopModal(workshop, onSuccess) {
         editWorkshopSuccessCallback = onSuccess || null;
@@ -3727,6 +3753,91 @@ const projectFormHTML = `
 
     document.getElementById('closeEditWorkshopModal').onclick = () => closeEditWorkshopModal();
     document.getElementById('cancelEditWorkshop').onclick = () => closeEditWorkshopModal();
+
+    function openCreateGroupingModal(context) {
+        createGroupingModalContext = context;
+        const descEl = document.getElementById('createGroupingDescription');
+        const st = document.getElementById('createGroupingModalStatus');
+        if (descEl) descEl.value = '';
+        if (st) { st.textContent = ''; st.classList.remove('upload-message--error', 'upload-message--success'); }
+        const modal = document.getElementById('createGroupingModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    function closeCreateGroupingModal() {
+        const m = document.getElementById('createGroupingModal');
+        const f = document.getElementById('createGroupingForm');
+        const st = document.getElementById('createGroupingModalStatus');
+        if (m) m.classList.remove('show');
+        if (f && typeof f.reset === 'function') f.reset();
+        if (st) { st.textContent = ''; st.classList.remove('upload-message--error', 'upload-message--success'); }
+        createGroupingModalContext = null;
+    }
+
+    document.getElementById('closeCreateGroupingModal').onclick = () => closeCreateGroupingModal();
+    document.getElementById('cancelCreateGrouping').onclick = () => closeCreateGroupingModal();
+
+    const createGroupingFormEl = document.getElementById('createGroupingForm');
+    if (createGroupingFormEl) {
+        createGroupingFormEl.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const statusEl = document.getElementById('createGroupingModalStatus');
+            const descEl = document.getElementById('createGroupingDescription');
+            const saveBtn = document.getElementById('saveCreateGrouping');
+            if (!statusEl || !descEl) return;
+
+            const description = descEl.value.trim();
+            if (!description) {
+                statusEl.textContent = 'Please enter a grouping description.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            const ctx = createGroupingModalContext;
+            if (!ctx) {
+                statusEl.textContent = 'Missing context. Please try again.';
+                statusEl.classList.add('upload-message--error');
+                return;
+            }
+
+            statusEl.textContent = '';
+            statusEl.classList.remove('upload-message--error', 'upload-message--success');
+            if (saveBtn) saveBtn.disabled = true;
+
+            try {
+                const { data: groupingRow, error: groupingErr } = await insertWorkshopLessonsGrouping(supabase, {
+                    groupingDescription: description,
+                    createdBy: ctUser && ctUser.id ? ctUser.id : null,
+                    workshopId: ctx.workshopId,
+                });
+                if (groupingErr) throw groupingErr;
+                const groupingId = groupingRow && groupingRow.id;
+                if (!groupingId) throw new Error('Failed to retrieve new grouping ID.');
+
+                const wllIds = Array.from(ctx.selectedIds)
+                    .map((lessonId) => ctx.lessonToWllMap.get(lessonId))
+                    .filter((id) => id != null);
+
+                if (wllIds.length > 0) {
+                    const { error: updateErr } = await setGroupingOnWorkshopLessons(supabase, wllIds, groupingId);
+                    if (updateErr) throw updateErr;
+                }
+
+                statusEl.textContent = 'Grouping saved successfully.';
+                statusEl.classList.add('upload-message--success');
+                setTimeout(() => {
+                    closeCreateGroupingModal();
+                    if (typeof ctx.onSuccess === 'function') ctx.onSuccess();
+                }, 1200);
+            } catch (err) {
+                console.error('createGroupingModal error:', err);
+                statusEl.textContent = err && err.message ? String(err.message) : 'Failed to save grouping.';
+                statusEl.classList.add('upload-message--error');
+            } finally {
+                if (saveBtn) saveBtn.disabled = false;
+            }
+        });
+    }
 
     const editWorkshopFormEl = document.getElementById('editWorkshopForm');
     if (editWorkshopFormEl) {
@@ -6552,6 +6663,7 @@ const projectFormHTML = `
         let refreshList;
         let currentLessonsWorkshopId = null;
         let currentAttendeesWorkshopId = null;
+        let currentGroupLessonsWorkshopId = null;
 
         const panelProps = (extra = {}) => ({
             mountEl,
@@ -6566,11 +6678,14 @@ const projectFormHTML = `
             onMountAttendees: handleMountAttendees,
             onAddAttendee: handleAddAttendee,
             loadAttendeesForSelect,
+            onGroupLessons: handleGroupLessons,
+            onCancelGroupLessons: handleCancelGroupLessons,
+            onMountGroupLessons: handleMountGroupLessons,
             ...extra,
         });
 
-        const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null) => {
-            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId }));
+        const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null, groupLessonsWorkshopId = null) => {
+            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId, groupLessonsWorkshopId }));
         };
 
         const handleEdit = (workshop) => {
@@ -6605,6 +6720,15 @@ const projectFormHTML = `
         const handleCancelAttendees = () => {
             currentAttendeesWorkshopId = null;
             renderPanel(null, null);
+        };
+
+        const handleGroupLessons = (workshop) => {
+            currentGroupLessonsWorkshopId = String(workshop.id);
+            renderPanel(null, null, String(workshop.id));
+        };
+        const handleCancelGroupLessons = () => {
+            currentGroupLessonsWorkshopId = null;
+            renderPanel(null, null, null);
         };
 
         const loadAttendeesForSelect = async (selectEl, workshopId) => {
@@ -6771,6 +6895,282 @@ const projectFormHTML = `
             }
             await handleMountAttendees(containerEl, wId);
             if (selectEl) await loadAttendeesForSelect(selectEl, wId);
+        };
+
+        const handleMountGroupLessons = async (containerEl, workshopId) => {
+            containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading…</p>';
+            try {
+                const [wlResult, groupingsResult] = await Promise.all([
+                    fetchWorkshopLessons(supabase, workshopId),
+                    fetchWorkshopGroupings(supabase, workshopId),
+                ]);
+                if (wlResult.error) throw wlResult.error;
+                if (groupingsResult.error) throw groupingsResult.error;
+
+                const wlRows = wlResult.data || [];
+                const groupings = groupingsResult.data || [];
+
+                if (wlRows.length === 0) {
+                    containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">No lessons have been assigned to this workshop yet.</p>';
+                    return;
+                }
+
+                const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
+                const { data: lessons, error: lessonErr } = await supabase
+                    .from('lessons_learned')
+                    .select('id, title, category, review, created_by')
+                    .in('id', lessonIds)
+                    .order('id', { ascending: false });
+                if (lessonErr) throw lessonErr;
+
+                const refresh = () => handleMountGroupLessons(containerEl, workshopId);
+
+                containerEl.innerHTML = '';
+
+                // lessonId (string) → wll row id
+                const lessonToWllMap = new Map(wlRows.map((r) => [String(r.lessons_learned_id), r.id]));
+                // lessonId (string) → grouping_id string or null
+                const lessonGroupingMap = new Map(wlRows.map((r) => [
+                    String(r.lessons_learned_id),
+                    r.grouping_id != null ? String(r.grouping_id) : null,
+                ]));
+
+                // Sort lessons into grouped buckets and ungrouped list
+                const groupingLessonsMap = new Map();
+                const ungroupedLessons = [];
+                (lessons || []).forEach((l) => {
+                    const gid = lessonGroupingMap.get(String(l.id));
+                    if (gid != null) {
+                        if (!groupingLessonsMap.has(gid)) groupingLessonsMap.set(gid, []);
+                        groupingLessonsMap.get(gid).push(l);
+                    } else {
+                        ungroupedLessons.push(l);
+                    }
+                });
+
+                // ── GROUPINGS ────────────────────────────────────────────
+                if (groupings.length > 0) {
+                    const grpSectionHeading = document.createElement('p');
+                    grpSectionHeading.style.cssText = 'font-weight: 700; margin: 16px 0 10px; font-size: 15px; color: #2c3e50;';
+                    grpSectionHeading.textContent = `${groupings.length} grouping${groupings.length !== 1 ? 's' : ''}`;
+                    containerEl.appendChild(grpSectionHeading);
+
+                    groupings.forEach((grp) => {
+                        const grpId = String(grp.id);
+                        const grpCard = document.createElement('div');
+                        grpCard.className = 'lesson-card';
+                        grpCard.style.cssText = 'margin-bottom: 14px; border-left: 4px solid #2980b9;';
+
+                        // Header: description + delete button
+                        const grpHeader = document.createElement('div');
+                        grpHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px;';
+
+                        const grpDesc = document.createElement('div');
+                        grpDesc.style.cssText = 'font-weight: 600; font-size: 14px; color: #2c3e50; flex: 1;';
+                        grpDesc.textContent = grp.grouping_description || '(No description)';
+                        grpHeader.appendChild(grpDesc);
+
+                        const deleteGrpBtn = document.createElement('button');
+                        deleteGrpBtn.type = 'button';
+                        deleteGrpBtn.className = 'workshop-icon-btn workshop-icon-btn--danger';
+                        deleteGrpBtn.title = 'Delete grouping';
+                        deleteGrpBtn.setAttribute('aria-label', 'Delete grouping');
+                        deleteGrpBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                        deleteGrpBtn.addEventListener('click', async () => {
+                            if (!confirm(`Delete grouping "${grp.grouping_description}"? Lessons will become ungrouped.`)) return;
+                            deleteGrpBtn.disabled = true;
+                            try {
+                                const { error: clearErr } = await clearGroupingFromWorkshopLessons(supabase, grp.id);
+                                if (clearErr) throw clearErr;
+                                const { error: delErr } = await deleteWorkshopGrouping(supabase, grp.id);
+                                if (delErr) throw delErr;
+                                await refresh();
+                            } catch (err) {
+                                console.error('deleteWorkshopGrouping error:', err);
+                                alert(err.message || 'Failed to delete grouping.');
+                                deleteGrpBtn.disabled = false;
+                            }
+                        });
+                        grpHeader.appendChild(deleteGrpBtn);
+                        grpCard.appendChild(grpHeader);
+
+                        // Lessons belonging to this grouping
+                        const grpLessons = groupingLessonsMap.get(grpId) || [];
+                        if (grpLessons.length === 0) {
+                            const emptyMsg = document.createElement('p');
+                            emptyMsg.className = 'subtitle';
+                            emptyMsg.style.cssText = 'margin: 0; font-size: 13px;';
+                            emptyMsg.textContent = 'No lessons assigned to this group.';
+                            grpCard.appendChild(emptyMsg);
+                        } else {
+                            grpLessons.forEach((lesson) => {
+                                const lessonRow = document.createElement('div');
+                                lessonRow.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px;';
+
+                                const lessonWrap = createMyProjectsLessonWrap(lesson, searchProjectsSelectedProject, {
+                                    onOpenLesson: () => showMyProjectsLessonFullView(lesson, searchProjectsSelectedProject),
+                                });
+                                lessonWrap.style.cssText = 'flex: 1; min-width: 0;';
+                                const lessonCard = lessonWrap.querySelector('.my-projects-lesson-card');
+                                if (lessonCard) lessonCard.style.flex = '1';
+
+                                const removeBtn = document.createElement('button');
+                                removeBtn.type = 'button';
+                                removeBtn.className = 'workshop-lesson-toggle-btn workshop-lesson-toggle-btn--remove';
+                                removeBtn.style.cssText = 'flex-shrink: 0; margin-top: 2px;';
+                                removeBtn.innerHTML = '<i class="fa-solid fa-circle-minus"></i> Remove';
+                                removeBtn.addEventListener('click', async () => {
+                                    removeBtn.disabled = true;
+                                    const wllId = lessonToWllMap.get(String(lesson.id));
+                                    if (wllId == null) { removeBtn.disabled = false; return; }
+                                    const { error } = await clearGroupingFromWorkshopLesson(supabase, wllId);
+                                    if (error) {
+                                        console.error('clearGroupingFromWorkshopLesson error:', error);
+                                        removeBtn.disabled = false;
+                                        return;
+                                    }
+                                    await refresh();
+                                });
+
+                                lessonRow.appendChild(lessonWrap);
+                                lessonRow.appendChild(removeBtn);
+                                grpCard.appendChild(lessonRow);
+                            });
+                        }
+
+                        containerEl.appendChild(grpCard);
+                    });
+                }
+
+                // ── UNGROUPED LESSONS ────────────────────────────────────
+                const totalCount = (lessons || []).length;
+                const ungroupedCount = ungroupedLessons.length;
+
+                const ungroupedHeading = document.createElement('p');
+                ungroupedHeading.style.cssText = 'font-weight: 600; margin: 16px 0 8px; font-size: 14px; color: #444;';
+                ungroupedHeading.textContent = groupings.length > 0
+                    ? `${ungroupedCount} ungrouped lesson${ungroupedCount !== 1 ? 's' : ''} (${totalCount} total)`
+                    : `${totalCount} lesson${totalCount !== 1 ? 's' : ''} assigned to this workshop`;
+                containerEl.appendChild(ungroupedHeading);
+
+                if (ungroupedLessons.length === 0) {
+                    const allGroupedMsg = document.createElement('p');
+                    allGroupedMsg.className = 'subtitle';
+                    allGroupedMsg.style.cssText = 'margin: 0 0 12px;';
+                    allGroupedMsg.textContent = 'All lessons are grouped.';
+                    containerEl.appendChild(allGroupedMsg);
+                } else {
+                    const selectedIds = new Set();
+
+                    // Action bar — visible when one or more lessons are checked
+                    const actionBar = document.createElement('div');
+                    actionBar.style.cssText = 'display: none; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px;';
+
+                    const createNewGrpBtn = document.createElement('button');
+                    createNewGrpBtn.type = 'button';
+                    createNewGrpBtn.className = 'side-button';
+                    createNewGrpBtn.textContent = 'Create New Group';
+                    createNewGrpBtn.addEventListener('click', () => {
+                        openCreateGroupingModal({
+                            selectedIds: new Set(selectedIds),
+                            lessonToWllMap,
+                            workshopId,
+                            onSuccess: refresh,
+                        });
+                    });
+                    actionBar.appendChild(createNewGrpBtn);
+
+                    if (groupings.length > 0) {
+                        const addToLabel = document.createElement('span');
+                        addToLabel.style.cssText = 'font-size: 13px; color: #555; white-space: nowrap;';
+                        addToLabel.textContent = 'Add to:';
+                        actionBar.appendChild(addToLabel);
+
+                        const grpSelect = document.createElement('select');
+                        grpSelect.style.cssText = 'font-size: 13px; padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; max-width: 220px;';
+                        const defaultOpt = document.createElement('option');
+                        defaultOpt.value = '';
+                        defaultOpt.textContent = 'Select a grouping…';
+                        grpSelect.appendChild(defaultOpt);
+                        groupings.forEach((grp) => {
+                            const opt = document.createElement('option');
+                            opt.value = String(grp.id);
+                            const label = grp.grouping_description || `Grouping ${grp.id}`;
+                            opt.textContent = label.length > 40 ? label.slice(0, 37) + '…' : label;
+                            grpSelect.appendChild(opt);
+                        });
+                        actionBar.appendChild(grpSelect);
+
+                        const addToGrpBtn = document.createElement('button');
+                        addToGrpBtn.type = 'button';
+                        addToGrpBtn.className = 'side-button';
+                        addToGrpBtn.textContent = 'Add to Group';
+                        addToGrpBtn.addEventListener('click', async () => {
+                            const targetGroupingId = grpSelect.value;
+                            if (!targetGroupingId) {
+                                alert('Please select a grouping to add to.');
+                                return;
+                            }
+                            const wllIds = Array.from(selectedIds)
+                                .map((lessonId) => lessonToWllMap.get(lessonId))
+                                .filter((id) => id != null);
+                            if (wllIds.length === 0) return;
+                            addToGrpBtn.disabled = true;
+                            try {
+                                const { error } = await setGroupingOnWorkshopLessons(supabase, wllIds, targetGroupingId);
+                                if (error) throw error;
+                                await refresh();
+                            } catch (err) {
+                                console.error('addToGrouping error:', err);
+                                alert(err.message || 'Failed to add lessons to grouping.');
+                                addToGrpBtn.disabled = false;
+                            }
+                        });
+                        actionBar.appendChild(addToGrpBtn);
+                    }
+
+                    containerEl.appendChild(actionBar);
+
+                    const updateActionBar = () => {
+                        actionBar.style.display = selectedIds.size > 0 ? 'flex' : 'none';
+                    };
+
+                    const list = document.createElement('div');
+                    list.className = 'my-projects-lessons-results';
+                    list.style.marginTop = '0';
+
+                    ungroupedLessons.forEach((lesson) => {
+                        const wrap = createMyProjectsLessonWrap(lesson, searchProjectsSelectedProject, {
+                            onOpenLesson: () => showMyProjectsLessonFullView(lesson, searchProjectsSelectedProject),
+                        });
+                        wrap.style.cssText = 'display: flex; align-items: flex-start; gap: 10px;';
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.style.cssText = 'margin-top: 4px; flex-shrink: 0; width: 16px; height: 16px; cursor: pointer;';
+                        checkbox.addEventListener('change', () => {
+                            const key = String(lesson.id);
+                            if (checkbox.checked) {
+                                selectedIds.add(key);
+                            } else {
+                                selectedIds.delete(key);
+                            }
+                            updateActionBar();
+                        });
+
+                        const card = wrap.querySelector('.my-projects-lesson-card');
+                        if (card) card.style.flex = '1';
+
+                        wrap.insertBefore(checkbox, wrap.firstChild);
+                        list.appendChild(wrap);
+                    });
+
+                    containerEl.appendChild(list);
+                }
+            } catch (err) {
+                console.error('handleMountGroupLessons error:', err);
+                containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load assigned lessons.'}</p>`;
+            }
         };
 
         const handleMountLessons = async (containerEl, categoryId) => {
