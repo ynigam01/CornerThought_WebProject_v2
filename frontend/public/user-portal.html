@@ -99,10 +99,16 @@
                     <i class="fas fa-arrow-left"></i> Go back
                 </button>
                 <h1>Notifications</h1>
-                <h2 class="review-notifications-subtitle">
-                    <i class="fas fa-clock"></i> For Review
-                </h2>
+                <div class="notif-tabs" id="notifTabs">
+                    <button type="button" id="notifTabForReview" class="notif-tab notif-tab--active">
+                        <i class="fas fa-clock"></i> For Review
+                    </button>
+                    <button type="button" id="notifTabWorkshops" class="notif-tab" hidden>
+                        <i class="fas fa-users"></i> Workshops
+                    </button>
+                </div>
                 <div id="reviewNotificationsList" class="review-notifications-list"></div>
+                <div id="workshopNotificationsList" class="review-notifications-list" hidden></div>
             </section>
 
             <template id="orgSettingsTemplate">

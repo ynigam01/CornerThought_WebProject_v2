@@ -295,6 +295,96 @@ export async function fetchReviewNotificationsForUserGrouped({
 }
 
 /**
+ * Fetch workshops where the current user has been invited (notification_status = 'sent').
+ * Returns an array of workshop objects enriched with project name and attendee row id.
+ * @param {{
+ *   supabase: import('@supabase/supabase-js').SupabaseClient,
+ *   userId: string | number,
+ * }} args
+ * @returns {Promise<{
+ *   workshops: Array<{
+ *     attendeeId: number,
+ *     workshopId: number,
+ *     workshop_title: string,
+ *     workshop_description: string | null,
+ *     date: string | null,
+ *     start_time: string | null,
+ *     end_time: string | null,
+ *     project_name: string,
+ *   }>,
+ *   error: Error | null,
+ * }>}
+ */
+export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
+    if (!supabase || userId == null) {
+        return { workshops: [], error: new Error('Missing supabase client or user id.') };
+    }
+
+    const { data: attendeeRows, error: attendeeErr } = await supabase
+        .from('workshop_attendees')
+        .select('id, workshop_id')
+        .eq('user_id', Number(userId))
+        .eq('notification_status', 'sent');
+
+    if (attendeeErr) {
+        return { workshops: [], error: new Error(attendeeErr.message || 'Failed to load workshop invites.') };
+    }
+
+    if (!attendeeRows || attendeeRows.length === 0) {
+        return { workshops: [], error: null };
+    }
+
+    const workshopIds = [...new Set(attendeeRows.map((r) => r.workshop_id).filter((v) => v != null))];
+
+    const { data: workshopRows, error: workshopErr } = await supabase
+        .from('workshops')
+        .select('id, workshop_title, workshop_description, date, start_time, end_time, project_id')
+        .in('id', workshopIds);
+
+    if (workshopErr) {
+        return { workshops: [], error: new Error(workshopErr.message || 'Failed to load workshop details.') };
+    }
+
+    const projectIds = [
+        ...new Set((workshopRows || []).map((w) => w.project_id).filter((v) => v != null)),
+    ];
+
+    const projectNameById = new Map();
+    if (projectIds.length > 0) {
+        const { data: projectRows } = await supabase
+            .from('projects')
+            .select('project_id, project_name')
+            .in('project_id', projectIds);
+        (projectRows || []).forEach((p) => {
+            if (p && p.project_id != null) {
+                projectNameById.set(String(p.project_id), p.project_name || `Project ${p.project_id}`);
+            }
+        });
+    }
+
+    const workshopById = new Map((workshopRows || []).map((w) => [String(w.id), w]));
+
+    const workshops = attendeeRows
+        .map((a) => {
+            const w = workshopById.get(String(a.workshop_id));
+            if (!w) return null;
+            return {
+                attendeeId: a.id,
+                workshopId: a.workshop_id,
+                workshop_title: w.workshop_title || '',
+                workshop_description: w.workshop_description || null,
+                date: w.date || null,
+                start_time: w.start_time || null,
+                end_time: w.end_time || null,
+                project_name: projectNameById.get(String(w.project_id)) || '',
+            };
+        })
+        .filter(Boolean);
+
+    return { workshops, error: null };
+}
+
+/**
  * Sets notified = true for all review-notification rows for this user + lesson + org.
  * @param {{
  *   supabase: import('@supabase/supabase-js').SupabaseClient,

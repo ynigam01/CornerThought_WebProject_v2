@@ -1478,6 +1478,62 @@ body {
     flex-shrink: 0;
 }
 
+.workshop-attendee-badge--sent {
+    color: #1a7a4a;
+    background: #d1f0e0;
+}
+
+.workshop-attendee-badge--accepted {
+    color: #155724;
+    background: #c3e6cb;
+}
+
+.workshop-attendee-badge--declined {
+    color: #721c24;
+    background: #f5c6cb;
+}
+
+/* --- Notification tabs (For Review / Workshops) --- */
+.notif-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 0 24px 0;
+}
+
+.notif-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notif-tab:hover {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.notif-tab--active {
+    background: #fef9ec;
+    color: #92400e;
+    border-color: #fde68a;
+}
+
+.notif-tab--active:hover {
+    background: #fef3c7;
+    color: #78350f;
+}
+
 /* === My Projects: expandable organizational lesson structure === */
 .my-projects-lesson-wrap {
     margin-bottom: 14px;

@@ -10,6 +10,7 @@ import { createMyProjectsLessonWrap, mountLessonFullPage } from './my-projects-l
 import {
     fetchReviewNotificationsForUserGrouped,
     markReviewNotificationsNotifiedForLesson,
+    fetchWorkshopInvitesForUser,
 } from './notifications.js';
 import { mountProjectAnalysisPortal, clearProjectAnalysisPortal } from './project_analysis_portal.js';
 import {
@@ -26,6 +27,9 @@ import {
     fetchWorkshopAttendees,
     addAttendeeToWorkshop,
     removeAttendeeFromWorkshop,
+    notifyWorkshopAttendees,
+    respondToWorkshopInvite,
+    formatWorkshopTime,
     mountManageWorkshopsPanel,
     computeWorkshopDurationMinutes,
     insertWorkshopLessonsGrouping,
@@ -179,6 +183,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     /** @type {Array<{ projectId: string | number, projectName: string, lessons: Array<{ id: unknown, title: string }> }>} */
     let welcomeReviewNotificationGroupsCache = [];
+    /** @type {Array<{ attendeeId: number, workshopId: number, workshop_title: string, workshop_description: string|null, date: string|null, start_time: string|null, end_time: string|null, project_name: string }>} */
+    let workshopInvitesCache = [];
     let saveLessonsButton = null;
     let saveDraftButton = null;
     let saveLessonsStatus = null;
@@ -5653,26 +5659,40 @@ const projectFormHTML = `
         const banner = document.getElementById('welcomeReviewNotificationsBanner');
         if (!banner) {
             welcomeReviewNotificationGroupsCache = [];
+            workshopInvitesCache = [];
             return;
         }
         if (!ctUser || ctUser.id == null || !organizationId) {
             welcomeReviewNotificationGroupsCache = [];
+            workshopInvitesCache = [];
             banner.hidden = true;
             return;
         }
-        const { groups, error } = await fetchReviewNotificationsForUserGrouped({
-            supabase,
-            userId: ctUser.id,
-            organizationId,
-        });
-        if (error) {
-            console.error(error);
+
+        const [reviewResult, workshopResult] = await Promise.all([
+            fetchReviewNotificationsForUserGrouped({ supabase, userId: ctUser.id, organizationId }),
+            fetchWorkshopInvitesForUser({ supabase, userId: ctUser.id }),
+        ]);
+
+        if (reviewResult.error) {
+            console.error(reviewResult.error);
             welcomeReviewNotificationGroupsCache = [];
-            banner.hidden = true;
-            return;
+        } else {
+            welcomeReviewNotificationGroupsCache = reviewResult.groups;
         }
-        welcomeReviewNotificationGroupsCache = groups;
-        banner.hidden = groups.length === 0;
+
+        if (workshopResult.error) {
+            console.error(workshopResult.error);
+            workshopInvitesCache = [];
+        } else {
+            workshopInvitesCache = workshopResult.workshops;
+        }
+
+        banner.hidden = welcomeReviewNotificationGroupsCache.length === 0 && workshopInvitesCache.length === 0;
+
+        // Show/hide the Workshops tab based on whether the user has pending invites
+        const workshopsTab = document.getElementById('notifTabWorkshops');
+        if (workshopsTab) workshopsTab.hidden = workshopInvitesCache.length === 0;
     }
 
     function renderReviewNotificationsList() {
@@ -5707,6 +5727,26 @@ const projectFormHTML = `
         }
     }
 
+    function activateNotifTab(tabId) {
+        const forReviewTab = document.getElementById('notifTabForReview');
+        const workshopsTab = document.getElementById('notifTabWorkshops');
+        const reviewList = document.getElementById('reviewNotificationsList');
+        const workshopList = document.getElementById('workshopNotificationsList');
+
+        const isWorkshops = tabId === 'workshops';
+
+        if (forReviewTab) forReviewTab.classList.toggle('notif-tab--active', !isWorkshops);
+        if (workshopsTab) workshopsTab.classList.toggle('notif-tab--active', isWorkshops);
+        if (reviewList) reviewList.hidden = isWorkshops;
+        if (workshopList) workshopList.hidden = !isWorkshops;
+
+        if (isWorkshops) {
+            renderWorkshopNotificationsList();
+        } else {
+            renderReviewNotificationsList();
+        }
+    }
+
     function showReviewNotificationsView() {
         const org = document.getElementById('orgView');
         if (org) org.remove();
@@ -5717,7 +5757,146 @@ const projectFormHTML = `
         hide('#projectsView');
         const rv = document.getElementById('reviewNotificationsView');
         if (rv) rv.hidden = false;
-        renderReviewNotificationsList();
+
+        // Update Workshops tab visibility
+        const workshopsTab = document.getElementById('notifTabWorkshops');
+        if (workshopsTab) workshopsTab.hidden = workshopInvitesCache.length === 0;
+
+        // Wire tab click handlers (idempotent — uses onclick so re-assigning is safe)
+        const forReviewTab = document.getElementById('notifTabForReview');
+        if (forReviewTab) forReviewTab.onclick = () => activateNotifTab('for-review');
+        if (workshopsTab) workshopsTab.onclick = () => activateNotifTab('workshops');
+
+        // Default to For Review tab
+        activateNotifTab('for-review');
+    }
+
+    function renderWorkshopNotificationsList() {
+        const listEl = document.getElementById('workshopNotificationsList');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        if (workshopInvitesCache.length === 0) {
+            const msg = document.createElement('p');
+            msg.className = 'subtitle';
+            msg.style.margin = '0';
+            msg.textContent = 'No pending workshop invites.';
+            listEl.appendChild(msg);
+            return;
+        }
+
+        workshopInvitesCache.forEach((invite) => {
+            const card = document.createElement('div');
+            card.className = 'lesson-card';
+
+            if (invite.project_name) {
+                const proj = document.createElement('div');
+                proj.style.cssText = 'font-size: 12px; color: #64748b; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em;';
+                proj.textContent = invite.project_name;
+                card.appendChild(proj);
+            }
+
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 6px;';
+            titleEl.textContent = invite.workshop_title || '(Untitled Workshop)';
+            card.appendChild(titleEl);
+
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size: 13px; color: #555; display: flex; gap: 16px; flex-wrap: wrap;';
+            if (invite.date) {
+                const ds = document.createElement('span');
+                ds.textContent = `\uD83D\uDCC5 ${invite.date}`;
+                meta.appendChild(ds);
+            }
+            if (invite.start_time) {
+                const ts = document.createElement('span');
+                const startFmt = formatWorkshopTime(invite.start_time);
+                const endFmt = invite.end_time ? ` \u2013 ${formatWorkshopTime(invite.end_time)}` : '';
+                ts.textContent = `\u23F0 ${startFmt}${endFmt}`;
+                meta.appendChild(ts);
+            }
+            card.appendChild(meta);
+
+            if (invite.workshop_description) {
+                const desc = document.createElement('div');
+                desc.style.cssText = 'margin-top: 8px; font-size: 14px; color: #444;';
+                desc.textContent = String(invite.workshop_description);
+                card.appendChild(desc);
+            }
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display: flex; gap: 10px; margin-top: 14px; align-items: center;';
+
+            const acceptBtn = document.createElement('button');
+            acceptBtn.type = 'button';
+            acceptBtn.className = 'side-button';
+            acceptBtn.style.cssText = 'font-size: 13px; padding: 7px 18px;';
+            acceptBtn.textContent = 'Accept';
+
+            const declineBtn = document.createElement('button');
+            declineBtn.type = 'button';
+            declineBtn.className = 'secondary-button';
+            declineBtn.style.cssText = 'font-size: 13px; padding: 7px 18px;';
+            declineBtn.textContent = 'Decline';
+
+            const showAccepted = () => {
+                actions.innerHTML = '';
+                const badge = document.createElement('span');
+                badge.className = 'workshop-attendee-badge workshop-attendee-badge--accepted';
+                badge.style.cssText = 'font-size: 13px; padding: 5px 14px;';
+                badge.textContent = 'Accepted';
+                actions.appendChild(badge);
+                actions.appendChild(declineBtn);
+                declineBtn.disabled = false;
+                declineBtn.textContent = 'Decline';
+            };
+
+            acceptBtn.addEventListener('click', async () => {
+                acceptBtn.disabled = true;
+                declineBtn.disabled = true;
+                acceptBtn.textContent = '\u2026';
+                const { error } = await respondToWorkshopInvite(supabase, invite.attendeeId, true);
+                if (error) {
+                    console.error('respondToWorkshopInvite error:', error);
+                    acceptBtn.disabled = false;
+                    declineBtn.disabled = false;
+                    acceptBtn.textContent = 'Accept';
+                    return;
+                }
+                showAccepted();
+            });
+
+            declineBtn.addEventListener('click', async () => {
+                acceptBtn.disabled = true;
+                declineBtn.disabled = true;
+                declineBtn.textContent = '\u2026';
+                const { error } = await respondToWorkshopInvite(supabase, invite.attendeeId, false);
+                if (error) {
+                    console.error('respondToWorkshopInvite error:', error);
+                    acceptBtn.disabled = false;
+                    declineBtn.disabled = false;
+                    declineBtn.textContent = 'Decline';
+                    return;
+                }
+                workshopInvitesCache = workshopInvitesCache.filter(
+                    (i) => i.attendeeId !== invite.attendeeId
+                );
+                const workshopsTab = document.getElementById('notifTabWorkshops');
+                if (workshopsTab) workshopsTab.hidden = workshopInvitesCache.length === 0;
+                if (workshopInvitesCache.length === 0) {
+                    void refreshWelcomeReviewNotificationsBanner();
+                    activateNotifTab('for-review');
+                } else {
+                    renderWorkshopNotificationsList();
+                }
+            });
+
+            actions.appendChild(acceptBtn);
+            actions.appendChild(declineBtn);
+            card.appendChild(actions);
+
+            listEl.appendChild(card);
+        });
     }
 
     /**
@@ -6832,10 +7011,61 @@ const projectFormHTML = `
         const renderAttendeesList = (containerEl, attendees, workshopId) => {
             containerEl.innerHTML = '';
 
+            const hasNotified = attendees.some((a) => a.notification_status === 'sent');
+            const hasUnnotified = attendees.some((a) => a.notification_status == null);
+            const hasAny = attendees.length > 0;
+
+            const headingRow = document.createElement('div');
+            headingRow.style.cssText = 'display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 8px;';
+
             const heading = document.createElement('p');
-            heading.style.cssText = 'font-weight: 600; margin: 16px 0 8px; font-size: 14px; color: #444;';
+            heading.style.cssText = 'font-weight: 600; margin: 0; font-size: 14px; color: #444; flex: 1 1 auto;';
             heading.textContent = `${attendees.length} invited attendee${attendees.length !== 1 ? 's' : ''}`;
-            containerEl.appendChild(heading);
+            headingRow.appendChild(heading);
+
+            if (hasAny) {
+                const notifyBtn = document.createElement('button');
+                notifyBtn.type = 'button';
+                notifyBtn.className = 'side-button';
+                notifyBtn.style.cssText = 'font-size: 13px; padding: 7px 16px;';
+                notifyBtn.textContent = 'Notify';
+                notifyBtn.addEventListener('click', async () => {
+                    notifyBtn.disabled = true;
+                    notifyBtn.textContent = 'Notifying…';
+                    const { error } = await notifyWorkshopAttendees(supabase, workshopId);
+                    if (error) {
+                        console.error('notifyWorkshopAttendees error:', error);
+                        notifyBtn.disabled = false;
+                        notifyBtn.textContent = 'Notify';
+                        return;
+                    }
+                    await handleMountAttendees(containerEl, workshopId);
+                });
+                headingRow.appendChild(notifyBtn);
+            }
+
+            if (hasNotified && hasUnnotified) {
+                const notifyNewBtn = document.createElement('button');
+                notifyNewBtn.type = 'button';
+                notifyNewBtn.className = 'side-button';
+                notifyNewBtn.style.cssText = 'font-size: 13px; padding: 7px 16px;';
+                notifyNewBtn.textContent = 'Notify New';
+                notifyNewBtn.addEventListener('click', async () => {
+                    notifyNewBtn.disabled = true;
+                    notifyNewBtn.textContent = 'Notifying…';
+                    const { error } = await notifyWorkshopAttendees(supabase, workshopId, { onlyNew: true });
+                    if (error) {
+                        console.error('notifyWorkshopAttendees (new) error:', error);
+                        notifyNewBtn.disabled = false;
+                        notifyNewBtn.textContent = 'Notify New';
+                        return;
+                    }
+                    await handleMountAttendees(containerEl, workshopId);
+                });
+                headingRow.appendChild(notifyNewBtn);
+            }
+
+            containerEl.appendChild(headingRow);
 
             const list = document.createElement('div');
             list.className = 'workshop-attendees-list';
@@ -6853,8 +7083,22 @@ const projectFormHTML = `
                 info.appendChild(nameEl);
 
                 const badge = document.createElement('span');
-                badge.className = 'workshop-attendee-badge';
-                badge.textContent = 'Invited';
+                let badgeModifier = '';
+                let badgeText = 'Invited';
+                if (a.notification_status === 'confirmation_sent') {
+                    if (a.confirmation === true) {
+                        badgeModifier = ' workshop-attendee-badge--accepted';
+                        badgeText = 'Accepted';
+                    } else {
+                        badgeModifier = ' workshop-attendee-badge--declined';
+                        badgeText = 'Declined';
+                    }
+                } else if (a.notification_status === 'sent') {
+                    badgeModifier = ' workshop-attendee-badge--sent';
+                    badgeText = 'Invite Sent';
+                }
+                badge.className = 'workshop-attendee-badge' + badgeModifier;
+                badge.textContent = badgeText;
                 info.appendChild(badge);
 
                 const removeBtn = document.createElement('button');

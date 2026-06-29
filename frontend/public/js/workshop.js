@@ -174,7 +174,7 @@ export async function removeLessonFromWorkshop(supabase, linkRowId) {
 export async function fetchWorkshopAttendees(supabase, workshopId) {
     return supabase
         .from('workshop_attendees')
-        .select('id, user_id, name, email')
+        .select('id, user_id, name, email, notification_status, confirmation')
         .eq('workshop_id', workshopId);
 }
 
@@ -212,6 +212,37 @@ export async function removeAttendeeFromWorkshop(supabase, attendeeRowId) {
 }
 
 /**
+ * Set notification_status to "sent" for attendees of a workshop.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ * @param {{ onlyNew?: boolean }} [options] - When onlyNew is true, only updates rows where notification_status IS NULL.
+ */
+export async function notifyWorkshopAttendees(supabase, workshopId, { onlyNew = false } = {}) {
+    let query = supabase
+        .from('workshop_attendees')
+        .update({ notification_status: 'sent' })
+        .eq('workshop_id', Number(workshopId));
+    if (onlyNew) {
+        query = query.is('notification_status', null);
+    }
+    return query;
+}
+
+/**
+ * Accept or decline a workshop invite.
+ * Sets confirmation to the given value and notification_status to 'confirmation_sent'.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} attendeeId  The workshop_attendees row id.
+ * @param {boolean} accepted  true = Accept, false = Decline.
+ */
+export async function respondToWorkshopInvite(supabase, attendeeId, accepted) {
+    return supabase
+        .from('workshop_attendees')
+        .update({ confirmation: accepted, notification_status: 'confirmation_sent' })
+        .eq('id', Number(attendeeId));
+}
+
+/**
  * Fetch all workshops for a given project, ordered newest date first.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | number} projectId
@@ -225,7 +256,7 @@ export async function fetchWorkshopsForProject(supabase, projectId) {
 }
 
 /** @param {string} timeHHMMSS */
-function formatWorkshopTime(timeHHMMSS) {
+export function formatWorkshopTime(timeHHMMSS) {
     const parts = String(timeHHMMSS || '').split(':');
     const h = parseInt(parts[0], 10);
     const m = parts[1] || '00';
