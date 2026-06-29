@@ -47,7 +47,9 @@
 
                 <div id="welcomeReviewNotificationsBanner" class="welcome-review-notifications-banner" hidden>
                     <button type="button" id="welcomeReviewNotificationsCta" class="welcome-review-notifications-cta">
-                        New Notifications for Your Projects
+                        <i class="fas fa-bell notif-icon"></i>
+                        <span class="notif-text">New Notifications for Your Projects</span>
+                        <i class="fas fa-chevron-right notif-arrow"></i>
                     </button>
                 </div>
 
@@ -93,9 +95,13 @@
             </section>
 
             <section id="reviewNotificationsView" class="view" hidden>
-                <button type="button" id="reviewNotificationsBack" class="review-notifications-back">Go back</button>
+                <button type="button" id="reviewNotificationsBack" class="review-notifications-back">
+                    <i class="fas fa-arrow-left"></i> Go back
+                </button>
                 <h1>Notifications</h1>
-                <h2 class="review-notifications-subtitle">For Review</h2>
+                <h2 class="review-notifications-subtitle">
+                    <i class="fas fa-clock"></i> For Review
+                </h2>
                 <div id="reviewNotificationsList" class="review-notifications-list"></div>
             </section>
 
