@@ -5891,8 +5891,12 @@ const projectFormHTML = `
                 }
             });
 
-            actions.appendChild(acceptBtn);
-            actions.appendChild(declineBtn);
+            if (invite.notification_status === 'confirmation_sent' && invite.confirmation === true) {
+                showAccepted();
+            } else {
+                actions.appendChild(acceptBtn);
+                actions.appendChild(declineBtn);
+            }
             card.appendChild(actions);
 
             listEl.appendChild(card);

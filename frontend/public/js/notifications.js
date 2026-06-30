@@ -295,8 +295,12 @@ export async function fetchReviewNotificationsForUserGrouped({
 }
 
 /**
- * Fetch workshops where the current user has been invited (notification_status = 'sent').
- * Returns an array of workshop objects enriched with project name and attendee row id.
+ * Fetch workshops where the current user has been invited.
+ * Includes rows with notification_status = 'sent' (pending) and rows with
+ * notification_status = 'confirmation_sent' where confirmation = true (already accepted).
+ * Declined rows (confirmation_sent + confirmation = false) are excluded.
+ * Returns an array of workshop objects enriched with project name, attendee row id,
+ * notification_status, and confirmation value.
  * @param {{
  *   supabase: import('@supabase/supabase-js').SupabaseClient,
  *   userId: string | number,
@@ -305,6 +309,8 @@ export async function fetchReviewNotificationsForUserGrouped({
  *   workshops: Array<{
  *     attendeeId: number,
  *     workshopId: number,
+ *     notification_status: string,
+ *     confirmation: boolean | null,
  *     workshop_title: string,
  *     workshop_description: string | null,
  *     date: string | null,
@@ -322,9 +328,9 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
 
     const { data: attendeeRows, error: attendeeErr } = await supabase
         .from('workshop_attendees')
-        .select('id, workshop_id')
+        .select('id, workshop_id, notification_status, confirmation')
         .eq('user_id', Number(userId))
-        .eq('notification_status', 'sent');
+        .or('notification_status.eq.sent,and(notification_status.eq.confirmation_sent,confirmation.eq.true)');
 
     if (attendeeErr) {
         return { workshops: [], error: new Error(attendeeErr.message || 'Failed to load workshop invites.') };
@@ -371,6 +377,8 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
             return {
                 attendeeId: a.id,
                 workshopId: a.workshop_id,
+                notification_status: a.notification_status,
+                confirmation: a.confirmation,
                 workshop_title: w.workshop_title || '',
                 workshop_description: w.workshop_description || null,
                 date: w.date || null,
