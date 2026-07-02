@@ -40,6 +40,7 @@ import {
     deleteWorkshopGrouping,
     updateWorkshopLessonPriority,
     updateWorkshopGroupingPriority,
+    uploadWorkshopAgenda,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -3668,6 +3669,15 @@ const projectFormHTML = `
                         <option value="240">4 hours</option>
                     </select>
                 </div>
+                <div class="input-group">
+                    <label for="editWorkshopAgenda">Agenda <span class="label-optional">(optional)</span></label>
+                    <div id="editWorkshopCurrentAgenda" class="current-attachment" style="display:none;">
+                        <i class="fas fa-paperclip"></i>
+                        <span id="editWorkshopAgendaName"></span>
+                    </div>
+                    <input type="file" id="editWorkshopAgenda" accept=".doc,.docx,.pdf,.txt">
+                    <p class="input-hint">Word document, PDF, or text file (max 20 MB)</p>
+                </div>
                 <div id="editWorkshopModalStatus" class="upload-message" aria-live="polite"></div>
                 <div class="modal-actions">
                     <button type="button" id="cancelEditWorkshop">Cancel</button>
@@ -3748,6 +3758,16 @@ const projectFormHTML = `
             st.textContent = '';
             st.classList.remove('upload-message--error', 'upload-message--success');
         }
+        const currentAgendaEl = document.getElementById('editWorkshopCurrentAgenda');
+        const agendaNameEl = document.getElementById('editWorkshopAgendaName');
+        const agendaFileInput = document.getElementById('editWorkshopAgenda');
+        if (workshop.agenda_filename) {
+            if (agendaNameEl) agendaNameEl.textContent = 'Current: ' + workshop.agenda_filename;
+            if (currentAgendaEl) currentAgendaEl.style.display = '';
+        } else {
+            if (currentAgendaEl) currentAgendaEl.style.display = 'none';
+        }
+        if (agendaFileInput) agendaFileInput.value = '';
         const modal = document.getElementById('editWorkshopModal');
         if (modal) modal.classList.add('show');
     }
@@ -3762,6 +3782,8 @@ const projectFormHTML = `
             st.textContent = '';
             st.classList.remove('upload-message--error', 'upload-message--success');
         }
+        const currentAgendaEl = document.getElementById('editWorkshopCurrentAgenda');
+        if (currentAgendaEl) currentAgendaEl.style.display = 'none';
         editWorkshopSuccessCallback = null;
     }
 
@@ -3913,6 +3935,32 @@ const projectFormHTML = `
 
             const saveBtn = document.getElementById('saveEditWorkshop');
             if (saveBtn) saveBtn.disabled = true;
+
+            const agendaInput = document.getElementById('editWorkshopAgenda');
+            const agendaFile = agendaInput && agendaInput.files && agendaInput.files[0];
+            if (agendaFile) {
+                const MAX_SIZE = 20 * 1024 * 1024;
+                if (agendaFile.size > MAX_SIZE) {
+                    statusEl.textContent = 'Agenda file exceeds the 20 MB limit.';
+                    statusEl.classList.add('upload-message--error');
+                    if (saveBtn) saveBtn.disabled = false;
+                    return;
+                }
+                statusEl.textContent = 'Uploading agenda…';
+                const { storagePath, filename, contentType, error: uploadError } =
+                    await uploadWorkshopAgenda(supabase, workshopId, agendaFile);
+                if (uploadError) {
+                    console.error('Agenda upload error:', uploadError);
+                    statusEl.textContent = uploadError.message || 'Failed to upload agenda.';
+                    statusEl.classList.add('upload-message--error');
+                    if (saveBtn) saveBtn.disabled = false;
+                    return;
+                }
+                row.agenda_storage_path = storagePath;
+                row.agenda_filename = filename;
+                row.agenda_content_type = contentType;
+            }
+
             statusEl.textContent = 'Saving…';
 
             const { error } = await updateWorkshop(supabase, workshopId, row);

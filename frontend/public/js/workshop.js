@@ -244,15 +244,42 @@ export async function respondToWorkshopInvite(supabase, attendeeId, accepted) {
 
 /**
  * Fetch all workshops for a given project, ordered newest date first.
+ * Includes agenda attachment metadata columns.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | number} projectId
  */
 export async function fetchWorkshopsForProject(supabase, projectId) {
     return supabase
         .from('workshops')
-        .select('id, workshop_title, workshop_description, date, start_time, end_time')
+        .select('id, workshop_title, workshop_description, date, start_time, end_time, agenda_storage_path, agenda_filename, agenda_content_type')
         .eq('project_id', projectId)
         .order('date', { ascending: false });
+}
+
+/**
+ * Upload a workshop agenda file to Supabase Storage.
+ * Stores the file at: workshop-agendas/workshops/{workshopId}/{timestamp}_{filename}
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ * @param {File} file
+ * @returns {Promise<{ storagePath: string, filename: string, contentType: string, error: Error | null }>}
+ */
+export async function uploadWorkshopAgenda(supabase, workshopId, file) {
+    const filename = file.name;
+    const contentType = file.type || 'application/octet-stream';
+    const timestamp = Date.now();
+    const storagePath = `workshops/${workshopId}/${timestamp}_${filename}`;
+
+    const { error } = await supabase.storage
+        .from('workshop-agendas')
+        .upload(storagePath, file, { contentType, upsert: false });
+
+    if (error) {
+        return { storagePath: null, filename: null, contentType: null, error };
+    }
+
+    return { storagePath, filename, contentType, error: null };
 }
 
 /** @param {string} timeHHMMSS */
