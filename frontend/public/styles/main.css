@@ -1430,6 +1430,36 @@ body {
     background: #fdecea;
 }
 
+/* === Workshop: priority select === */
+.workshop-priority-select {
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    width: 140px;
+    max-width: 140px;
+    display: inline-block;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.workshop-priority-select[data-priority="high"] {
+    border-color: #c0392b;
+    color: #c0392b;
+}
+
+.workshop-priority-select[data-priority="medium"] {
+    border-color: #e67e22;
+    color: #e67e22;
+}
+
+.workshop-priority-select[data-priority="low"] {
+    border-color: #27ae60;
+    color: #27ae60;
+}
+
 /* === Workshop: attendees list === */
 .workshop-attendees-list {
     display: flex;

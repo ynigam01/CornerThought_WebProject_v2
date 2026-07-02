@@ -134,7 +134,7 @@ export function computeWorkshopDurationMinutes(startTime, endTime) {
 export async function fetchWorkshopLessons(supabase, workshopId) {
     return supabase
         .from('workshop_lessons_learned')
-        .select('id, lessons_learned_id, grouping_id')
+        .select('id, lessons_learned_id, grouping_id, priority')
         .eq('workshop_id', workshopId);
 }
 
@@ -330,9 +330,35 @@ export async function clearGroupingFromWorkshopLessons(supabase, groupingId) {
 export async function fetchWorkshopGroupings(supabase, workshopId) {
     return supabase
         .from('workshop_lessons_groupings')
-        .select('id, grouping_description, created_by')
+        .select('id, grouping_description, created_by, priority')
         .eq('workshop_id', workshopId)
         .order('id', { ascending: true });
+}
+
+/**
+ * Update the priority on a workshop_lessons_learned row.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} wllId
+ * @param {string | null} priority  'high', 'medium', 'low', or null to clear.
+ */
+export async function updateWorkshopLessonPriority(supabase, wllId, priority) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .update({ priority: priority || null })
+        .eq('id', Number(wllId));
+}
+
+/**
+ * Update the priority on a workshop_lessons_groupings row.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} groupingId
+ * @param {string | null} priority  'high', 'medium', 'low', or null to clear.
+ */
+export async function updateWorkshopGroupingPriority(supabase, groupingId, priority) {
+    return supabase
+        .from('workshop_lessons_groupings')
+        .update({ priority: priority || null })
+        .eq('id', Number(groupingId));
 }
 
 /**
@@ -645,7 +671,7 @@ export function mountManageWorkshopsPanel({
                 lessonsBtn.innerHTML = `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;"><i class="fa-solid fa-lightbulb"></i><i class="fa-solid fa-plus" style="position:absolute;font-size:0.52em;bottom:-1px;right:-4px;"></i></span>`;
                 lessonsBtn.addEventListener('click', () => onAddLessons && onAddLessons(w));
 
-                const groupLessonsBtn = iconBtn('fa-solid fa-layer-group', 'Group Lessons Learned');
+                const groupLessonsBtn = iconBtn('fa-solid fa-layer-group', 'Group and Prioritize Lessons Learned');
                 groupLessonsBtn.addEventListener('click', () => onGroupLessons && onGroupLessons(w));
 
                 const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);

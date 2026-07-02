@@ -38,6 +38,8 @@ import {
     clearGroupingFromWorkshopLessons,
     fetchWorkshopGroupings,
     deleteWorkshopGrouping,
+    updateWorkshopLessonPriority,
+    updateWorkshopGroupingPriority,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -3717,6 +3719,12 @@ const projectFormHTML = `
     let editWorkshopSuccessCallback = null;
     let createGroupingModalContext = null;
 
+    function computeMaxGroupPriority(lessonIds, priorityMap) {
+        const rank = (p) => p === 'high' ? 3 : p === 'medium' ? 2 : p === 'low' ? 1 : 0;
+        const max = Math.max(0, ...lessonIds.map((id) => rank(priorityMap.get(String(id)) || null)));
+        return max === 3 ? 'high' : max === 2 ? 'medium' : max === 1 ? 'low' : null;
+    }
+
     function openEditWorkshopModal(workshop, onSuccess) {
         editWorkshopSuccessCallback = onSuccess || null;
         const idEl = document.getElementById('editWorkshopId');
@@ -3827,6 +3835,12 @@ const projectFormHTML = `
                 if (wllIds.length > 0) {
                     const { error: updateErr } = await setGroupingOnWorkshopLessons(supabase, wllIds, groupingId);
                     if (updateErr) throw updateErr;
+                }
+
+                if (ctx.lessonPriorityMap) {
+                    const memberIds = Array.from(ctx.selectedIds);
+                    const maxPriority = computeMaxGroupPriority(memberIds, ctx.lessonPriorityMap);
+                    await updateWorkshopGroupingPriority(supabase, groupingId, maxPriority);
                 }
 
                 statusEl.textContent = 'Grouping saved successfully.';
@@ -6065,7 +6079,7 @@ const projectFormHTML = `
                     <button type="button" id="myProjectsWorkspaceBack" class="secondary-button">Go Back</button>
                     ${showMyProjectsProjectAnalysisButton ? `
                         <button type="button" id="myProjectsProjectAnalysisButton" class="side-button">Project Analysis</button>
-                        <button type="button" id="myProjectsSetupWorkshopButton" class="side-button">Setup Workshop</button>
+                        <button type="button" id="myProjectsSetupWorkshopButton" class="side-button">Workshop</button>
                     ` : ''}
                 </div>
                 <div id="myProjectsWorkspacePanel" class="project-types-panel my-projects-submodule-panel" style="display: none;">
@@ -7182,6 +7196,27 @@ const projectFormHTML = `
                     String(r.lessons_learned_id),
                     r.grouping_id != null ? String(r.grouping_id) : null,
                 ]));
+                // lessonId (string) → priority string or null
+                const lessonPriorityMap = new Map(wlRows.map((r) => [
+                    String(r.lessons_learned_id),
+                    r.priority || null,
+                ]));
+
+                const makePrioritySelect = (currentPriority) => {
+                    const sel = document.createElement('select');
+                    sel.className = 'workshop-priority-select';
+                    sel.setAttribute('aria-label', 'Priority');
+                    sel.dataset.priority = currentPriority || '';
+                    [['', 'Priority'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']]
+                        .forEach(([val, label]) => {
+                            const opt = document.createElement('option');
+                            opt.value = val;
+                            opt.textContent = label;
+                            if ((currentPriority || '') === val) opt.selected = true;
+                            sel.appendChild(opt);
+                        });
+                    return sel;
+                };
 
                 // Sort lessons into grouped buckets and ungrouped list
                 const groupingLessonsMap = new Map();
@@ -7242,6 +7277,24 @@ const projectFormHTML = `
                         grpHeader.appendChild(deleteGrpBtn);
                         grpCard.appendChild(grpHeader);
 
+                        const grpPrioritySelect = makePrioritySelect(grp.priority || null);
+                        grpPrioritySelect.style.marginBottom = '10px';
+                        grpPrioritySelect.addEventListener('change', async () => {
+                            const newPriority = grpPrioritySelect.value || null;
+                            grpPrioritySelect.dataset.priority = newPriority || '';
+                            grpPrioritySelect.disabled = true;
+                            try {
+                                const { error } = await updateWorkshopGroupingPriority(supabase, grp.id, newPriority);
+                                if (error) throw error;
+                            } catch (err) {
+                                console.error('updateWorkshopGroupingPriority error:', err);
+                                alert(err.message || 'Failed to update priority.');
+                            } finally {
+                                grpPrioritySelect.disabled = false;
+                            }
+                        });
+                        grpCard.appendChild(grpPrioritySelect);
+
                         // Lessons belonging to this grouping
                         const grpLessons = groupingLessonsMap.get(grpId) || [];
                         if (grpLessons.length === 0) {
@@ -7277,6 +7330,11 @@ const projectFormHTML = `
                                         removeBtn.disabled = false;
                                         return;
                                     }
+                                    const remainingIds = (groupingLessonsMap.get(grpId) || [])
+                                        .filter((l) => String(l.id) !== String(lesson.id))
+                                        .map((l) => String(l.id));
+                                    const maxPriority = computeMaxGroupPriority(remainingIds, lessonPriorityMap);
+                                    await updateWorkshopGroupingPriority(supabase, grp.id, maxPriority);
                                     await refresh();
                                 });
 
@@ -7322,6 +7380,7 @@ const projectFormHTML = `
                         openCreateGroupingModal({
                             selectedIds: new Set(selectedIds),
                             lessonToWllMap,
+                            lessonPriorityMap,
                             workshopId,
                             onSuccess: refresh,
                         });
@@ -7367,6 +7426,12 @@ const projectFormHTML = `
                             try {
                                 const { error } = await setGroupingOnWorkshopLessons(supabase, wllIds, targetGroupingId);
                                 if (error) throw error;
+                                const existingMemberIds = wlRows
+                                    .filter((r) => String(r.grouping_id) === targetGroupingId)
+                                    .map((r) => String(r.lessons_learned_id));
+                                const allMemberIds = [...existingMemberIds, ...Array.from(selectedIds)];
+                                const maxPriority = computeMaxGroupPriority(allMemberIds, lessonPriorityMap);
+                                await updateWorkshopGroupingPriority(supabase, targetGroupingId, maxPriority);
                                 await refresh();
                             } catch (err) {
                                 console.error('addToGrouping error:', err);
@@ -7388,6 +7453,9 @@ const projectFormHTML = `
                     list.style.marginTop = '0';
 
                     ungroupedLessons.forEach((lesson) => {
+                        const itemContainer = document.createElement('div');
+                        itemContainer.style.cssText = 'margin-bottom: 8px;';
+
                         const wrap = createMyProjectsLessonWrap(lesson, searchProjectsSelectedProject, {
                             onOpenLesson: () => showMyProjectsLessonFullView(lesson, searchProjectsSelectedProject),
                         });
@@ -7410,7 +7478,30 @@ const projectFormHTML = `
                         if (card) card.style.flex = '1';
 
                         wrap.insertBefore(checkbox, wrap.firstChild);
-                        list.appendChild(wrap);
+                        itemContainer.appendChild(wrap);
+
+                        const ungroupedPrioritySelect = makePrioritySelect(lessonPriorityMap.get(String(lesson.id)));
+                        ungroupedPrioritySelect.style.marginTop = '4px';
+                        ungroupedPrioritySelect.style.marginLeft = '26px';
+                        ungroupedPrioritySelect.addEventListener('change', async () => {
+                            const newPriority = ungroupedPrioritySelect.value || null;
+                            ungroupedPrioritySelect.dataset.priority = newPriority || '';
+                            const wllId = lessonToWllMap.get(String(lesson.id));
+                            if (wllId == null) return;
+                            ungroupedPrioritySelect.disabled = true;
+                            try {
+                                const { error } = await updateWorkshopLessonPriority(supabase, wllId, newPriority);
+                                if (error) throw error;
+                            } catch (err) {
+                                console.error('updateWorkshopLessonPriority error:', err);
+                                alert(err.message || 'Failed to update priority.');
+                            } finally {
+                                ungroupedPrioritySelect.disabled = false;
+                            }
+                        });
+                        itemContainer.appendChild(ungroupedPrioritySelect);
+
+                        list.appendChild(itemContainer);
                     });
 
                     containerEl.appendChild(list);
