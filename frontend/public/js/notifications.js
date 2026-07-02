@@ -344,7 +344,7 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
 
     const { data: workshopRows, error: workshopErr } = await supabase
         .from('workshops')
-        .select('id, workshop_title, workshop_description, date, start_time, end_time, project_id')
+        .select('id, workshop_title, workshop_description, date, start_time, end_time, project_id, agenda_storage_path, agenda_filename, agenda_content_type')
         .in('id', workshopIds);
 
     if (workshopErr) {
@@ -384,6 +384,9 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
                 date: w.date || null,
                 start_time: w.start_time || null,
                 end_time: w.end_time || null,
+                agenda_storage_path: w.agenda_storage_path || null,
+                agenda_filename: w.agenda_filename || null,
+                agenda_content_type: w.agenda_content_type || null,
                 project_name: projectNameById.get(String(w.project_id)) || '',
             };
         })

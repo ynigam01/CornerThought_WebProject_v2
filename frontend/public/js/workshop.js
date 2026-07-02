@@ -134,7 +134,7 @@ export function computeWorkshopDurationMinutes(startTime, endTime) {
 export async function fetchWorkshopLessons(supabase, workshopId) {
     return supabase
         .from('workshop_lessons_learned')
-        .select('id, lessons_learned_id, grouping_id, priority')
+        .select('id, lessons_learned_id, grouping_id, priority, time_override_minutes')
         .eq('workshop_id', workshopId);
 }
 
@@ -174,8 +174,33 @@ export async function removeLessonFromWorkshop(supabase, linkRowId) {
 export async function fetchWorkshopAttendees(supabase, workshopId) {
     return supabase
         .from('workshop_attendees')
-        .select('id, user_id, name, email, notification_status, confirmation')
+        .select('id, user_id, name, email, notification_status, confirmation, facilitator')
         .eq('workshop_id', workshopId);
+}
+
+/**
+ * Set one attendee as facilitator for a workshop.
+ * Clears facilitator on all other attendees in the same workshop first,
+ * then sets it on the target row. Pass facilitator=false to simply clear it.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ * @param {string | number} attendeeId  The workshop_attendees row id to promote.
+ * @param {boolean} [value=true]
+ */
+export async function setWorkshopFacilitator(supabase, workshopId, attendeeId, value = true) {
+    // Clear all facilitator flags for the workshop first
+    const { error: clearErr } = await supabase
+        .from('workshop_attendees')
+        .update({ facilitator: false })
+        .eq('workshop_id', Number(workshopId));
+    if (clearErr) return { error: clearErr };
+
+    if (!value) return { error: null };
+
+    return supabase
+        .from('workshop_attendees')
+        .update({ facilitator: true })
+        .eq('id', Number(attendeeId));
 }
 
 /**
@@ -251,7 +276,7 @@ export async function respondToWorkshopInvite(supabase, attendeeId, accepted) {
 export async function fetchWorkshopsForProject(supabase, projectId) {
     return supabase
         .from('workshops')
-        .select('id, workshop_title, workshop_description, date, start_time, end_time, agenda_storage_path, agenda_filename, agenda_content_type')
+        .select('id, workshop_title, workshop_description, date, start_time, end_time, agenda_storage_path, agenda_filename, agenda_content_type, created_by')
         .eq('project_id', projectId)
         .order('date', { ascending: false });
 }
@@ -372,7 +397,7 @@ export async function clearGroupingFromWorkshopLessons(supabase, groupingId) {
 export async function fetchWorkshopGroupings(supabase, workshopId) {
     return supabase
         .from('workshop_lessons_groupings')
-        .select('id, grouping_description, created_by, priority')
+        .select('id, grouping_description, created_by, priority, time_override_minutes')
         .eq('workshop_id', workshopId)
         .order('id', { ascending: true });
 }
@@ -825,6 +850,101 @@ export function mountWorkshopModule(ctx) {
     loadLessonsCategoriesForSelect(categoriesSelect).catch((err) => {
         console.error('Workshop: failed to load lessons categories', err);
     });
+}
+
+/**
+ * Compute time allocations for workshop agenda items using a weighted distribution.
+ *
+ * Tier weights (each tier is 1.5× the tier below):
+ *   Tier 1 — High grouped:                          1.5^4 = 5.0625
+ *   Tier 2 — High individual / Medium grouped:       1.5^3 = 3.375
+ *   Tier 3 — Medium individual / Low grouped:        1.5^2 = 2.25
+ *   Tier 4 — Low individual / Null grouped:          1.5^1 = 1.5
+ *   Tier 5 — Null individual:                        1.5^0 = 1.0
+ *
+ * Items with a `timeOverride` are pinned at that value; the remaining
+ * `availableMinutes` is distributed among free items proportionally.
+ *
+ * @param {Array<{
+ *   id: string | number,
+ *   type: 'group' | 'lesson',
+ *   priority: 'high' | 'medium' | 'low' | null,
+ *   timeOverride: number | null,
+ * }>} agendaItems
+ * @param {number} availableMinutes  Total workshop minutes minus the 10-min buffer.
+ * @returns {Map<string, number>}  Map from item id (as string) → allocated minutes (rounded).
+ */
+export function computeWorkshopTimeAllocations(agendaItems, availableMinutes) {
+    const tierWeight = (type, priority) => {
+        if (type === 'group') {
+            if (priority === 'high')   return Math.pow(1.5, 4); // 5.0625
+            if (priority === 'medium') return Math.pow(1.5, 3); // 3.375
+            if (priority === 'low')    return Math.pow(1.5, 2); // 2.25
+            return Math.pow(1.5, 1);                            // 1.5  (null grouped)
+        }
+        // type === 'lesson'
+        if (priority === 'high')   return Math.pow(1.5, 3); // 3.375
+        if (priority === 'medium') return Math.pow(1.5, 2); // 2.25
+        if (priority === 'low')    return Math.pow(1.5, 1); // 1.5
+        return 1;                                            // 1.0  (null individual)
+    };
+
+    const result = new Map();
+    const freeItems = [];
+    let pinnedTotal = 0;
+
+    for (const item of agendaItems) {
+        const key = String(item.id);
+        if (item.timeOverride != null && Number.isFinite(item.timeOverride)) {
+            result.set(key, Math.round(item.timeOverride));
+            pinnedTotal += Math.round(item.timeOverride);
+        } else {
+            freeItems.push(item);
+        }
+    }
+
+    const freeAvailable = Math.max(0, availableMinutes - pinnedTotal);
+    const totalFreeWeight = freeItems.reduce((sum, item) => sum + tierWeight(item.type, item.priority || null), 0);
+
+    for (const item of freeItems) {
+        const key = String(item.id);
+        if (totalFreeWeight === 0) {
+            result.set(key, 0);
+        } else {
+            const w = tierWeight(item.type, item.priority || null);
+            result.set(key, Math.round((w / totalFreeWeight) * freeAvailable));
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Persist a manual time override for a workshop_lessons_learned row.
+ * Pass null to clear the override (reverts to formula).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} wllId
+ * @param {number | null} minutes
+ */
+export async function updateWorkshopLessonTimeOverride(supabase, wllId, minutes) {
+    return supabase
+        .from('workshop_lessons_learned')
+        .update({ time_override_minutes: minutes != null ? Math.round(minutes) : null })
+        .eq('id', Number(wllId));
+}
+
+/**
+ * Persist a manual time override for a workshop_lessons_groupings row.
+ * Pass null to clear the override (reverts to formula).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} groupingId
+ * @param {number | null} minutes
+ */
+export async function updateWorkshopGroupingTimeOverride(supabase, groupingId, minutes) {
+    return supabase
+        .from('workshop_lessons_groupings')
+        .update({ time_override_minutes: minutes != null ? Math.round(minutes) : null })
+        .eq('id', Number(groupingId));
 }
 
 /** @param {HTMLElement | null} mountEl */
