@@ -282,6 +282,21 @@ export async function uploadWorkshopAgenda(supabase, workshopId, file) {
     return { storagePath, filename, contentType, error: null };
 }
 
+/**
+ * Generate a short-lived signed download URL for a workshop agenda file.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} storagePath  The `agenda_storage_path` value from the workshops row.
+ * @param {number} [expiresIn=3600]  Seconds until the URL expires (default 1 hour).
+ * @returns {Promise<{ url: string | null, error: Error | null }>}
+ */
+export async function downloadWorkshopAgenda(supabase, storagePath, expiresIn = 3600) {
+    const { data, error } = await supabase.storage
+        .from('workshop-agendas')
+        .createSignedUrl(storagePath, expiresIn);
+    if (error) return { url: null, error };
+    return { url: data.signedUrl, error: null };
+}
+
 /** @param {string} timeHHMMSS */
 export function formatWorkshopTime(timeHHMMSS) {
     const parts = String(timeHHMMSS || '').split(':');
@@ -425,6 +440,10 @@ export async function deleteWorkshopGrouping(supabase, groupingId) {
  *   onCancelGroupLessons?: () => void,
  *   groupLessonsWorkshopId?: string | number | null,
  *   onMountGroupLessons?: (containerEl: HTMLElement, workshopId: string | number) => void,
+ *   onPreview?: (workshop: Record<string, unknown>) => void,
+ *   onCancelPreview?: () => void,
+ *   previewWorkshopId?: string | number | null,
+ *   onMountPreview?: (containerEl: HTMLElement, workshop: Record<string, unknown>) => void,
  * }} ctx
  */
 export function mountManageWorkshopsPanel({
@@ -439,6 +458,10 @@ export function mountManageWorkshopsPanel({
     onGroupLessons, onCancelGroupLessons,
     groupLessonsWorkshopId = null,
     onMountGroupLessons,
+    onPreview,
+    onCancelPreview,
+    previewWorkshopId = null,
+    onMountPreview,
 }) {
     if (!mountEl) return;
     mountEl.innerHTML = '';
@@ -446,6 +469,7 @@ export function mountManageWorkshopsPanel({
     const inLessonsMode = lessonsWorkshopId != null;
     const inAttendeesMode = attendeesWorkshopId != null;
     const inGroupLessonsMode = groupLessonsWorkshopId != null;
+    const inPreviewMode = previewWorkshopId != null;
 
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-workshop-mount-inner';
@@ -551,16 +575,17 @@ export function mountManageWorkshopsPanel({
         msg.textContent = 'No workshops have been created for this project yet.';
         wrap.appendChild(msg);
     } else {
-        // In lessons/attendees/group-lessons mode only show the selected card; otherwise show all
+        // In lessons/attendees/group-lessons/preview mode only show the selected card; otherwise show all
         const activeId = inLessonsMode ? lessonsWorkshopId
             : inAttendeesMode ? attendeesWorkshopId
             : inGroupLessonsMode ? groupLessonsWorkshopId
+            : inPreviewMode ? previewWorkshopId
             : null;
         const displayWorkshops = activeId != null
             ? workshops.filter((w) => String(w.id) === String(activeId))
             : workshops;
 
-        if (!inLessonsMode && !inAttendeesMode && !inGroupLessonsMode) {
+        if (!inLessonsMode && !inAttendeesMode && !inGroupLessonsMode && !inPreviewMode) {
             const heading = document.createElement('p');
             heading.style.cssText = 'font-weight: 600; margin: 0 0 12px; font-size: 14px; color: #444;';
             heading.textContent = `${workshops.length} workshop${workshops.length !== 1 ? 's' : ''}`;
@@ -673,6 +698,29 @@ export function mountManageWorkshopsPanel({
 
                 mountEl.appendChild(wrap);
                 return;
+            } else if (inPreviewMode) {
+                const goBackBtn = document.createElement('button');
+                goBackBtn.type = 'button';
+                goBackBtn.className = 'secondary-button';
+                goBackBtn.style.cssText = 'margin-top: 12px; font-size: 13px;';
+                goBackBtn.textContent = 'Go Back';
+                goBackBtn.addEventListener('click', () => onCancelPreview && onCancelPreview());
+                card.appendChild(goBackBtn);
+
+                list.appendChild(card);
+
+                const previewContainer = document.createElement('div');
+                previewContainer.className = 'workshop-preview-container';
+                list.appendChild(previewContainer);
+
+                wrap.appendChild(list);
+
+                if (typeof onMountPreview === 'function') {
+                    onMountPreview(previewContainer, w);
+                }
+
+                mountEl.appendChild(wrap);
+                return;
             } else {
                 // Normal mode — icon action buttons
                 const actions = document.createElement('div');
@@ -701,6 +749,9 @@ export function mountManageWorkshopsPanel({
                 const groupLessonsBtn = iconBtn('fa-solid fa-layer-group', 'Group and Prioritize Lessons Learned');
                 groupLessonsBtn.addEventListener('click', () => onGroupLessons && onGroupLessons(w));
 
+                const previewBtn = iconBtn('fa-solid fa-eye', 'Workshop Preview');
+                previewBtn.addEventListener('click', () => onPreview && onPreview(w));
+
                 const deleteBtn = iconBtn('fa-solid fa-trash', 'Delete Workshop', true);
                 deleteBtn.addEventListener('click', () => onDelete && onDelete(w));
 
@@ -708,6 +759,7 @@ export function mountManageWorkshopsPanel({
                 actions.appendChild(attendeesBtn);
                 actions.appendChild(lessonsBtn);
                 actions.appendChild(groupLessonsBtn);
+                actions.appendChild(previewBtn);
                 actions.appendChild(deleteBtn);
                 card.appendChild(actions);
             }

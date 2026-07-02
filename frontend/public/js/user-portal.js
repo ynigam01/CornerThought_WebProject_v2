@@ -41,6 +41,7 @@ import {
     updateWorkshopLessonPriority,
     updateWorkshopGroupingPriority,
     uploadWorkshopAgenda,
+    downloadWorkshopAgenda,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -6909,6 +6910,7 @@ const projectFormHTML = `
         let currentLessonsWorkshopId = null;
         let currentAttendeesWorkshopId = null;
         let currentGroupLessonsWorkshopId = null;
+        let currentPreviewWorkshopId = null;
 
         const panelProps = (extra = {}) => ({
             mountEl,
@@ -6926,11 +6928,14 @@ const projectFormHTML = `
             onGroupLessons: handleGroupLessons,
             onCancelGroupLessons: handleCancelGroupLessons,
             onMountGroupLessons: handleMountGroupLessons,
+            onPreview: handlePreview,
+            onCancelPreview: handleCancelPreview,
+            onMountPreview: handleMountPreview,
             ...extra,
         });
 
-        const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null, groupLessonsWorkshopId = null) => {
-            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId, groupLessonsWorkshopId }));
+        const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null, groupLessonsWorkshopId = null, previewWorkshopId = null) => {
+            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId, groupLessonsWorkshopId, previewWorkshopId }));
         };
 
         const handleEdit = (workshop) => {
@@ -6974,6 +6979,15 @@ const projectFormHTML = `
         const handleCancelGroupLessons = () => {
             currentGroupLessonsWorkshopId = null;
             renderPanel(null, null, null);
+        };
+
+        const handlePreview = (workshop) => {
+            currentPreviewWorkshopId = String(workshop.id);
+            renderPanel(null, null, null, currentPreviewWorkshopId);
+        };
+        const handleCancelPreview = () => {
+            currentPreviewWorkshopId = null;
+            renderPanel(null, null, null, null);
         };
 
         const loadAttendeesForSelect = async (selectEl, workshopId) => {
@@ -7557,6 +7571,323 @@ const projectFormHTML = `
             } catch (err) {
                 console.error('handleMountGroupLessons error:', err);
                 containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load assigned lessons.'}</p>`;
+            }
+        };
+
+        const handleMountPreview = async (containerEl, workshop) => {
+            containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading preview…</p>';
+
+            const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+            const prioritySort = (a, b) => {
+                const pa = PRIORITY_ORDER[a] ?? 3;
+                const pb = PRIORITY_ORDER[b] ?? 3;
+                return pa - pb;
+            };
+
+            const section = (titleText) => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;';
+                const h = document.createElement('p');
+                h.style.cssText = 'font-weight: 700; font-size: 14px; color: #333; margin: 0 0 10px;';
+                h.textContent = titleText;
+                wrap.appendChild(h);
+                return wrap;
+            };
+
+            const priorityBadge = (priority) => {
+                if (!priority) return null;
+                const badge = document.createElement('span');
+                badge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;text-transform:capitalize;';
+                if (priority === 'high') {
+                    badge.style.background = '#fde8e8';
+                    badge.style.color = '#c0392b';
+                    badge.textContent = 'High';
+                } else if (priority === 'medium') {
+                    badge.style.background = '#fef3cd';
+                    badge.style.color = '#856404';
+                    badge.textContent = 'Medium';
+                } else if (priority === 'low') {
+                    badge.style.background = '#e8f5e9';
+                    badge.style.color = '#2e7d32';
+                    badge.textContent = 'Low';
+                }
+                return badge;
+            };
+
+            try {
+                containerEl.innerHTML = '';
+
+                // ── Section 1: Agenda ──────────────────────────────────────────
+                const agendaSection = section('Workshop Agenda');
+
+                const renderAgendaSection = async () => {
+                    agendaSection.querySelectorAll('.agenda-content').forEach((el) => el.remove());
+                    const agendaContent = document.createElement('div');
+                    agendaContent.className = 'agenda-content';
+
+                    if (workshop.agenda_storage_path) {
+                        const loadingMsg = document.createElement('p');
+                        loadingMsg.className = 'subtitle';
+                        loadingMsg.style.cssText = 'margin: 0; font-size: 13px;';
+                        loadingMsg.textContent = 'Generating download link…';
+                        agendaContent.appendChild(loadingMsg);
+                        agendaSection.appendChild(agendaContent);
+
+                        const { url, error: dlErr } = await downloadWorkshopAgenda(supabase, workshop.agenda_storage_path);
+                        agendaContent.innerHTML = '';
+                        if (dlErr || !url) {
+                            const errMsg = document.createElement('p');
+                            errMsg.className = 'upload-message upload-message--error';
+                            errMsg.style.cssText = 'margin: 0; font-size: 13px;';
+                            errMsg.textContent = 'Could not generate download link. Try again later.';
+                            agendaContent.appendChild(errMsg);
+                        } else {
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.target = '_blank';
+                            link.rel = 'noopener noreferrer';
+                            link.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#1a73e8;text-decoration:underline;';
+                            link.innerHTML = `<i class="fa-solid fa-file-arrow-down"></i> ${String(workshop.agenda_filename || 'Download Agenda')}`;
+                            agendaContent.appendChild(link);
+                        }
+                    } else {
+                        const noAgendaWrap = document.createElement('div');
+                        noAgendaWrap.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+
+                        const fileLabel = document.createElement('label');
+                        fileLabel.style.cssText = 'font-size:13px;color:#555;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
+                        const fileInput = document.createElement('input');
+                        fileInput.type = 'file';
+                        fileInput.accept = '.doc,.docx,.pdf,.txt';
+                        fileInput.style.cssText = 'font-size:13px;max-width:220px;';
+                        fileLabel.appendChild(fileInput);
+
+                        const uploadBtn = document.createElement('button');
+                        uploadBtn.type = 'button';
+                        uploadBtn.className = 'primary-button';
+                        uploadBtn.style.cssText = 'font-size:12px;padding:5px 12px;';
+                        uploadBtn.textContent = 'Attach Agenda';
+
+                        const uploadStatus = document.createElement('span');
+                        uploadStatus.style.cssText = 'font-size:12px;color:#555;';
+
+                        uploadBtn.addEventListener('click', async () => {
+                            const file = fileInput.files && fileInput.files[0];
+                            if (!file) {
+                                uploadStatus.textContent = 'Please select a file first.';
+                                return;
+                            }
+                            const MAX_SIZE = 20 * 1024 * 1024;
+                            if (file.size > MAX_SIZE) {
+                                uploadStatus.textContent = 'File exceeds 20 MB limit.';
+                                return;
+                            }
+                            uploadBtn.disabled = true;
+                            uploadStatus.textContent = 'Uploading…';
+                            const { storagePath, filename, contentType, error: uploadError } =
+                                await uploadWorkshopAgenda(supabase, workshop.id, file);
+                            if (uploadError) {
+                                uploadStatus.textContent = uploadError.message || 'Upload failed.';
+                                uploadBtn.disabled = false;
+                                return;
+                            }
+                            const { error: updateError } = await updateWorkshop(supabase, workshop.id, {
+                                agenda_storage_path: storagePath,
+                                agenda_filename: filename,
+                                agenda_content_type: contentType,
+                            });
+                            if (updateError) {
+                                uploadStatus.textContent = updateError.message || 'Failed to save agenda.';
+                                uploadBtn.disabled = false;
+                                return;
+                            }
+                            workshop.agenda_storage_path = storagePath;
+                            workshop.agenda_filename = filename;
+                            workshop.agenda_content_type = contentType;
+                            await renderAgendaSection();
+                        });
+
+                        noAgendaWrap.appendChild(fileInput);
+                        noAgendaWrap.appendChild(uploadBtn);
+                        noAgendaWrap.appendChild(uploadStatus);
+                        agendaContent.appendChild(noAgendaWrap);
+                    }
+
+                    agendaSection.appendChild(agendaContent);
+                };
+
+                await renderAgendaSection();
+                containerEl.appendChild(agendaSection);
+
+                // ── Section 2: Workshop Details ────────────────────────────────
+                const detailsSection = section('Workshop Details');
+
+                const detailRow = (label, value) => {
+                    if (!value) return null;
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;font-size:13px;';
+                    const lbl = document.createElement('span');
+                    lbl.style.cssText = 'font-weight:600;color:#444;min-width:90px;flex-shrink:0;';
+                    lbl.textContent = label;
+                    const val = document.createElement('span');
+                    val.style.color = '#555';
+                    val.textContent = String(value);
+                    row.appendChild(lbl);
+                    row.appendChild(val);
+                    return row;
+                };
+
+                const dateRow = detailRow('Date:', workshop.date || null);
+                if (dateRow) detailsSection.appendChild(dateRow);
+
+                if (workshop.start_time) {
+                    const startFmt = formatWorkshopTime(workshop.start_time);
+                    const endFmt = workshop.end_time ? ` – ${formatWorkshopTime(workshop.end_time)}` : '';
+                    const timeRow = detailRow('Time:', `${startFmt}${endFmt}`);
+                    if (timeRow) detailsSection.appendChild(timeRow);
+                }
+
+                const descRow = detailRow('Description:', workshop.workshop_description || null);
+                if (descRow) detailsSection.appendChild(descRow);
+
+                containerEl.appendChild(detailsSection);
+
+                // ── Section 3: Confirmed Attendees ─────────────────────────────
+                const attendeesSection = section('Confirmed Attendees');
+                const { data: allAttendees } = await fetchWorkshopAttendees(supabase, workshop.id);
+                const confirmed = (allAttendees || []).filter(
+                    (a) => a.confirmation === true && a.notification_status === 'confirmation_sent'
+                );
+
+                if (confirmed.length === 0) {
+                    const none = document.createElement('p');
+                    none.className = 'subtitle';
+                    none.style.cssText = 'margin:0;font-size:13px;';
+                    none.textContent = 'No confirmed attendees yet.';
+                    attendeesSection.appendChild(none);
+                } else {
+                    const attList = document.createElement('ul');
+                    attList.style.cssText = 'list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;';
+                    confirmed.forEach((a) => {
+                        const li = document.createElement('li');
+                        li.style.cssText = 'font-size:13px;color:#444;display:flex;align-items:center;gap:6px;';
+                        li.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#2e7d32;font-size:11px;"></i>`;
+                        const nameSpan = document.createElement('span');
+                        nameSpan.textContent = a.name || a.email || `User ${a.user_id}`;
+                        if (a.email && a.name) {
+                            nameSpan.title = a.email;
+                        }
+                        li.appendChild(nameSpan);
+                        attList.appendChild(li);
+                    });
+                    attendeesSection.appendChild(attList);
+                }
+                containerEl.appendChild(attendeesSection);
+
+                // ── Section 4: Lessons Learned by Priority ─────────────────────
+                const lessonsSection = section('Lessons Learned');
+
+                const [wlResult, groupingsResult] = await Promise.all([
+                    fetchWorkshopLessons(supabase, workshop.id),
+                    fetchWorkshopGroupings(supabase, workshop.id),
+                ]);
+                const wlRows = wlResult.data || [];
+                const groupings = groupingsResult.data || [];
+
+                if (wlRows.length === 0) {
+                    const none = document.createElement('p');
+                    none.className = 'subtitle';
+                    none.style.cssText = 'margin:0;font-size:13px;';
+                    none.textContent = 'No lessons learned have been assigned to this workshop.';
+                    lessonsSection.appendChild(none);
+                    containerEl.appendChild(lessonsSection);
+                    return;
+                }
+
+                const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
+                const { data: lessons } = await supabase
+                    .from('lessons_learned')
+                    .select('id, title, category, review')
+                    .in('id', lessonIds);
+
+                const lessonMap = {};
+                (lessons || []).forEach((l) => { lessonMap[String(l.id)] = l; });
+
+                // wll row keyed by lessons_learned_id for quick lookup
+                const wllByLessonId = {};
+                wlRows.forEach((r) => { wllByLessonId[String(r.lessons_learned_id)] = r; });
+
+                const renderLessonItem = (lessonId) => {
+                    const lesson = lessonMap[String(lessonId)];
+                    const wll = wllByLessonId[String(lessonId)];
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding: 8px 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 6px;';
+
+                    const top = document.createElement('div');
+                    top.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+                    const titleSpan = document.createElement('span');
+                    titleSpan.style.cssText = 'font-size:13px;font-weight:600;color:#333;flex:1;min-width:0;';
+                    titleSpan.textContent = lesson ? String(lesson.title || '') : `Lesson #${lessonId}`;
+                    top.appendChild(titleSpan);
+                    const lessonBadge = priorityBadge(wll ? wll.priority : null);
+                    if (lessonBadge) top.appendChild(lessonBadge);
+                    item.appendChild(top);
+
+                    if (lesson && lesson.category) {
+                        const cat = document.createElement('div');
+                        cat.style.cssText = 'font-size:11px;color:#777;margin-top:3px;';
+                        cat.textContent = String(lesson.category);
+                        item.appendChild(cat);
+                    }
+                    return item;
+                };
+
+                // Grouped lessons — sort groupings by priority then render each group
+                const sortedGroupings = [...groupings].sort((a, b) => prioritySort(a.priority, b.priority));
+
+                sortedGroupings.forEach((g) => {
+                    const groupedWll = wlRows.filter((r) => String(r.grouping_id) === String(g.id));
+                    if (groupedWll.length === 0) return;
+
+                    const groupWrap = document.createElement('div');
+                    groupWrap.style.cssText = 'margin-bottom: 14px; border: 1px solid #e3e3e3; border-radius: 8px; padding: 10px 12px;';
+
+                    const groupHeader = document.createElement('div');
+                    groupHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
+                    const groupTitle = document.createElement('span');
+                    groupTitle.style.cssText = 'font-size:13px;font-weight:700;color:#333;flex:1;';
+                    groupTitle.textContent = String(g.grouping_description || '');
+                    groupHeader.appendChild(groupTitle);
+                    const groupBadge = priorityBadge(g.priority);
+                    if (groupBadge) groupHeader.appendChild(groupBadge);
+                    groupWrap.appendChild(groupHeader);
+
+                    const sortedInGroup = [...groupedWll].sort((a, b) => prioritySort(a.priority, b.priority));
+                    sortedInGroup.forEach((wll) => groupWrap.appendChild(renderLessonItem(wll.lessons_learned_id)));
+
+                    lessonsSection.appendChild(groupWrap);
+                });
+
+                // Ungrouped lessons — sort by their own priority
+                const ungroupedWll = wlRows
+                    .filter((r) => !r.grouping_id)
+                    .sort((a, b) => prioritySort(a.priority, b.priority));
+
+                if (ungroupedWll.length > 0) {
+                    const ungroupedHeader = document.createElement('p');
+                    ungroupedHeader.style.cssText = 'font-size:12px;font-weight:600;color:#888;margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.04em;';
+                    ungroupedHeader.textContent = sortedGroupings.length > 0 ? 'Ungrouped' : '';
+                    if (ungroupedHeader.textContent) lessonsSection.appendChild(ungroupedHeader);
+
+                    ungroupedWll.forEach((wll) => lessonsSection.appendChild(renderLessonItem(wll.lessons_learned_id)));
+                }
+
+                containerEl.appendChild(lessonsSection);
+
+            } catch (err) {
+                console.error('handleMountPreview error:', err);
+                containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load workshop preview.'}</p>`;
             }
         };
 
