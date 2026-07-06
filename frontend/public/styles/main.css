@@ -2697,17 +2697,20 @@ body {
 .edit-workshop-modal .modal-content {
     padding: 28px 34px 26px;
     box-sizing: border-box;
+    overflow: hidden; /* clip content; form scrolls internally */
 }
 
 .create-workshop-modal .modal-content h3,
 .edit-workshop-modal .modal-content h3 {
     margin: 0 0 10px;
     padding-right: 44px;
+    flex-shrink: 0;
 }
 
 .create-workshop-modal .modal-content .subtitle,
 .edit-workshop-modal .modal-content .subtitle {
     margin: 0 0 18px;
+    flex-shrink: 0;
 }
 
 .create-workshop-modal #createWorkshopForm,
@@ -2715,6 +2718,13 @@ body {
     display: flex;
     flex-direction: column;
     gap: 2px;
+}
+
+.edit-workshop-modal #editWorkshopForm {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-right: 4px; /* breathing room for the scrollbar */
 }
 
 .create-workshop-modal #createWorkshopForm .input-group {

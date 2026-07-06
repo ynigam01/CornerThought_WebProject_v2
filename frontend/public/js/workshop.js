@@ -947,6 +947,28 @@ export async function updateWorkshopGroupingTimeOverride(supabase, groupingId, m
         .eq('id', Number(groupingId));
 }
 
+/**
+ * Clear all manual time overrides for a workshop, reverting every lesson and
+ * grouping back to the formula-calculated allocation.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function clearWorkshopTimeOverrides(supabase, workshopId) {
+    const [lessonsResult, groupingsResult] = await Promise.all([
+        supabase
+            .from('workshop_lessons_learned')
+            .update({ time_override_minutes: null })
+            .eq('workshop_id', Number(workshopId)),
+        supabase
+            .from('workshop_lessons_groupings')
+            .update({ time_override_minutes: null })
+            .eq('workshop_id', Number(workshopId)),
+    ]);
+    return lessonsResult.error || groupingsResult.error
+        ? { error: lessonsResult.error || groupingsResult.error }
+        : { error: null };
+}
+
 /** @param {HTMLElement | null} mountEl */
 export function clearWorkshopModule(mountEl) {
     if (mountEl) mountEl.innerHTML = '';

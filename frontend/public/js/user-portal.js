@@ -46,6 +46,7 @@ import {
     computeWorkshopTimeAllocations,
     updateWorkshopLessonTimeOverride,
     updateWorkshopGroupingTimeOverride,
+    clearWorkshopTimeOverrides,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -5760,6 +5761,78 @@ const projectFormHTML = `
         // Show/hide the Workshops tab based on whether the user has pending invites
         const workshopsTab = document.getElementById('notifTabWorkshops');
         if (workshopsTab) workshopsTab.hidden = workshopInvitesCache.length === 0;
+
+        renderTodayWorkshopBanner();
+    }
+
+    function renderTodayWorkshopBanner() {
+        const container = document.getElementById('todayWorkshopBanner');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+        const todayWorkshops = workshopInvitesCache.filter(
+            (inv) => inv.confirmation === true &&
+                     inv.notification_status === 'confirmation_sent' &&
+                     inv.date === todayStr
+        );
+
+        if (todayWorkshops.length === 0) {
+            container.hidden = true;
+            return;
+        }
+
+        container.hidden = false;
+
+        const heading = document.createElement('p');
+        heading.style.cssText = 'font-weight:700;font-size:14px;color:#333;margin:16px 0 8px;';
+        heading.textContent = todayWorkshops.length === 1
+            ? "You have a workshop today"
+            : `You have ${todayWorkshops.length} workshops today`;
+        container.appendChild(heading);
+
+        todayWorkshops.forEach((invite) => {
+            const card = document.createElement('div');
+            card.className = 'lesson-card';
+            card.style.cssText = 'margin-bottom:10px;';
+
+            if (invite.project_name) {
+                const proj = document.createElement('div');
+                proj.style.cssText = 'font-size:12px;color:#64748b;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;';
+                proj.textContent = invite.project_name;
+                card.appendChild(proj);
+            }
+
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-weight:600;font-size:15px;margin-bottom:6px;';
+            titleEl.textContent = invite.workshop_title || '(Untitled Workshop)';
+            card.appendChild(titleEl);
+
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size:13px;color:#555;display:flex;gap:16px;flex-wrap:wrap;';
+            if (invite.date) {
+                const ds = document.createElement('span');
+                ds.textContent = `\uD83D\uDCC5 ${invite.date}`;
+                meta.appendChild(ds);
+            }
+            if (invite.start_time) {
+                const ts = document.createElement('span');
+                const startFmt = formatWorkshopTime(invite.start_time);
+                const endFmt = invite.end_time ? ` \u2013 ${formatWorkshopTime(invite.end_time)}` : '';
+                ts.textContent = `\u23F0 ${startFmt}${endFmt}`;
+                meta.appendChild(ts);
+            }
+            card.appendChild(meta);
+
+            if (invite.workshop_description) {
+                const desc = document.createElement('div');
+                desc.style.cssText = 'margin-top:8px;font-size:14px;color:#444;';
+                desc.textContent = String(invite.workshop_description);
+                card.appendChild(desc);
+            }
+
+            container.appendChild(card);
+        });
     }
 
     function renderReviewNotificationsList() {
@@ -8220,6 +8293,37 @@ const projectFormHTML = `
 
                     const agendaItems = buildAgendaItems();
                     const timeMap = computeWorkshopTimeAllocations(agendaItems, availableMinutes);
+
+                    // Reset button — creator only, visible when any override exists
+                    const hasOverrides = isCreator && (
+                        [...groupingOverrides.values()].some((v) => v != null) ||
+                        [...lessonOverrides.values()].some((v) => v != null)
+                    );
+                    if (hasOverrides) {
+                        const resetRow = document.createElement('div');
+                        resetRow.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px;';
+                        const resetBtn = document.createElement('button');
+                        resetBtn.type = 'button';
+                        resetBtn.className = 'secondary-button';
+                        resetBtn.style.cssText = 'font-size:12px;padding:4px 12px;';
+                        resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
+                        resetBtn.addEventListener('click', async () => {
+                            resetBtn.disabled = true;
+                            resetBtn.textContent = 'Resetting…';
+                            const { error } = await clearWorkshopTimeOverrides(supabase, workshop.id);
+                            if (error) {
+                                console.error('clearWorkshopTimeOverrides error:', error);
+                                resetBtn.disabled = false;
+                                resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
+                                return;
+                            }
+                            groupingOverrides.forEach((_, key) => groupingOverrides.set(key, null));
+                            lessonOverrides.forEach((_, key) => lessonOverrides.set(key, null));
+                            renderLessonsContent();
+                        });
+                        resetRow.appendChild(resetBtn);
+                        lessonsSection.appendChild(resetRow);
+                    }
 
                     // Warning if any non-overridden item gets < 5 min
                     const hasShortItems = agendaItems.some((item) => {
