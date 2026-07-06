@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    // Compilation Target
+    "target": "es2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+
+    // File Layout
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // Node.js Types
+    "types": ["node"],
+
+    // Output Options
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    // Strict Typechecking
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "frontend"]
+}
