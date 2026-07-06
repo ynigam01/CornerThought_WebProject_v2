@@ -11,6 +11,7 @@ const {
   getTopMetadataTermsForProjectType,
   getMatchingLessonIdsForProjectTypeMetadataTerm,
 } = require('./same-metadata-tracker');
+const { saveLessons } = require('./dist/lessons/saveLessons');
 
 // Load env vars (reuse .env.backfill for now)
 dotenv.config({ path: '.env.backfill' });
@@ -49,7 +50,8 @@ async function getEmbedding(text) {
 }
 
 const app = express();
-app.use(express.json());
+// Allow larger bodies because Add Data attachments are sent as base64.
+app.use(express.json({ limit: '25mb' }));
 const SEARCH_VIEW = 'public_lessons_search';
 
 // Serve static frontend files from frontend/public
@@ -260,6 +262,43 @@ app.post('/api/search-projects', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Shared handler for saving Add Data lessons learned (draft or for-review).
+async function handleSaveLessons(req, res, review) {
+  try {
+    const body = req.body || {};
+    const request = {
+      userId: body.userId,
+      organizationId: body.organizationId,
+      projectId: body.projectId,
+      projectTypeId: body.projectTypeId != null ? body.projectTypeId : null,
+      review,
+      entries: Array.isArray(body.entries) ? body.entries : [],
+    };
+
+    if (request.userId == null || request.organizationId == null) {
+      return res.status(400).json({ error: 'Missing user information.' });
+    }
+    if (request.projectId == null) {
+      return res.status(400).json({ error: 'Select a project before saving.' });
+    }
+    if (!request.entries.length) {
+      return res.status(400).json({ error: 'No entries to save.' });
+    }
+
+    const result = await saveLessons(supabase, request);
+    return res.json(result);
+  } catch (err) {
+    console.error(`Error saving lessons (${review}):`, err);
+    return res.status(500).json({ error: err?.message || 'Failed to save lessons.' });
+  }
+}
+
+// POST /api/lessons/draft - save Add Data entries as a draft
+app.post('/api/lessons/draft', (req, res) => handleSaveLessons(req, res, 'draft'));
+
+// POST /api/lessons/submit - save Add Data entries and mark them for review
+app.post('/api/lessons/submit', (req, res) => handleSaveLessons(req, res, 'for review'));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

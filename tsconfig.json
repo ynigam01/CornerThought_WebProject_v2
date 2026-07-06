@@ -2,11 +2,11 @@
   "compilerOptions": {
     // Compilation Target
     "target": "es2020",
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
 
     // File Layout
-    "rootDir": "./src",
+    "rootDir": "./backend",
     "outDir": "./dist",
 
     // Node.js Types
@@ -22,6 +22,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*"],
+  "include": ["backend/**/*"],
   "exclude": ["node_modules", "dist", "frontend"]
 }

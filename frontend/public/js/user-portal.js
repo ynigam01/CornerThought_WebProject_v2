@@ -4856,6 +4856,21 @@ const projectFormHTML = `
             .filter(Boolean);
     }
 
+    // Read a File as base64 (without the data: URI prefix) so attachments can be
+    // sent to the backend save endpoints as JSON.
+    function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = String(reader.result || '');
+                const commaIdx = result.indexOf(',');
+                resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+            };
+            reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+            reader.readAsDataURL(file);
+        });
+    }
+
     async function saveLessonsLearned(options = {}) {
         const reviewForDb = options.review === 'draft' ? 'draft' : 'for review';
         const isDraftSave = reviewForDb === 'draft';
@@ -4896,187 +4911,102 @@ const projectFormHTML = `
         }
 
         try {
-            let savedCount = 0;
-            const notificationWarnings = [];
-
-            let createLessonsLearnedReviewNotifications = null;
-            if (!isDraftSave) {
-                try {
-                    const notificationsMod = await import('./notifications.js');
-                    createLessonsLearnedReviewNotifications =
-                        notificationsMod.createLessonsLearnedReviewNotifications;
-                } catch (importErr) {
-                    console.error('Failed to load notifications module:', importErr);
-                    notificationWarnings.push('Review notifications module could not be loaded.');
-                }
-            }
-
+            // Serialize the DOM entries into a plain JSON payload for the backend.
+            const serializedEntries = [];
             for (const entry of entries) {
                 const title = (entry.dataset && entry.dataset.text) ? entry.dataset.text : '';
                 const typeRaw = entry.dataset && entry.dataset.type ? entry.dataset.type : '';
                 const category = String(typeRaw || '').toLowerCase() === 'success' ? 'success' : 'issue';
 
-                const { data: lessonRows, error: lessonErr } = await supabase
-                    .from('lessons_learned')
-                    .insert({
-                        title,
-                        category,
-                        review: reviewForDb,
-                        share: '',
-                        created_by: userId,
-                        organization_id: orgId,
-                        project_id: projectId,
-                        project_type_id: projectTypeId
-                    })
-                    .select('id')
-                    .single();
+                const metadataItems = (Array.isArray(entry.metadataItems) ? entry.metadataItems : [])
+                    .map(item => ({ label: item.label, id: item.id }));
 
-                if (lessonErr || !lessonRows) {
-                    throw new Error(lessonErr?.message || 'Failed to save lesson.');
-                }
-
-                const lessonId = lessonRows.id;
-                savedCount += 1;
-
-                const causes = getEntrySubItems(entry, 'causes');
-                if (causes.length) {
-                    const { error } = await supabase
-                        .from('lessons_learned_causes')
-                        .insert(causes.map(cause => ({
-                            lessons_learned_id: lessonId,
-                            cause,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save causes.');
-                }
-
-                const impacts = getEntrySubItems(entry, 'impacts');
-                if (impacts.length) {
-                    const { error } = await supabase
-                        .from('lessons_learned_impacts')
-                        .insert(impacts.map(impact => ({
-                            lessons_learned_id: lessonId,
-                            impact,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save impacts.');
-                }
-
-                const actions = getEntrySubItems(entry, 'actions');
-                if (actions.length) {
-                    const { error } = await supabase
-                        .from('action_items')
-                        .insert(actions.map(action_item => ({
-                            lessons_learned_id: lessonId,
-                            action_item,
-                            lessons_learned_impact_id: null,
-                            lessons_learned_cause_id: null,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save action items.');
-                }
-
-                const lessons = getEntrySubItems(entry, 'lessons');
-                if (lessons.length) {
-                    const { error } = await supabase
-                        .from('future_project_considerations')
-                        .insert(lessons.map(fpc => ({
-                            lessons_learned_id: lessonId,
-                            fpc,
-                            lessons_learned_impact_id: null,
-                            lessons_learned_cause_id: null,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save lessons learned items.');
-                }
-
-                const notes = getEntrySubItems(entry, 'notes');
-                if (notes.length) {
-                    const { error } = await supabase
-                        .from('lessons_learned_notes')
-                        .insert(notes.map(notesText => ({
-                            lessons_learned_id: lessonId,
-                            notes: notesText,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save notes.');
-                }
-
-                const metadataItems = Array.isArray(entry.metadataItems) ? entry.metadataItems : [];
-                if (metadataItems.length) {
-                    const { error } = await supabase
-                        .from('lessons_learned_metadata')
-                        .insert(metadataItems.map(item => ({
-                            lessons_learned_id: lessonId,
-                            metadata_type: item.label.includes(':')
-                                ? item.label.split(':')[0].trim()
-                                : null,
-                            metadata: item.label.includes(':')
-                                ? item.label.split(':').slice(1).join(':').trim()
-                                : item.label,
-                            lessons_learned_metadata_list_id: item.id,
-                            created_by: userId,
-                            organization_id: orgId,
-                            project_id: projectId,
-                            project_type_id: projectTypeId
-                        })));
-                    if (error) throw new Error(error.message || 'Failed to save metadata.');
-                }
-
-                const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
-                if (attachments.length) {
-                    for (const file of attachments) {
-                        const fileName = file && file.name ? file.name : 'attachment';
-                        const fileSize = Number(file && file.size ? file.size : 0);
-                        if (!fileSize) {
-                            continue;
-                        }
-                        if (fileSize > MAX_ATTACHMENT_FILE_BYTES) {
-                            throw new Error(`Attachment "${fileName}" exceeds the 10 MB limit.`);
-                        }
-
-                        const fileBuffer = await file.arrayBuffer();
-                        const { error } = await supabase
-                            .from('lessons_learned_attachments')
-                            .insert({
-                                lessons_learned_id: lessonId,
-                                project_id: projectId,
-                                organization_id: orgId,
-                                created_by: userId,
-                                file_data: arrayBufferToPgBytea(fileBuffer),
-                                file_name: fileName,
-                                content_type: file.type || 'application/octet-stream'
-                            });
-
-                        if (error) {
-                            throw new Error(error.message || `Failed to save attachment "${fileName}".`);
-                        }
+                const attachmentsRaw = Array.isArray(entry.attachments) ? entry.attachments : [];
+                const attachments = [];
+                for (const file of attachmentsRaw) {
+                    const fileName = file && file.name ? file.name : 'attachment';
+                    const fileSize = Number(file && file.size ? file.size : 0);
+                    if (!fileSize) {
+                        continue;
                     }
-                }
-
-                if (!isDraftSave && typeof createLessonsLearnedReviewNotifications === 'function') {
-                    const { error: notifErr } = await createLessonsLearnedReviewNotifications({
-                        supabase,
-                        lessonsLearnedId: lessonId,
-                        projectId,
-                        organizationId: orgId,
+                    if (fileSize > MAX_ATTACHMENT_FILE_BYTES) {
+                        throw new Error(`Attachment "${fileName}" exceeds the 10 MB limit.`);
+                    }
+                    const base64 = await fileToBase64(file);
+                    attachments.push({
+                        fileName,
+                        contentType: file.type || 'application/octet-stream',
+                        base64,
                     });
-                    if (notifErr) {
-                        console.error('Review notification insert failed:', notifErr);
-                        notificationWarnings.push(
-                            notifErr.message || 'Failed to create review notifications.'
-                        );
+                }
+
+                serializedEntries.push({
+                    title,
+                    category,
+                    causes: getEntrySubItems(entry, 'causes'),
+                    impacts: getEntrySubItems(entry, 'impacts'),
+                    actions: getEntrySubItems(entry, 'actions'),
+                    lessons: getEntrySubItems(entry, 'lessons'),
+                    notes: getEntrySubItems(entry, 'notes'),
+                    metadataItems,
+                    attachments,
+                });
+            }
+
+            const endpoint = isDraftSave ? '/api/lessons/draft' : '/api/lessons/submit';
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    organizationId: orgId,
+                    projectId,
+                    projectTypeId,
+                    entries: serializedEntries,
+                }),
+            });
+
+            let result = null;
+            try {
+                result = await response.json();
+            } catch (_) {
+                result = null;
+            }
+            if (!response.ok) {
+                throw new Error((result && result.error) || 'Failed to save lessons learned.');
+            }
+
+            const savedCount = result && typeof result.savedCount === 'number'
+                ? result.savedCount
+                : serializedEntries.length;
+            const notificationWarnings = [];
+
+            // Review notifications remain client-side for now and run after a successful submit.
+            if (!isDraftSave) {
+                const savedLessonIds = Array.isArray(result && result.lessonIds) ? result.lessonIds : [];
+                try {
+                    const notificationsMod = await import('./notifications.js');
+                    const createLessonsLearnedReviewNotifications =
+                        notificationsMod.createLessonsLearnedReviewNotifications;
+                    if (typeof createLessonsLearnedReviewNotifications === 'function') {
+                        for (const lessonId of savedLessonIds) {
+                            const { error: notifErr } = await createLessonsLearnedReviewNotifications({
+                                supabase,
+                                lessonsLearnedId: lessonId,
+                                projectId,
+                                organizationId: orgId,
+                            });
+                            if (notifErr) {
+                                console.error('Review notification insert failed:', notifErr);
+                                notificationWarnings.push(
+                                    notifErr.message || 'Failed to create review notifications.'
+                                );
+                            }
+                        }
                     }
+                } catch (importErr) {
+                    console.error('Failed to load notifications module:', importErr);
+                    notificationWarnings.push('Review notifications module could not be loaded.');
                 }
             }
 
