@@ -10,6 +10,39 @@ import {
     fetchUserNamesById,
 } from './my-projects-lesson-detail.js';
 
+// Sends a write to the draft-lesson backend endpoints and returns the parsed JSON.
+async function apiWrite(path, method, body) {
+    const response = await fetch(`/api/draft-lessons${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+    });
+    let result = null;
+    try {
+        result = await response.json();
+    } catch (_) {
+        result = null;
+    }
+    if (!response.ok) {
+        throw new Error((result && result.error) || 'Request failed.');
+    }
+    return result;
+}
+
+// Reads a File as base64 (without the data: URI prefix) for JSON upload.
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = String(reader.result || '');
+            const commaIdx = result.indexOf(',');
+            resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+        };
+        reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+        reader.readAsDataURL(file);
+    });
+}
+
 export function effectiveRowCreatedBy(createdBy, lessonCreatorId) {
     if (createdBy != null && String(createdBy).trim() !== '') return String(createdBy);
     if (lessonCreatorId != null) return String(lessonCreatorId);
@@ -43,15 +76,6 @@ function collectDetailContributorIds(detail) {
 }
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-
-function arrayBufferToPgBytea(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    let hex = '';
-    for (let i = 0; i < bytes.length; i += 1) {
-        hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return `\\x${hex}`;
-}
 
 function formatListMetadataLabel(row) {
     const type = row && row.metadata_type ? String(row.metadata_type).trim() : '';
@@ -186,36 +210,6 @@ export function openLessonDraftTextModal(opts) {
     });
 }
 
-async function unassignCauseDependencies(supabase, orgId, pid, causeId) {
-    await supabase
-        .from('action_items')
-        .update({ lessons_learned_cause_id: null })
-        .eq('organization_id', orgId)
-        .eq('project_id', pid)
-        .eq('lessons_learned_cause_id', causeId);
-    await supabase
-        .from('future_project_considerations')
-        .update({ lessons_learned_cause_id: null })
-        .eq('organization_id', orgId)
-        .eq('project_id', pid)
-        .eq('lessons_learned_cause_id', causeId);
-}
-
-async function unassignImpactDependencies(supabase, orgId, pid, impactId) {
-    await supabase
-        .from('action_items')
-        .update({ lessons_learned_impact_id: null })
-        .eq('organization_id', orgId)
-        .eq('project_id', pid)
-        .eq('lessons_learned_impact_id', impactId);
-    await supabase
-        .from('future_project_considerations')
-        .update({ lessons_learned_impact_id: null })
-        .eq('organization_id', orgId)
-        .eq('project_id', pid)
-        .eq('lessons_learned_impact_id', impactId);
-}
-
 /**
  * @param {HTMLElement} mountEl
  * @param {object} row
@@ -333,13 +327,6 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         toolbarStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
     }
 
-    function applyReviewOwnerConstraint(q, rowCreatedBy) {
-        if (forReviewCollaborative && rowCreatedBy != null) {
-            return q.eq('created_by', userId);
-        }
-        return q;
-    }
-
     let editorDragEl = null;
 
     function wireDraggableEditor(el) {
@@ -394,22 +381,16 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             if (!inUnassigned) return;
         }
 
-        const patch = {
-            lessons_learned_cause_id: causeId,
-            lessons_learned_impact_id: impactId,
-        };
-
-        let q = supabase
-            .from(table)
-            .update(patch)
-            .eq('id', id)
-            .eq('organization_id', orgId)
-            .eq('project_id', pid);
-        if (forReviewCollaborative && rowCreatedBy != null) {
-            q = q.eq('created_by', userId);
-        }
-        const { error } = await q;
-        if (error) throw error;
+        const kind = card.dataset.dragKind === 'fpc' ? 'fpc' : 'action';
+        await apiWrite(`/assignments/${kind}/${encodeURIComponent(id)}`, 'PATCH', {
+            causeId,
+            impactId,
+            organizationId: orgId,
+            projectId: pid,
+            userId,
+            forReviewCollaborative,
+            rowCreatedBy,
+        });
     }
 
     function wireDropZoneEditor(zoneEl, appendRoot) {
@@ -551,16 +532,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             });
             if (r.action !== 'save' || !r.value) return;
             try {
-                const table = kind === 'cause' ? 'lessons_learned_causes' : 'lessons_learned_impacts';
-                const col = kind === 'cause' ? 'cause' : 'impact';
-                const { error } = await supabase.from(table).insert({
-                    lessons_learned_id: lessonId,
-                    [col]: r.value,
-                    created_by: userId,
-                    organization_id: orgId,
-                    project_id: pid,
+                await apiWrite(`/${encodeURIComponent(lessonId)}/sub-items`, 'POST', {
+                    kind,
+                    value: r.value,
+                    organizationId: orgId,
+                    projectId: pid,
+                    userId,
                 });
-                if (error) throw error;
                 setToolbarStatus('Added.', false);
                 await refreshDetail();
             } catch (err) {
@@ -628,29 +606,23 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         mode: 'edit',
                         showDelete: true,
                     });
-                    const table = kind === 'cause' ? 'lessons_learned_causes' : 'lessons_learned_impacts';
-                    const col = kind === 'cause' ? 'cause' : 'impact';
                     try {
                         if (r.action === 'delete') {
-                            if (kind === 'cause') await unassignCauseDependencies(supabase, orgId, pid, itemId);
-                            else await unassignImpactDependencies(supabase, orgId, pid, itemId);
-                            let qDel = supabase
-                                .from(table)
-                                .delete()
-                                .eq('id', itemId)
-                                .eq('organization_id', orgId);
-                            qDel = applyReviewOwnerConstraint(qDel, item.created_by);
-                            const { error } = await qDel;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/${kind}/${encodeURIComponent(itemId)}`, 'DELETE', {
+                                organizationId: orgId,
+                                projectId: pid,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: item.created_by,
+                            });
                         } else if (r.action === 'save' && r.value) {
-                            let qUp = supabase
-                                .from(table)
-                                .update({ [col]: r.value })
-                                .eq('id', itemId)
-                                .eq('organization_id', orgId);
-                            qUp = applyReviewOwnerConstraint(qUp, item.created_by);
-                            const { error } = await qUp;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/${kind}/${encodeURIComponent(itemId)}`, 'PATCH', {
+                                value: r.value,
+                                organizationId: orgId,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: item.created_by,
+                            });
                         } else return;
                         setToolbarStatus('Updated.', false);
                         await refreshDetail();
@@ -685,23 +657,21 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         });
                         try {
                             if (r.action === 'delete') {
-                                let qDel = supabase
-                                    .from('action_items')
-                                    .delete()
-                                    .eq('id', db.id)
-                                    .eq('organization_id', orgId);
-                                qDel = applyReviewOwnerConstraint(qDel, db.created_by);
-                                const { error } = await qDel;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/action/${encodeURIComponent(db.id)}`, 'DELETE', {
+                                    organizationId: orgId,
+                                    projectId: pid,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: db.created_by,
+                                });
                             } else if (r.action === 'save') {
-                                let qUp = supabase
-                                    .from('action_items')
-                                    .update({ action_item: r.value })
-                                    .eq('id', db.id)
-                                    .eq('organization_id', orgId);
-                                qUp = applyReviewOwnerConstraint(qUp, db.created_by);
-                                const { error } = await qUp;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/action/${encodeURIComponent(db.id)}`, 'PATCH', {
+                                    value: r.value,
+                                    organizationId: orgId,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: db.created_by,
+                                });
                             } else return;
                             setToolbarStatus('Updated.', false);
                             await refreshDetail();
@@ -725,23 +695,21 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         });
                         try {
                             if (r.action === 'delete') {
-                                let qDel = supabase
-                                    .from('future_project_considerations')
-                                    .delete()
-                                    .eq('id', db.id)
-                                    .eq('organization_id', orgId);
-                                qDel = applyReviewOwnerConstraint(qDel, db.created_by);
-                                const { error } = await qDel;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/fpc/${encodeURIComponent(db.id)}`, 'DELETE', {
+                                    organizationId: orgId,
+                                    projectId: pid,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: db.created_by,
+                                });
                             } else if (r.action === 'save') {
-                                let qUp = supabase
-                                    .from('future_project_considerations')
-                                    .update({ fpc: r.value })
-                                    .eq('id', db.id)
-                                    .eq('organization_id', orgId);
-                                qUp = applyReviewOwnerConstraint(qUp, db.created_by);
-                                const { error } = await qUp;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/fpc/${encodeURIComponent(db.id)}`, 'PATCH', {
+                                    value: r.value,
+                                    organizationId: orgId,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: db.created_by,
+                                });
                             } else return;
                             setToolbarStatus('Updated.', false);
                             await refreshDetail();
@@ -846,16 +814,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             });
             if (r.action !== 'save' || !r.value) return;
             try {
-                const { error } = await supabase.from('action_items').insert({
-                    lessons_learned_id: lessonId,
-                    action_item: r.value,
-                    lessons_learned_cause_id: null,
-                    lessons_learned_impact_id: null,
-                    created_by: userId,
-                    organization_id: orgId,
-                    project_id: pid,
+                await apiWrite(`/${encodeURIComponent(lessonId)}/sub-items`, 'POST', {
+                    kind: 'action',
+                    value: r.value,
+                    organizationId: orgId,
+                    projectId: pid,
+                    userId,
                 });
-                if (error) throw error;
                 setToolbarStatus('Added.', false);
                 await refreshDetail();
             } catch (err) {
@@ -872,16 +837,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             });
             if (r.action !== 'save' || !r.value) return;
             try {
-                const { error } = await supabase.from('future_project_considerations').insert({
-                    lessons_learned_id: lessonId,
-                    fpc: r.value,
-                    lessons_learned_cause_id: null,
-                    lessons_learned_impact_id: null,
-                    created_by: userId,
-                    organization_id: orgId,
-                    project_id: pid,
+                await apiWrite(`/${encodeURIComponent(lessonId)}/sub-items`, 'POST', {
+                    kind: 'fpc',
+                    value: r.value,
+                    organizationId: orgId,
+                    projectId: pid,
+                    userId,
                 });
-                if (error) throw error;
                 setToolbarStatus('Added.', false);
                 await refreshDetail();
             } catch (err) {
@@ -909,23 +871,21 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     });
                     try {
                         if (r.action === 'delete') {
-                            let qDel = supabase
-                                .from('action_items')
-                                .delete()
-                                .eq('id', db.id)
-                                .eq('organization_id', orgId);
-                            qDel = applyReviewOwnerConstraint(qDel, db.created_by);
-                            const { error } = await qDel;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/action/${encodeURIComponent(db.id)}`, 'DELETE', {
+                                organizationId: orgId,
+                                projectId: pid,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: db.created_by,
+                            });
                         } else if (r.action === 'save') {
-                            let qUp = supabase
-                                .from('action_items')
-                                .update({ action_item: r.value })
-                                .eq('id', db.id)
-                                .eq('organization_id', orgId);
-                            qUp = applyReviewOwnerConstraint(qUp, db.created_by);
-                            const { error } = await qUp;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/action/${encodeURIComponent(db.id)}`, 'PATCH', {
+                                value: r.value,
+                                organizationId: orgId,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: db.created_by,
+                            });
                         } else return;
                         setToolbarStatus('Updated.', false);
                         await refreshDetail();
@@ -949,23 +909,21 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     });
                     try {
                         if (r.action === 'delete') {
-                            let qDel = supabase
-                                .from('future_project_considerations')
-                                .delete()
-                                .eq('id', db.id)
-                                .eq('organization_id', orgId);
-                            qDel = applyReviewOwnerConstraint(qDel, db.created_by);
-                            const { error } = await qDel;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/fpc/${encodeURIComponent(db.id)}`, 'DELETE', {
+                                organizationId: orgId,
+                                projectId: pid,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: db.created_by,
+                            });
                         } else if (r.action === 'save') {
-                            let qUp = supabase
-                                .from('future_project_considerations')
-                                .update({ fpc: r.value })
-                                .eq('id', db.id)
-                                .eq('organization_id', orgId);
-                            qUp = applyReviewOwnerConstraint(qUp, db.created_by);
-                            const { error } = await qUp;
-                            if (error) throw error;
+                            await apiWrite(`/sub-items/fpc/${encodeURIComponent(db.id)}`, 'PATCH', {
+                                value: r.value,
+                                organizationId: orgId,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: db.created_by,
+                            });
                         } else return;
                         setToolbarStatus('Updated.', false);
                         await refreshDetail();
@@ -1012,14 +970,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             });
             if (r.action !== 'save' || !r.value) return;
             try {
-                const { error } = await supabase.from('lessons_learned_notes').insert({
-                    lessons_learned_id: lessonId,
-                    notes: r.value,
-                    created_by: userId,
-                    organization_id: orgId,
-                    project_id: pid,
+                await apiWrite(`/${encodeURIComponent(lessonId)}/sub-items`, 'POST', {
+                    kind: 'note',
+                    value: r.value,
+                    organizationId: orgId,
+                    projectId: pid,
+                    userId,
                 });
-                if (error) throw error;
                 setToolbarStatus('Added.', false);
                 await refreshDetail();
             } catch (err) {
@@ -1070,23 +1027,21 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                         });
                         try {
                             if (r.action === 'delete') {
-                                let qDel = supabase
-                                    .from('lessons_learned_notes')
-                                    .delete()
-                                    .eq('id', n.id)
-                                    .eq('organization_id', orgId);
-                                qDel = applyReviewOwnerConstraint(qDel, n.created_by);
-                                const { error } = await qDel;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/note/${encodeURIComponent(n.id)}`, 'DELETE', {
+                                    organizationId: orgId,
+                                    projectId: pid,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: n.created_by,
+                                });
                             } else if (r.action === 'save') {
-                                let qUp = supabase
-                                    .from('lessons_learned_notes')
-                                    .update({ notes: r.value })
-                                    .eq('id', n.id)
-                                    .eq('organization_id', orgId);
-                                qUp = applyReviewOwnerConstraint(qUp, n.created_by);
-                                const { error } = await qUp;
-                                if (error) throw error;
+                                await apiWrite(`/sub-items/note/${encodeURIComponent(n.id)}`, 'PATCH', {
+                                    value: r.value,
+                                    organizationId: orgId,
+                                    userId,
+                                    forReviewCollaborative,
+                                    rowCreatedBy: n.created_by,
+                                });
                             } else return;
                             setToolbarStatus('Updated.', false);
                             await refreshDetail();
@@ -1196,17 +1151,15 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     continue;
                 }
                 try {
-                    const buf = await file.arrayBuffer();
-                    const { error } = await supabase.from('lessons_learned_attachments').insert({
-                        lessons_learned_id: lessonId,
-                        project_id: pid,
-                        organization_id: orgId,
-                        created_by: userId,
-                        file_data: arrayBufferToPgBytea(buf),
-                        file_name: file.name || 'attachment',
-                        content_type: file.type || 'application/octet-stream',
+                    const base64 = await fileToBase64(file);
+                    await apiWrite(`/${encodeURIComponent(lessonId)}/attachments`, 'POST', {
+                        organizationId: orgId,
+                        projectId: pid,
+                        userId,
+                        fileName: file.name || 'attachment',
+                        contentType: file.type || 'application/octet-stream',
+                        base64,
                     });
-                    if (error) throw error;
                 } catch (err) {
                     console.error(err);
                     setToolbarStatus(err.message || 'Attachment upload failed.', true);
@@ -1270,14 +1223,12 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     rm.addEventListener('click', async () => {
                         if (!confirm('Remove this attachment?')) return;
                         try {
-                            let qDel = supabase
-                                .from('lessons_learned_attachments')
-                                .delete()
-                                .eq('id', att.id)
-                                .eq('organization_id', orgId);
-                            qDel = applyReviewOwnerConstraint(qDel, att.created_by);
-                            const { error } = await qDel;
-                            if (error) throw error;
+                            await apiWrite(`/attachments/${encodeURIComponent(att.id)}`, 'DELETE', {
+                                organizationId: orgId,
+                                userId,
+                                forReviewCollaborative,
+                                rowCreatedBy: att.created_by,
+                            });
                             setToolbarStatus('Attachment removed.', false);
                             await refreshDetail();
                         } catch (err) {
@@ -1306,16 +1257,12 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         });
         if (r.action !== 'save' || !r.value) return;
         try {
-            let qTitle = supabase
-                .from('lessons_learned')
-                .update({ title: r.value })
-                .eq('id', lessonId)
-                .eq('organization_id', orgId);
-            if (forReviewCollaborative) {
-                qTitle = qTitle.eq('created_by', userId);
-            }
-            const { error } = await qTitle;
-            if (error) throw error;
+            await apiWrite(`/${encodeURIComponent(lessonId)}/title`, 'PATCH', {
+                title: r.value,
+                organizationId: orgId,
+                userId,
+                forReviewCollaborative,
+            });
             lessonRowState.title = r.value;
             renderTitleIntoHost();
             setToolbarStatus('Title updated.', false);
@@ -1330,12 +1277,12 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             try {
                 btnSaveDraft.disabled = true;
                 btnSendReview.disabled = true;
-                const { error } = await supabase
-                    .from('lessons_learned')
-                    .update({ review: 'draft' })
-                    .eq('id', lessonId)
-                    .eq('organization_id', orgId);
-                if (error) throw error;
+                await apiWrite(`/${encodeURIComponent(lessonId)}/review`, 'PATCH', {
+                    review: 'draft',
+                    organizationId: orgId,
+                    userId,
+                    forReviewCollaborative,
+                });
                 lessonRowState.review = 'draft';
                 setToolbarStatus('Draft status saved.', false);
                 if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
@@ -1352,12 +1299,12 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             try {
                 btnSaveDraft.disabled = true;
                 btnSendReview.disabled = true;
-                const { error } = await supabase
-                    .from('lessons_learned')
-                    .update({ review: 'for review' })
-                    .eq('id', lessonId)
-                    .eq('organization_id', orgId);
-                if (error) throw error;
+                await apiWrite(`/${encodeURIComponent(lessonId)}/review`, 'PATCH', {
+                    review: 'for review',
+                    organizationId: orgId,
+                    userId,
+                    forReviewCollaborative,
+                });
                 lessonRowState.review = 'for review';
                 try {
                     const { createLessonsLearnedReviewNotifications } = await import('./notifications.js');
@@ -1474,16 +1421,12 @@ async function openDraftMetadataModal({
                 rb.textContent = 'Remove';
                 rb.addEventListener('click', async () => {
                     try {
-                        let qDel = supabase
-                            .from('lessons_learned_metadata')
-                            .delete()
-                            .eq('id', link.id)
-                            .eq('organization_id', orgId);
-                        if (forReviewCollaborative && link.created_by != null) {
-                            qDel = qDel.eq('created_by', userId);
-                        }
-                        const { error } = await qDel;
-                        if (error) throw error;
+                        await apiWrite(`/metadata/${encodeURIComponent(link.id)}`, 'DELETE', {
+                            organizationId: orgId,
+                            userId,
+                            forReviewCollaborative,
+                            rowCreatedBy: link.created_by,
+                        });
                         const idx = currentLinks.indexOf(link);
                         if (idx >= 0) currentLinks.splice(idx, 1);
                         assignedSet.delete(
@@ -1660,31 +1603,19 @@ async function openDraftMetadataModal({
         statusEl.textContent = 'Applying…';
 
         try {
-            for (const listIdStr of toInsert) {
-                const row = metadataListOptions.find((r) => String(r.id) === listIdStr);
-                if (!row) continue;
-                const metaVal =
-                    row.metadata && typeof row.metadata === 'object' ? row.metadata : row.metadata;
-                const { data: ins, error } = await supabase
-                    .from('lessons_learned_metadata')
-                    .insert({
-                        lessons_learned_id: lessonId,
-                        metadata_type: row.metadata_type || null,
-                        metadata: metaVal,
-                        lessons_learned_metadata_list_id: row.id,
-                        created_by: userId,
-                        organization_id: orgId,
-                        project_id: pid,
-                        project_type_id: projectTypeId,
-                    })
-                    .select('id, metadata, metadata_type, lessons_learned_metadata_list_id')
-                    .single();
-                if (error) throw error;
-                if (ins) {
-                    currentLinks.push(ins);
-                    assignedSet.add(listIdStr);
+            const { rows } = await apiWrite(`/${encodeURIComponent(lessonId)}/metadata`, 'POST', {
+                organizationId: orgId,
+                projectId: pid,
+                userId,
+                projectTypeId,
+                listIds: toInsert,
+            });
+            (rows || []).forEach((ins) => {
+                currentLinks.push(ins);
+                if (ins && ins.lessons_learned_metadata_list_id != null) {
+                    assignedSet.add(String(ins.lessons_learned_metadata_list_id));
                 }
-            }
+            });
             setToolbarStatus('Metadata applied.', false);
             await onChanged();
             closeModal();

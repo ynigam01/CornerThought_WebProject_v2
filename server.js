@@ -12,6 +12,7 @@ const {
   getMatchingLessonIdsForProjectTypeMetadataTerm,
 } = require('./same-metadata-tracker');
 const { saveLessons } = require('./dist/lessons/saveLessons');
+const { registerDraftLessonRoutes } = require('./dist/lessons/draftRoutes');
 
 // Load env vars (reuse .env.backfill for now)
 dotenv.config({ path: '.env.backfill' });
@@ -299,6 +300,9 @@ app.post('/api/lessons/draft', (req, res) => handleSaveLessons(req, res, 'draft'
 
 // POST /api/lessons/submit - save Add Data entries and mark them for review
 app.post('/api/lessons/submit', (req, res) => handleSaveLessons(req, res, 'for review'));
+
+// Draft lesson editor write endpoints (/api/draft-lessons/...)
+registerDraftLessonRoutes(app, supabase);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
