@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.saveLessons = saveLessons;
+const updateCompleteness_1 = require("./updateCompleteness");
 const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 // Convert a decoded file buffer into the Postgres bytea hex format (\x...),
 // matching the original browser-side arrayBufferToPgBytea helper.
@@ -155,6 +156,7 @@ async function saveLessons(supabase, req) {
                 }
             }
         }
+        await (0, updateCompleteness_1.updateCompleteness)(supabase, lessonId, organizationId);
     }
     return { savedCount, lessonIds };
 }

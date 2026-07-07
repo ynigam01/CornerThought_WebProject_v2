@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { UpdateLessonReviewRequest } from './types';
+import { updateCompleteness } from './updateCompleteness';
 
 // Handles the draft editor's "Save Draft" (review = 'draft') and
 // "Send for Review" (review = 'for review') toolbar buttons.
@@ -27,5 +28,7 @@ export async function updateLessonReview(
 
   const { error } = await query;
   if (error) throw new Error(error.message || 'Could not update status.');
+
+  await updateCompleteness(supabase, lessonId, organizationId);
   return { ok: true };
 }

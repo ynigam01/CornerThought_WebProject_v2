@@ -5,6 +5,7 @@ import type {
   SaveLessonsRequest,
   SaveLessonsResult,
 } from './types';
+import { updateCompleteness } from './updateCompleteness';
 
 const MAX_ATTACHMENT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 
@@ -186,6 +187,8 @@ export async function saveLessons(
         }
       }
     }
+
+    await updateCompleteness(supabase, lessonId, organizationId);
   }
 
   return { savedCount, lessonIds };
