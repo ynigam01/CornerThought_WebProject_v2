@@ -53,5 +53,6 @@ async function updateCompleteness(supabase, lessonId, organizationId) {
     if (error) {
         console.error('Failed to update completeness_quality:', error.message);
     }
+    return quality;
 }
 //# sourceMappingURL=updateCompleteness.js.map

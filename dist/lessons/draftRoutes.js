@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDraftLessonRoutes = registerDraftLessonRoutes;
 const updateLessonReview_1 = require("./updateLessonReview");
+const updateCompleteness_1 = require("./updateCompleteness");
 const draftEditor_1 = require("./draftEditor");
 // Wraps a handler with uniform error handling, mirroring server.js style.
 function run(res, label, fn) {
@@ -16,6 +17,16 @@ function run(res, label, fn) {
 }
 const BASE = '/api/draft-lessons';
 function registerDraftLessonRoutes(app, supabase) {
+    // Recompute and persist completeness_quality for a lesson
+    app.post(`${BASE}/:lessonId/completeness`, (req, res) => run(res, 'completeness', async () => {
+        const lessonId = req.params.lessonId;
+        const organizationId = req.body?.organizationId;
+        if (lessonId == null || organizationId == null) {
+            throw new Error('Missing lesson or organization.');
+        }
+        const completenessQuality = await (0, updateCompleteness_1.updateCompleteness)(supabase, lessonId, organizationId);
+        return { ok: true, completenessQuality };
+    }));
     // Save Draft / Send for Review status update
     app.patch(`${BASE}/:lessonId/review`, (req, res) => run(res, 'review', () => (0, updateLessonReview_1.updateLessonReview)(supabase, {
         lessonId: req.params.lessonId,

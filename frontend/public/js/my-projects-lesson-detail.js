@@ -738,14 +738,57 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
 
     mountEl.innerHTML = '';
     const card = document.createElement('article');
-    card.className = 'lesson-detail-card org-lesson-full-page-card org-lesson-for-review-notes-only';
+    card.className =
+        'lesson-detail-card org-lesson-full-page-card org-lesson-for-review-notes-only org-lesson-draft-editor';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'lesson-draft-toolbar';
+    const forReviewLabel = document.createElement('div');
+    forReviewLabel.className = 'lesson-for-review-toolbar-label';
+    forReviewLabel.textContent = 'For review';
+    const btnSaveCompleteness = document.createElement('button');
+    btnSaveCompleteness.type = 'button';
+    btnSaveCompleteness.className = 'save-lessons-button';
+    btnSaveCompleteness.textContent = 'Save';
+    const toolbarStatus = document.createElement('div');
+    toolbarStatus.className = 'lesson-draft-toolbar-status upload-message';
+    toolbarStatus.setAttribute('aria-live', 'polite');
+    toolbar.appendChild(forReviewLabel);
+    toolbar.appendChild(btnSaveCompleteness);
+    toolbar.appendChild(toolbarStatus);
+    card.appendChild(toolbar);
+
+    function setToolbarStatus(msg, isError = false) {
+        toolbarStatus.textContent = msg || '';
+        toolbarStatus.classList.remove('upload-message--success', 'upload-message--error');
+        if (!msg) return;
+        toolbarStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+    }
+
     card.appendChild(buildLessonPrimaryTitle(row));
 
     const detailHost = document.createElement('div');
     card.appendChild(detailHost);
     mountEl.appendChild(card);
 
-    const { openLessonDraftTextModal } = await import('./my-projects-lesson-draft-editor.js');
+    const {
+        openLessonDraftTextModal,
+        refreshLessonCompleteness,
+        formatCompletenessStatusMessage,
+    } = await import('./my-projects-lesson-draft-editor.js');
+
+    btnSaveCompleteness.addEventListener('click', async () => {
+        try {
+            btnSaveCompleteness.disabled = true;
+            await refreshLessonCompleteness(lessonId, organizationId, userId);
+            setToolbarStatus(formatCompletenessStatusMessage(), false);
+        } catch (err) {
+            console.error(err);
+            setToolbarStatus(err.message || 'Could not update completeness.', true);
+        } finally {
+            btnSaveCompleteness.disabled = false;
+        }
+    });
 
     function effectiveNoteOwnerId(noteRow) {
         const cb = noteRow && noteRow.created_by;

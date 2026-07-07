@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Id } from './types';
-import { computeCompleteness } from './computeCompleteness';
+import { computeCompleteness, type CompletenessQuality } from './computeCompleteness';
 
 // Queries a lesson's causes, impacts, and linked action items / future
 // project considerations, computes the highest completeness tier, and
@@ -9,7 +9,7 @@ export async function updateCompleteness(
   supabase: SupabaseClient,
   lessonId: Id,
   organizationId: Id,
-): Promise<void> {
+): Promise<CompletenessQuality | null> {
   const scope = {
     lessons_learned_id: lessonId,
     organization_id: organizationId,
@@ -65,4 +65,6 @@ export async function updateCompleteness(
   if (error) {
     console.error('Failed to update completeness_quality:', error.message);
   }
+
+  return quality;
 }

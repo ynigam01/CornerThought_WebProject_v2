@@ -29,6 +29,17 @@ async function apiWrite(path, method, body) {
     return result;
 }
 
+export async function refreshLessonCompleteness(lessonId, organizationId, userId) {
+    return apiWrite(`/${encodeURIComponent(lessonId)}/completeness`, 'POST', {
+        organizationId,
+        userId,
+    });
+}
+
+export function formatCompletenessStatusMessage() {
+    return 'Lessons Learned Saved';
+}
+
 // Reads a File as base64 (without the data: URI prefix) for JSON upload.
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
@@ -289,6 +300,23 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         forReviewLabel.className = 'lesson-for-review-toolbar-label';
         forReviewLabel.textContent = 'For review';
         toolbar.appendChild(forReviewLabel);
+        const btnSaveCompleteness = document.createElement('button');
+        btnSaveCompleteness.type = 'button';
+        btnSaveCompleteness.className = 'save-lessons-button';
+        btnSaveCompleteness.textContent = 'Save';
+        toolbar.appendChild(btnSaveCompleteness);
+        btnSaveCompleteness.addEventListener('click', async () => {
+            try {
+                btnSaveCompleteness.disabled = true;
+                await refreshLessonCompleteness(lessonId, orgId, userId);
+                setToolbarStatus(formatCompletenessStatusMessage(), false);
+            } catch (err) {
+                console.error(err);
+                setToolbarStatus(err.message || 'Could not update completeness.', true);
+            } finally {
+                btnSaveCompleteness.disabled = false;
+            }
+        });
     }
     toolbar.appendChild(toolbarStatus);
 

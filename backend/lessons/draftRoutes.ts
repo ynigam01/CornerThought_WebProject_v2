@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AssignmentKind, SubItemKind } from './types';
 import { updateLessonReview } from './updateLessonReview';
+import { updateCompleteness } from './updateCompleteness';
 import {
   applyMetadata,
   createAttachment,
@@ -44,6 +45,23 @@ function run(res: ApiResponse, label: string, fn: () => Promise<unknown>): Promi
 const BASE = '/api/draft-lessons';
 
 export function registerDraftLessonRoutes(app: RouteApp, supabase: SupabaseClient): void {
+  // Recompute and persist completeness_quality for a lesson
+  app.post(`${BASE}/:lessonId/completeness`, (req, res) =>
+    run(res, 'completeness', async () => {
+      const lessonId = req.params!.lessonId;
+      const organizationId = req.body?.organizationId;
+      if (lessonId == null || organizationId == null) {
+        throw new Error('Missing lesson or organization.');
+      }
+      const completenessQuality = await updateCompleteness(
+        supabase,
+        lessonId,
+        organizationId,
+      );
+      return { ok: true, completenessQuality };
+    }),
+  );
+
   // Save Draft / Send for Review status update
   app.patch(`${BASE}/:lessonId/review`, (req, res) =>
     run(res, 'review', () =>
