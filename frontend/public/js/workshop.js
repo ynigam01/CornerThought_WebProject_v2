@@ -174,8 +174,26 @@ export async function removeLessonFromWorkshop(supabase, linkRowId) {
 export async function fetchWorkshopAttendees(supabase, workshopId) {
     return supabase
         .from('workshop_attendees')
-        .select('id, user_id, name, email, notification_status, confirmation, facilitator')
+        .select('id, user_id, name, email, notification_status, confirmation, facilitator, attendance')
         .eq('workshop_id', workshopId);
+}
+
+/**
+ * Set attendance for a workshop_attendees row.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} attendeeId
+ * @param {boolean} [attendance=true]
+ */
+export async function setWorkshopAttendeeAttendance(supabase, attendeeId, attendance = true) {
+    return supabase
+        .from('workshop_attendees')
+        .update({ attendance })
+        .eq('id', Number(attendeeId));
+}
+
+/** @returns {string} Today's date as YYYY-MM-DD in local time. */
+export function getTodayDateString() {
+    return new Date().toLocaleDateString('en-CA');
 }
 
 /**
@@ -273,12 +291,50 @@ export async function respondToWorkshopInvite(supabase, attendeeId, accepted) {
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | number} projectId
  */
+const WORKSHOP_DETAIL_COLUMNS =
+    'id, workshop_title, workshop_description, date, start_time, end_time, agenda_storage_path, agenda_filename, agenda_content_type, created_by';
+
 export async function fetchWorkshopsForProject(supabase, projectId) {
     return supabase
         .from('workshops')
-        .select('id, workshop_title, workshop_description, date, start_time, end_time, agenda_storage_path, agenda_filename, agenda_content_type, created_by')
+        .select(WORKSHOP_DETAIL_COLUMNS)
         .eq('project_id', projectId)
         .order('date', { ascending: false });
+}
+
+/**
+ * Fetch a single workshop by id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} workshopId
+ */
+export async function fetchWorkshopById(supabase, workshopId) {
+    return supabase
+        .from('workshops')
+        .select(WORKSHOP_DETAIL_COLUMNS)
+        .eq('id', Number(workshopId))
+        .single();
+}
+
+/**
+ * Return workshop IDs where the given user is the assigned facilitator.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string | number} userId
+ * @param {Array<string | number>} workshopIds
+ * @returns {Promise<Set<string>>}
+ */
+export async function fetchFacilitatedWorkshopIds(supabase, userId, workshopIds) {
+    const ids = (workshopIds || []).filter((v) => v != null).map((v) => Number(v));
+    if (!ids.length || userId == null) return new Set();
+
+    const { data, error } = await supabase
+        .from('workshop_attendees')
+        .select('workshop_id')
+        .eq('user_id', Number(userId))
+        .eq('facilitator', true)
+        .in('workshop_id', ids);
+
+    if (error) return new Set();
+    return new Set((data || []).map((r) => String(r.workshop_id)));
 }
 
 /**
@@ -468,7 +524,10 @@ export async function deleteWorkshopGrouping(supabase, groupingId) {
  *   onPreview?: (workshop: Record<string, unknown>) => void,
  *   onCancelPreview?: () => void,
  *   previewWorkshopId?: string | number | null,
- *   onMountPreview?: (containerEl: HTMLElement, workshop: Record<string, unknown>) => void,
+ *   previewWorkshopMode?: boolean,
+ *   onMountPreview?: (containerEl: HTMLElement, workshop: Record<string, unknown>, options?: { workshopMode?: boolean }) => void,
+ *   canStartWorkshop?: (workshop: Record<string, unknown>) => boolean,
+ *   onStartWorkshop?: (workshop: Record<string, unknown>) => void,
  * }} ctx
  */
 export function mountManageWorkshopsPanel({
@@ -486,7 +545,10 @@ export function mountManageWorkshopsPanel({
     onPreview,
     onCancelPreview,
     previewWorkshopId = null,
+    previewWorkshopMode = false,
     onMountPreview,
+    canStartWorkshop,
+    onStartWorkshop,
 }) {
     if (!mountEl) return;
     mountEl.innerHTML = '';
@@ -741,15 +803,22 @@ export function mountManageWorkshopsPanel({
                 wrap.appendChild(list);
 
                 if (typeof onMountPreview === 'function') {
-                    onMountPreview(previewContainer, w);
+                    onMountPreview(previewContainer, w, { workshopMode: previewWorkshopMode });
                 }
 
                 mountEl.appendChild(wrap);
                 return;
             } else {
                 // Normal mode — icon action buttons
+                const startable = typeof canStartWorkshop === 'function' && canStartWorkshop(w);
+                if (startable) {
+                    card.classList.add('lesson-card--workshop-startable');
+                    card.addEventListener('click', () => onStartWorkshop && onStartWorkshop(w));
+                }
+
                 const actions = document.createElement('div');
                 actions.className = 'workshop-card-actions';
+                actions.addEventListener('click', (e) => e.stopPropagation());
 
                 const iconBtn = (faClass, label, danger = false) => {
                     const btn = document.createElement('button');
@@ -972,4 +1041,145 @@ export async function clearWorkshopTimeOverrides(supabase, workshopId) {
 /** @param {HTMLElement | null} mountEl */
 export function clearWorkshopModule(mountEl) {
     if (mountEl) mountEl.innerHTML = '';
+}
+
+/**
+ * Creates a fixed bottom-right timer widget for a live workshop session.
+ *
+ * The timer tracks two clocks simultaneously:
+ *   - Total Time  — runs continuously from session start.
+ *   - Section Time — resets each time setSection() is called; rendered in
+ *                    bold red when it exceeds the section's allocated budget.
+ *
+ * The initial section is always "Introduction" with the 10-minute buffer
+ * that the preview reserves before the allocatable lessons time.
+ *
+ * @param {{
+ *   agendaItems?: Array<{ id: string, type: string, priority: string|null, timeOverride: number|null }>,
+ *   availableMinutes?: number,
+ * }} [options]
+ * @returns {{
+ *   setSection: (label: string, allocationMinutes: number|null) => void,
+ *   destroy: () => void,
+ * }}
+ */
+export function createWorkshopTimer({ agendaItems = [], availableMinutes = 0 } = {}) {
+    // Snapshot the time allocations once at session start.
+    // Later steps may call setSection() with the specific allocation for each item.
+    computeWorkshopTimeAllocations(agendaItems, availableMinutes); // validates inputs
+
+    const INTRO_ALLOCATION_MINUTES = 10; // the buffer reserved before lesson time
+
+    let totalSeconds = 0;
+    let sectionSeconds = 0;
+    let currentLabel = 'Introduction';
+    let allocationSeconds = INTRO_ALLOCATION_MINUTES * 60;
+
+    // ── Widget DOM ───────────────────────────────────────────────────
+    const widget = document.createElement('div');
+    widget.className = 'workshop-timer-widget';
+    widget.setAttribute('aria-label', 'Workshop timer');
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'workshop-timer-title';
+    titleRow.innerHTML = '<i class="fa-solid fa-stopwatch"></i> Workshop Timer';
+    widget.appendChild(titleRow);
+
+    // Total row
+    const totalRow = document.createElement('div');
+    totalRow.className = 'workshop-timer-row';
+    const totalLbl = document.createElement('span');
+    totalLbl.className = 'workshop-timer-label';
+    totalLbl.textContent = 'Total Time';
+    const totalVal = document.createElement('span');
+    totalVal.className = 'workshop-timer-value workshop-timer-value--mono';
+    totalRow.appendChild(totalLbl);
+    totalRow.appendChild(totalVal);
+    widget.appendChild(totalRow);
+
+    const divider = document.createElement('div');
+    divider.className = 'workshop-timer-divider';
+    widget.appendChild(divider);
+
+    // Section row
+    const sectionRow = document.createElement('div');
+    sectionRow.className = 'workshop-timer-row';
+    const sectionLbl = document.createElement('span');
+    sectionLbl.className = 'workshop-timer-label';
+    sectionLbl.textContent = 'Section Time';
+    const sectionVal = document.createElement('span');
+    sectionVal.className = 'workshop-timer-value workshop-timer-value--mono';
+    sectionRow.appendChild(sectionLbl);
+    sectionRow.appendChild(sectionVal);
+    widget.appendChild(sectionRow);
+
+    // Section name + allocation
+    const sectionMeta = document.createElement('div');
+    sectionMeta.className = 'workshop-timer-section-meta';
+    const sectionNameEl = document.createElement('span');
+    sectionNameEl.className = 'workshop-timer-section-name';
+    const sectionAllocEl = document.createElement('span');
+    sectionAllocEl.className = 'workshop-timer-section-alloc';
+    sectionMeta.appendChild(sectionNameEl);
+    sectionMeta.appendChild(sectionAllocEl);
+    widget.appendChild(sectionMeta);
+
+    document.body.appendChild(widget);
+
+    // ── Helpers ──────────────────────────────────────────────────────
+    const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, '0');
+
+    const fmt = (totalSec) => {
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    };
+
+    // ── Render ───────────────────────────────────────────────────────
+    const render = () => {
+        totalVal.textContent = fmt(totalSeconds);
+
+        const overBudget = allocationSeconds != null && sectionSeconds > allocationSeconds;
+        sectionVal.textContent = fmt(sectionSeconds);
+        sectionVal.style.fontWeight = overBudget ? '700' : '';
+        sectionVal.style.color = overBudget ? '#c0392b' : '';
+
+        sectionNameEl.textContent = currentLabel;
+        sectionAllocEl.textContent = allocationSeconds != null
+            ? `${Math.round(allocationSeconds / 60)} min budget`
+            : '';
+    };
+
+    render();
+
+    const intervalId = setInterval(() => {
+        totalSeconds += 1;
+        sectionSeconds += 1;
+        render();
+    }, 1000);
+
+    // ── Public API ───────────────────────────────────────────────────
+    return {
+        /**
+         * Switch to a new section. Resets the section clock.
+         * @param {string} label  Human-readable section name shown in the widget.
+         * @param {number|null} allocationMinutes  Time budget for this section in minutes,
+         *   or null for no limit (e.g. a custom intro).
+         */
+        setSection(label, allocationMinutes) {
+            currentLabel = String(label || 'Untitled');
+            allocationSeconds = allocationMinutes != null && Number.isFinite(allocationMinutes)
+                ? Math.round(allocationMinutes) * 60
+                : null;
+            sectionSeconds = 0;
+            render();
+        },
+
+        /** Stop both clocks and remove the widget from the DOM. */
+        destroy() {
+            clearInterval(intervalId);
+            widget.remove();
+        },
+    };
 }

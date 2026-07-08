@@ -1223,6 +1223,197 @@ body {
     border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+.lesson-card--workshop-startable {
+    cursor: pointer;
+}
+
+.lesson-card--workshop-startable:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.workshop-live-preview-mount {
+    margin-top: 8px;
+}
+
+.workshop-preview-container .workshop-attendance-error {
+    margin-left: 4px;
+}
+
+/* ── Workshop session timer ─────────────────────────────────────────── */
+.workshop-timer-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9000;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.13);
+    padding: 14px 16px 12px;
+    width: 230px;
+    user-select: none;
+    font-family: Arial, sans-serif;
+}
+
+.workshop-timer-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.workshop-timer-title i {
+    color: #3498db;
+    font-size: 12px;
+}
+
+.workshop-timer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 2px;
+}
+
+.workshop-timer-label {
+    font-size: 12px;
+    color: #666;
+}
+
+.workshop-timer-value--mono {
+    font-size: 17px;
+    font-weight: 600;
+    color: #1a1a1a;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    line-height: 1;
+}
+
+.workshop-timer-divider {
+    border: none;
+    border-top: 1px solid #f0f0f0;
+    margin: 10px 0 8px;
+}
+
+.workshop-timer-section-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+    gap: 6px;
+}
+
+.workshop-timer-section-name {
+    font-size: 12px;
+    color: #555;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.workshop-timer-section-alloc {
+    font-size: 11px;
+    color: #aaa;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ── Start Workshop modal ────────────────────────────────────────────── */
+.start-workshop-modal-content {
+    max-width: 400px;
+    padding: 36px 32px 28px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0;
+}
+
+.start-workshop-modal-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #e8f5e9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+}
+
+.start-workshop-modal-icon i {
+    font-size: 28px;
+    color: #2e7d32;
+}
+
+.start-workshop-modal-title {
+    margin: 0 0 10px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a1a1a;
+}
+
+.start-workshop-modal-desc {
+    margin: 0 0 24px;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.55;
+    max-width: 300px;
+}
+
+.start-workshop-modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    width: 100%;
+}
+
+.start-workshop-cancel-btn {
+    padding: 9px 22px;
+    border: 1px solid #d1d5db;
+    border-radius: 7px;
+    background: #fff;
+    color: #555;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.start-workshop-cancel-btn:hover {
+    background: #f3f4f6;
+    border-color: #b0b7c3;
+}
+
+.start-workshop-confirm-btn {
+    padding: 9px 22px;
+    border: none;
+    border-radius: 7px;
+    background: #2e7d32;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: background 0.15s;
+}
+
+.start-workshop-confirm-btn:hover {
+    background: #256427;
+}
+
+.start-workshop-confirm-btn i {
+    font-size: 15px;
+}
+
 .workshop-icon-btn {
     display: inline-flex;
     align-items: center;
@@ -2846,6 +3037,10 @@ body {
     margin-bottom: 20px;
     max-width: 600px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.06);
+}
+
+#searchView #myProjectsWorkshopPanel {
+    max-width: 100%;
 }
 
 /* Narrower Project Type input for Organization Settings > Manage Projects */

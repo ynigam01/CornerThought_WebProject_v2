@@ -21,6 +21,9 @@ import {
     updateWorkshop,
     deleteWorkshop,
     fetchWorkshopsForProject,
+    fetchWorkshopById,
+    fetchFacilitatedWorkshopIds,
+    getTodayDateString,
     fetchWorkshopLessons,
     addLessonToWorkshop,
     removeLessonFromWorkshop,
@@ -43,10 +46,12 @@ import {
     uploadWorkshopAgenda,
     downloadWorkshopAgenda,
     setWorkshopFacilitator,
+    setWorkshopAttendeeAttendance,
     computeWorkshopTimeAllocations,
     updateWorkshopLessonTimeOverride,
     updateWorkshopGroupingTimeOverride,
     clearWorkshopTimeOverrides,
+    createWorkshopTimer,
 } from './workshop.js';
 
 // Require login: redirect to user-login if no session is present
@@ -194,6 +199,14 @@ document.addEventListener("DOMContentLoaded", () => {
     let welcomeReviewNotificationGroupsCache = [];
     /** @type {Array<{ attendeeId: number, workshopId: number, workshop_title: string, workshop_description: string|null, date: string|null, start_time: string|null, end_time: string|null, project_name: string }>} */
     let workshopInvitesCache = [];
+    /** @type {{ setSection: Function, destroy: Function } | null} */
+    let activeWorkshopTimer = null;
+    function destroyActiveWorkshopTimer() {
+        if (activeWorkshopTimer) {
+            activeWorkshopTimer.destroy();
+            activeWorkshopTimer = null;
+        }
+    }
     let saveLessonsButton = null;
     let saveDraftButton = null;
     let saveLessonsStatus = null;
@@ -3693,6 +3706,23 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const startWorkshopModalHTML = `
+    <div class="modal modal--center" id="startWorkshopModal">
+        <div class="modal-content start-workshop-modal-content">
+            <div class="start-workshop-modal-icon">
+                <i class="fa-solid fa-circle-play"></i>
+            </div>
+            <h3 class="start-workshop-modal-title">Start workshop?</h3>
+            <p class="start-workshop-modal-desc">You are about to begin the live workshop session. Attendees can be marked present once the session starts.</p>
+            <div class="start-workshop-modal-actions">
+                <button type="button" id="cancelStartWorkshop" class="start-workshop-cancel-btn">Cancel</button>
+                <button type="button" id="confirmStartWorkshop" class="start-workshop-confirm-btn">
+                    <i class="fa-solid fa-circle-play"></i> Start session
+                </button>
+            </div>
+        </div>
+    </div>`;
+
     document.body.insertAdjacentHTML("beforeend", projectFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
@@ -3700,6 +3730,7 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
     document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
     document.body.insertAdjacentHTML("beforeend", editWorkshopModalHTML);
+    document.body.insertAdjacentHTML("beforeend", startWorkshopModalHTML);
     document.body.insertAdjacentHTML("beforeend", `
     <div class="modal modal--center" id="createGroupingModal">
         <div class="modal-content" style="max-width: 480px;">
@@ -3730,6 +3761,33 @@ const projectFormHTML = `
             st.textContent = '';
             st.classList.remove('upload-message--error', 'upload-message--success');
         }
+    }
+
+    let startWorkshopConfirmCallback = null;
+
+    function closeStartWorkshopModal() {
+        const m = document.getElementById('startWorkshopModal');
+        if (m) m.classList.remove('show');
+        startWorkshopConfirmCallback = null;
+    }
+
+    function promptStartWorkshop(onConfirm) {
+        startWorkshopConfirmCallback = typeof onConfirm === 'function' ? onConfirm : null;
+        const modal = document.getElementById('startWorkshopModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    document.getElementById('cancelStartWorkshop').onclick = () => closeStartWorkshopModal();
+    document.getElementById('confirmStartWorkshop').onclick = () => {
+        const cb = startWorkshopConfirmCallback;
+        closeStartWorkshopModal();
+        if (cb) cb();
+    };
+    const startWorkshopModalEl = document.getElementById('startWorkshopModal');
+    if (startWorkshopModalEl) {
+        startWorkshopModalEl.onclick = (e) => {
+            if (e.target === startWorkshopModalEl) closeStartWorkshopModal();
+        };
     }
 
     let editWorkshopSuccessCallback = null;
@@ -4190,6 +4248,10 @@ const projectFormHTML = `
     const editWorkshopModalEl = document.getElementById('editWorkshopModal');
     if (editWorkshopModalEl && e.target === editWorkshopModalEl) {
         closeEditWorkshopModal();
+    }
+    const startWorkshopModalElClick = document.getElementById('startWorkshopModal');
+    if (startWorkshopModalElClick && e.target === startWorkshopModalElClick) {
+        closeStartWorkshopModal();
     }
     };
 
@@ -5700,7 +5762,7 @@ const projectFormHTML = `
         if (!container) return;
         container.innerHTML = '';
 
-        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+        const todayStr = getTodayDateString();
         const todayWorkshops = workshopInvitesCache.filter(
             (inv) => inv.confirmation === true &&
                      inv.notification_status === 'confirmation_sent' &&
@@ -5759,6 +5821,13 @@ const projectFormHTML = `
                 desc.style.cssText = 'margin-top:8px;font-size:14px;color:#444;';
                 desc.textContent = String(invite.workshop_description);
                 card.appendChild(desc);
+            }
+
+            if (invite.facilitator === true) {
+                card.classList.add('lesson-card--workshop-startable');
+                card.addEventListener('click', () => {
+                    promptStartWorkshop(() => openHomeWorkshopLivePreview(invite.workshopId));
+                });
             }
 
             container.appendChild(card);
@@ -7180,6 +7249,548 @@ const projectFormHTML = `
         if (workshopPanel) workshopPanel.style.display = 'none';
     }
 
+    async function mountWorkshopPreviewContent(containerEl, workshop, { workshopMode = false } = {}) {
+        containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading preview…</p>';
+
+        const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+        const prioritySort = (a, b) => {
+            const pa = PRIORITY_ORDER[a] ?? 3;
+            const pb = PRIORITY_ORDER[b] ?? 3;
+            return pa - pb;
+        };
+
+        const section = (titleText) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;';
+            const h = document.createElement('p');
+            h.style.cssText = 'font-weight: 700; font-size: 14px; color: #333; margin: 0 0 10px;';
+            h.textContent = titleText;
+            wrap.appendChild(h);
+            return wrap;
+        };
+
+        const priorityBadge = (priority) => {
+            if (!priority) return null;
+            const badge = document.createElement('span');
+            badge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;text-transform:capitalize;';
+            if (priority === 'high') {
+                badge.style.background = '#fde8e8';
+                badge.style.color = '#c0392b';
+                badge.textContent = 'High';
+            } else if (priority === 'medium') {
+                badge.style.background = '#fef3cd';
+                badge.style.color = '#856404';
+                badge.textContent = 'Medium';
+            } else if (priority === 'low') {
+                badge.style.background = '#e8f5e9';
+                badge.style.color = '#2e7d32';
+                badge.textContent = 'Low';
+            }
+            return badge;
+        };
+
+        try {
+            containerEl.innerHTML = '';
+
+            // ── Section 1: Agenda ──────────────────────────────────────────
+            const agendaSection = section('Workshop Agenda');
+
+            const renderAgendaSection = async () => {
+                agendaSection.querySelectorAll('.agenda-content').forEach((el) => el.remove());
+                const agendaContent = document.createElement('div');
+                agendaContent.className = 'agenda-content';
+
+                if (workshop.agenda_storage_path) {
+                    const loadingMsg = document.createElement('p');
+                    loadingMsg.className = 'subtitle';
+                    loadingMsg.style.cssText = 'margin: 0; font-size: 13px;';
+                    loadingMsg.textContent = 'Generating download link…';
+                    agendaContent.appendChild(loadingMsg);
+                    agendaSection.appendChild(agendaContent);
+
+                    const { url, error: dlErr } = await downloadWorkshopAgenda(supabase, workshop.agenda_storage_path);
+                    agendaContent.innerHTML = '';
+                    if (dlErr || !url) {
+                        const errMsg = document.createElement('p');
+                        errMsg.className = 'upload-message upload-message--error';
+                        errMsg.style.cssText = 'margin: 0; font-size: 13px;';
+                        errMsg.textContent = 'Could not generate download link. Try again later.';
+                        agendaContent.appendChild(errMsg);
+                    } else {
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        link.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#1a73e8;text-decoration:underline;';
+                        link.innerHTML = `<i class="fa-solid fa-file-arrow-down"></i> ${String(workshop.agenda_filename || 'Download Agenda')}`;
+                        agendaContent.appendChild(link);
+                    }
+                } else {
+                    const noAgendaWrap = document.createElement('div');
+                    noAgendaWrap.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+
+                    const fileLabel = document.createElement('label');
+                    fileLabel.style.cssText = 'font-size:13px;color:#555;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
+                    const fileInput = document.createElement('input');
+                    fileInput.type = 'file';
+                    fileInput.accept = '.doc,.docx,.pdf,.txt';
+                    fileInput.style.cssText = 'font-size:13px;max-width:220px;';
+                    fileLabel.appendChild(fileInput);
+
+                    const uploadBtn = document.createElement('button');
+                    uploadBtn.type = 'button';
+                    uploadBtn.className = 'primary-button';
+                    uploadBtn.style.cssText = 'font-size:12px;padding:5px 12px;';
+                    uploadBtn.textContent = 'Attach Agenda';
+
+                    const uploadStatus = document.createElement('span');
+                    uploadStatus.style.cssText = 'font-size:12px;color:#555;';
+
+                    uploadBtn.addEventListener('click', async () => {
+                        const file = fileInput.files && fileInput.files[0];
+                        if (!file) {
+                            uploadStatus.textContent = 'Please select a file first.';
+                            return;
+                        }
+                        const MAX_SIZE = 20 * 1024 * 1024;
+                        if (file.size > MAX_SIZE) {
+                            uploadStatus.textContent = 'File exceeds 20 MB limit.';
+                            return;
+                        }
+                        uploadBtn.disabled = true;
+                        uploadStatus.textContent = 'Uploading…';
+                        const { storagePath, filename, contentType, error: uploadError } =
+                            await uploadWorkshopAgenda(supabase, workshop.id, file);
+                        if (uploadError) {
+                            uploadStatus.textContent = uploadError.message || 'Upload failed.';
+                            uploadBtn.disabled = false;
+                            return;
+                        }
+                        const { error: updateError } = await updateWorkshop(supabase, workshop.id, {
+                            agenda_storage_path: storagePath,
+                            agenda_filename: filename,
+                            agenda_content_type: contentType,
+                        });
+                        if (updateError) {
+                            uploadStatus.textContent = updateError.message || 'Failed to save agenda.';
+                            uploadBtn.disabled = false;
+                            return;
+                        }
+                        workshop.agenda_storage_path = storagePath;
+                        workshop.agenda_filename = filename;
+                        workshop.agenda_content_type = contentType;
+                        await renderAgendaSection();
+                    });
+
+                    noAgendaWrap.appendChild(fileInput);
+                    noAgendaWrap.appendChild(uploadBtn);
+                    noAgendaWrap.appendChild(uploadStatus);
+                    agendaContent.appendChild(noAgendaWrap);
+                }
+
+                agendaSection.appendChild(agendaContent);
+            };
+
+            await renderAgendaSection();
+            containerEl.appendChild(agendaSection);
+
+            // ── Section 2: Workshop Details ────────────────────────────────
+            const detailsSection = section('Workshop Details');
+
+            const detailRow = (label, value) => {
+                if (!value) return null;
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;font-size:13px;';
+                const lbl = document.createElement('span');
+                lbl.style.cssText = 'font-weight:600;color:#444;min-width:90px;flex-shrink:0;';
+                lbl.textContent = label;
+                const val = document.createElement('span');
+                val.style.color = '#555';
+                val.textContent = String(value);
+                row.appendChild(lbl);
+                row.appendChild(val);
+                return row;
+            };
+
+            const dateRow = detailRow('Date:', workshop.date || null);
+            if (dateRow) detailsSection.appendChild(dateRow);
+
+            if (workshop.start_time) {
+                const startFmt = formatWorkshopTime(workshop.start_time);
+                const endFmt = workshop.end_time ? ` – ${formatWorkshopTime(workshop.end_time)}` : '';
+                const timeRow = detailRow('Time:', `${startFmt}${endFmt}`);
+                if (timeRow) detailsSection.appendChild(timeRow);
+            }
+
+            const descRow = detailRow('Description:', workshop.workshop_description || null);
+            if (descRow) detailsSection.appendChild(descRow);
+
+            containerEl.appendChild(detailsSection);
+
+            // ── Section 3: Confirmed Attendees ─────────────────────────────
+            const attendeesSection = section('Confirmed Attendees');
+            const { data: allAttendees } = await fetchWorkshopAttendees(supabase, workshop.id);
+            const confirmed = (allAttendees || []).filter(
+                (a) => a.confirmation === true && a.notification_status === 'confirmation_sent'
+            );
+
+            if (confirmed.length === 0) {
+                const none = document.createElement('p');
+                none.className = 'subtitle';
+                none.style.cssText = 'margin:0;font-size:13px;';
+                none.textContent = 'No confirmed attendees yet.';
+                attendeesSection.appendChild(none);
+            } else {
+                const attList = document.createElement('ul');
+                attList.style.cssText = 'list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;';
+                confirmed.forEach((a) => {
+                    const li = document.createElement('li');
+                    li.style.cssText = 'font-size:13px;color:#444;display:flex;align-items:center;gap:6px;';
+                    if (workshopMode) {
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = a.attendance === true;
+                        checkbox.style.cssText = 'margin:0;width:auto;padding:0;border:none;';
+                        if (a.attendance === true) checkbox.disabled = true;
+                        checkbox.addEventListener('change', async () => {
+                            if (!checkbox.checked) {
+                                checkbox.checked = a.attendance === true;
+                                return;
+                            }
+                            checkbox.disabled = true;
+                            let errMsg = li.querySelector('.workshop-attendance-error');
+                            if (errMsg) errMsg.remove();
+                            const { error } = await setWorkshopAttendeeAttendance(supabase, a.id, true);
+                            if (error) {
+                                checkbox.checked = false;
+                                checkbox.disabled = false;
+                                errMsg = document.createElement('span');
+                                errMsg.className = 'workshop-attendance-error';
+                                errMsg.style.cssText = 'font-size:11px;color:#c0392b;';
+                                errMsg.textContent = 'Could not save attendance.';
+                                li.appendChild(errMsg);
+                                return;
+                            }
+                            a.attendance = true;
+                        });
+                        li.appendChild(checkbox);
+                    } else {
+                        li.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#2e7d32;font-size:11px;"></i>`;
+                    }
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = a.name || a.email || `User ${a.user_id}`;
+                    if (a.email && a.name) {
+                        nameSpan.title = a.email;
+                    }
+                    li.appendChild(nameSpan);
+                    if (a.facilitator) {
+                        const fBadge = document.createElement('span');
+                        fBadge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e8f0fe;color:#1a73e8;';
+                        fBadge.textContent = 'Facilitator';
+                        li.appendChild(fBadge);
+                    }
+                    attList.appendChild(li);
+                });
+                attendeesSection.appendChild(attList);
+            }
+            containerEl.appendChild(attendeesSection);
+
+            // ── Section 4: Lessons Learned by Priority with Time Allocation ──
+            const isCreator = ctUser && String(workshop.created_by) === String(ctUser.id);
+            const totalMinutes = computeWorkshopDurationMinutes(workshop.start_time, workshop.end_time);
+            const availableMinutes = Math.max(0, totalMinutes - 10);
+
+            const lessonsSection = section('Lessons Learned');
+
+            const [wlResult, groupingsResult] = await Promise.all([
+                fetchWorkshopLessons(supabase, workshop.id),
+                fetchWorkshopGroupings(supabase, workshop.id),
+            ]);
+            const wlRows = wlResult.data || [];
+            const groupings = groupingsResult.data || [];
+
+            if (wlRows.length === 0) {
+                const none = document.createElement('p');
+                none.className = 'subtitle';
+                none.style.cssText = 'margin:0;font-size:13px;';
+                none.textContent = 'No lessons learned have been assigned to this workshop.';
+                lessonsSection.appendChild(none);
+                containerEl.appendChild(lessonsSection);
+                if (workshopMode) {
+                    destroyActiveWorkshopTimer();
+                    activeWorkshopTimer = createWorkshopTimer({ agendaItems: [], availableMinutes });
+                }
+                return;
+            }
+
+            const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
+            const { data: lessons } = await supabase
+                .from('lessons_learned')
+                .select('id, title, category, review')
+                .in('id', lessonIds);
+
+            const lessonMap = {};
+            (lessons || []).forEach((l) => { lessonMap[String(l.id)] = l; });
+
+            // wll row keyed by lessons_learned_id for quick lookup
+            const wllByLessonId = {};
+            wlRows.forEach((r) => { wllByLessonId[String(r.lessons_learned_id)] = r; });
+
+            // Build current state of overrides from fetched rows (mutated on save)
+            const groupingOverrides = new Map(groupings.map((g) => [String(g.id), g.time_override_minutes ?? null]));
+            const lessonOverrides = new Map(wlRows.map((r) => [String(r.id), r.time_override_minutes ?? null]));
+
+            const buildAgendaItems = () => {
+                const items = [];
+                // One item per grouping (that has lessons)
+                groupings.forEach((g) => {
+                    const hasLessons = wlRows.some((r) => String(r.grouping_id) === String(g.id));
+                    if (!hasLessons) return;
+                    items.push({ id: String(g.id), type: 'group', priority: g.priority || null, timeOverride: groupingOverrides.get(String(g.id)) });
+                });
+                // One item per ungrouped lesson
+                wlRows.filter((r) => !r.grouping_id).forEach((r) => {
+                    items.push({ id: String(r.id), type: 'lesson', priority: r.priority || null, timeOverride: lessonOverrides.get(String(r.id)) });
+                });
+                return items;
+            };
+
+            const timeBadge = (minutes) => {
+                const badge = document.createElement('span');
+                badge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8f0fe;color:#1a73e8;white-space:nowrap;';
+                badge.textContent = `~${minutes} min`;
+                return badge;
+            };
+
+            const makeTimeInput = (initialValue, onSave) => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = '1';
+                input.value = String(initialValue);
+                input.style.cssText = 'width:54px;font-size:12px;padding:2px 4px;border:1px solid #c5cae9;border-radius:4px;text-align:center;';
+                const lbl = document.createElement('span');
+                lbl.style.cssText = 'font-size:11px;color:#555;';
+                lbl.textContent = 'min';
+
+                const save = async () => {
+                    const val = parseInt(input.value, 10);
+                    if (!Number.isFinite(val) || val < 1) { input.value = String(initialValue); return; }
+                    input.disabled = true;
+                    await onSave(val);
+                    input.disabled = false;
+                };
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+                wrap.appendChild(input);
+                wrap.appendChild(lbl);
+                return wrap;
+            };
+
+            // Re-renderable lessons content
+            const renderLessonsContent = () => {
+                // Clear everything inside lessonsSection except the heading (first child)
+                while (lessonsSection.children.length > 1) lessonsSection.removeChild(lessonsSection.lastChild);
+
+                const agendaItems = buildAgendaItems();
+                const timeMap = computeWorkshopTimeAllocations(agendaItems, availableMinutes);
+
+                // Reset button — creator only, visible when any override exists
+                const hasOverrides = isCreator && (
+                    [...groupingOverrides.values()].some((v) => v != null) ||
+                    [...lessonOverrides.values()].some((v) => v != null)
+                );
+                if (hasOverrides) {
+                    const resetRow = document.createElement('div');
+                    resetRow.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px;';
+                    const resetBtn = document.createElement('button');
+                    resetBtn.type = 'button';
+                    resetBtn.className = 'secondary-button';
+                    resetBtn.style.cssText = 'font-size:12px;padding:4px 12px;';
+                    resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
+                    resetBtn.addEventListener('click', async () => {
+                        resetBtn.disabled = true;
+                        resetBtn.textContent = 'Resetting…';
+                        const { error } = await clearWorkshopTimeOverrides(supabase, workshop.id);
+                        if (error) {
+                            console.error('clearWorkshopTimeOverrides error:', error);
+                            resetBtn.disabled = false;
+                            resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
+                            return;
+                        }
+                        groupingOverrides.forEach((_, key) => groupingOverrides.set(key, null));
+                        lessonOverrides.forEach((_, key) => lessonOverrides.set(key, null));
+                        renderLessonsContent();
+                    });
+                    resetRow.appendChild(resetBtn);
+                    lessonsSection.appendChild(resetRow);
+                }
+
+                // Warning if any non-overridden item gets < 5 min
+                const hasShortItems = agendaItems.some((item) => {
+                    if (item.timeOverride != null) return false;
+                    return (timeMap.get(item.id) ?? 0) < 5;
+                });
+                if (hasShortItems) {
+                    const warn = document.createElement('div');
+                    warn.style.cssText = 'margin-bottom:12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:13px;color:#795548;';
+                    warn.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f9a825;margin-right:6px;"></i>Some items have less than 5 minutes allocated. Consider increasing the workshop duration or moving some lessons to a separate workshop.';
+                    lessonsSection.appendChild(warn);
+                }
+
+                // wll-id → timeMap key for ungrouped lessons
+                const wllIdToItemId = new Map(wlRows.filter((r) => !r.grouping_id).map((r) => [String(r.lessons_learned_id), String(r.id)]));
+
+                const renderLessonItem = (lessonId) => {
+                    const lesson = lessonMap[String(lessonId)];
+                    const wll = wllByLessonId[String(lessonId)];
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding:8px 10px;background:#f9f9f9;border-radius:6px;margin-bottom:6px;';
+
+                    const top = document.createElement('div');
+                    top.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+                    const titleSpan = document.createElement('span');
+                    titleSpan.style.cssText = 'font-size:13px;font-weight:600;color:#333;flex:1;min-width:0;';
+                    titleSpan.textContent = lesson ? String(lesson.title || '') : `Lesson #${lessonId}`;
+                    top.appendChild(titleSpan);
+
+                    const lb = priorityBadge(wll ? wll.priority : null);
+                    if (lb) top.appendChild(lb);
+
+                    // Time allocation — only for ungrouped lessons
+                    if (wll && !wll.grouping_id) {
+                        const itemKey = String(wll.id);
+                        const mins = timeMap.get(itemKey) ?? 0;
+                        if (isCreator) {
+                            top.appendChild(makeTimeInput(mins, async (val) => {
+                                const { error } = await updateWorkshopLessonTimeOverride(supabase, wll.id, val);
+                                if (error) { console.error('updateWorkshopLessonTimeOverride error:', error); return; }
+                                lessonOverrides.set(itemKey, val);
+                                renderLessonsContent();
+                            }));
+                        } else {
+                            top.appendChild(timeBadge(mins));
+                        }
+                    }
+
+                    item.appendChild(top);
+
+                    if (lesson && lesson.category) {
+                        const cat = document.createElement('div');
+                        cat.style.cssText = 'font-size:11px;color:#777;margin-top:3px;';
+                        cat.textContent = String(lesson.category);
+                        item.appendChild(cat);
+                    }
+                    return item;
+                };
+
+                const renderGroupCard = (g, groupedWll) => {
+                    const groupWrap = document.createElement('div');
+                    groupWrap.style.cssText = 'margin-bottom:14px;border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;';
+                    const groupHeader = document.createElement('div');
+                    groupHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
+                    const groupTitle = document.createElement('span');
+                    groupTitle.style.cssText = 'font-size:13px;font-weight:700;color:#333;flex:1;';
+                    groupTitle.textContent = String(g.grouping_description || '');
+                    groupHeader.appendChild(groupTitle);
+                    const gb = priorityBadge(g.priority);
+                    if (gb) groupHeader.appendChild(gb);
+
+                    const itemKey = String(g.id);
+                    const mins = timeMap.get(itemKey) ?? 0;
+                    if (isCreator) {
+                        groupHeader.appendChild(makeTimeInput(mins, async (val) => {
+                            const { error } = await updateWorkshopGroupingTimeOverride(supabase, g.id, val);
+                            if (error) { console.error('updateWorkshopGroupingTimeOverride error:', error); return; }
+                            groupingOverrides.set(itemKey, val);
+                            renderLessonsContent();
+                        }));
+                    } else {
+                        groupHeader.appendChild(timeBadge(mins));
+                    }
+
+                    groupWrap.appendChild(groupHeader);
+                    groupedWll.forEach((wll) => groupWrap.appendChild(renderLessonItem(wll.lessons_learned_id)));
+                    return groupWrap;
+                };
+
+                const PRIORITY_LEVELS = ['high', 'medium', 'low', null];
+                PRIORITY_LEVELS.forEach((level) => {
+                    groupings
+                        .filter((g) => (g.priority || null) === level)
+                        .forEach((g) => {
+                            const groupedWll = wlRows.filter((r) => String(r.grouping_id) === String(g.id));
+                            if (groupedWll.length === 0) return;
+                            lessonsSection.appendChild(renderGroupCard(g, groupedWll));
+                        });
+                    wlRows
+                        .filter((r) => !r.grouping_id && (r.priority || null) === level)
+                        .forEach((wll) => lessonsSection.appendChild(renderLessonItem(wll.lessons_learned_id)));
+                });
+            };
+
+            renderLessonsContent();
+            containerEl.appendChild(lessonsSection);
+
+            if (workshopMode) {
+                destroyActiveWorkshopTimer();
+                activeWorkshopTimer = createWorkshopTimer({
+                    agendaItems: buildAgendaItems(),
+                    availableMinutes,
+                });
+            }
+
+        } catch (err) {
+            console.error('mountWorkshopPreviewContent error:', err);
+            containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load workshop preview.'}</p>`;
+        }
+    }
+
+    async function openHomeWorkshopLivePreview(workshopId) {
+        const liveMount = document.getElementById('workshopLivePreviewMount');
+        const banner = document.getElementById('todayWorkshopBanner');
+        if (!liveMount) return;
+
+        liveMount.hidden = false;
+        liveMount.innerHTML = '<p class="subtitle" style="margin:0;">Loading…</p>';
+        if (banner) banner.hidden = true;
+
+        const { data: workshop, error } = await fetchWorkshopById(supabase, workshopId);
+        if (error || !workshop) {
+            liveMount.innerHTML = '<p class="upload-message upload-message--error">Could not load workshop.</p>';
+            return;
+        }
+
+        liveMount.innerHTML = '';
+
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.className = 'secondary-button';
+        backBtn.style.cssText = 'font-size:13px;margin-bottom:16px;';
+        backBtn.innerHTML = '<i class="fa-solid fa-arrow-left"></i> Go Back';
+        backBtn.addEventListener('click', () => {
+            destroyActiveWorkshopTimer();
+            liveMount.hidden = true;
+            liveMount.innerHTML = '';
+            if (banner) banner.hidden = false;
+            renderTodayWorkshopBanner();
+        });
+        liveMount.appendChild(backBtn);
+
+        const heading = document.createElement('p');
+        heading.style.cssText = 'font-weight:700;font-size:16px;color:#222;margin:0 0 12px;';
+        heading.textContent = workshop.workshop_title || '(Untitled Workshop)';
+        liveMount.appendChild(heading);
+
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'workshop-preview-container';
+        liveMount.appendChild(previewContainer);
+
+        await mountWorkshopPreviewContent(previewContainer, workshop, { workshopMode: true });
+    }
+
     async function enterMyProjectsWorkshopView() {
         if (myProjectsProjectAnalysisViewActive) {
             exitMyProjectsProjectAnalysisView();
@@ -7209,10 +7820,15 @@ const projectFormHTML = `
 
         let workshopsData = [];
         let refreshList;
+        let facilitatedWorkshopIds = new Set();
         let currentLessonsWorkshopId = null;
         let currentAttendeesWorkshopId = null;
         let currentGroupLessonsWorkshopId = null;
         let currentPreviewWorkshopId = null;
+        let currentPreviewWorkshopMode = false;
+
+        const canStartWorkshop = (w) =>
+            facilitatedWorkshopIds.has(String(w.id)) && w.date === getTodayDateString();
 
         const panelProps = (extra = {}) => ({
             mountEl,
@@ -7232,12 +7848,21 @@ const projectFormHTML = `
             onMountGroupLessons: handleMountGroupLessons,
             onPreview: handlePreview,
             onCancelPreview: handleCancelPreview,
-            onMountPreview: handleMountPreview,
+            onMountPreview: mountWorkshopPreviewContent,
+            canStartWorkshop,
+            onStartWorkshop: handleStartWorkshop,
             ...extra,
         });
 
         const renderPanel = (lessonsWorkshopId = null, attendeesWorkshopId = null, groupLessonsWorkshopId = null, previewWorkshopId = null) => {
-            mountManageWorkshopsPanel(panelProps({ workshops: workshopsData, lessonsWorkshopId, attendeesWorkshopId, groupLessonsWorkshopId, previewWorkshopId }));
+            mountManageWorkshopsPanel(panelProps({
+                workshops: workshopsData,
+                lessonsWorkshopId,
+                attendeesWorkshopId,
+                groupLessonsWorkshopId,
+                previewWorkshopId,
+                previewWorkshopMode: currentPreviewWorkshopMode,
+            }));
         };
 
         const handleEdit = (workshop) => {
@@ -7284,12 +7909,23 @@ const projectFormHTML = `
         };
 
         const handlePreview = (workshop) => {
+            currentPreviewWorkshopMode = false;
             currentPreviewWorkshopId = String(workshop.id);
             renderPanel(null, null, null, currentPreviewWorkshopId);
         };
         const handleCancelPreview = () => {
+            destroyActiveWorkshopTimer();
             currentPreviewWorkshopId = null;
+            currentPreviewWorkshopMode = false;
             renderPanel(null, null, null, null);
+        };
+
+        const handleStartWorkshop = (workshop) => {
+            promptStartWorkshop(() => {
+                currentPreviewWorkshopMode = true;
+                currentPreviewWorkshopId = String(workshop.id);
+                renderPanel(null, null, null, currentPreviewWorkshopId);
+            });
         };
 
         const loadAttendeesForSelect = async (selectEl, workshopId) => {
@@ -7911,463 +8547,6 @@ const projectFormHTML = `
             }
         };
 
-        const handleMountPreview = async (containerEl, workshop) => {
-            containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading preview…</p>';
-
-            const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
-            const prioritySort = (a, b) => {
-                const pa = PRIORITY_ORDER[a] ?? 3;
-                const pb = PRIORITY_ORDER[b] ?? 3;
-                return pa - pb;
-            };
-
-            const section = (titleText) => {
-                const wrap = document.createElement('div');
-                wrap.style.cssText = 'margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;';
-                const h = document.createElement('p');
-                h.style.cssText = 'font-weight: 700; font-size: 14px; color: #333; margin: 0 0 10px;';
-                h.textContent = titleText;
-                wrap.appendChild(h);
-                return wrap;
-            };
-
-            const priorityBadge = (priority) => {
-                if (!priority) return null;
-                const badge = document.createElement('span');
-                badge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;text-transform:capitalize;';
-                if (priority === 'high') {
-                    badge.style.background = '#fde8e8';
-                    badge.style.color = '#c0392b';
-                    badge.textContent = 'High';
-                } else if (priority === 'medium') {
-                    badge.style.background = '#fef3cd';
-                    badge.style.color = '#856404';
-                    badge.textContent = 'Medium';
-                } else if (priority === 'low') {
-                    badge.style.background = '#e8f5e9';
-                    badge.style.color = '#2e7d32';
-                    badge.textContent = 'Low';
-                }
-                return badge;
-            };
-
-            try {
-                containerEl.innerHTML = '';
-
-                // ── Section 1: Agenda ──────────────────────────────────────────
-                const agendaSection = section('Workshop Agenda');
-
-                const renderAgendaSection = async () => {
-                    agendaSection.querySelectorAll('.agenda-content').forEach((el) => el.remove());
-                    const agendaContent = document.createElement('div');
-                    agendaContent.className = 'agenda-content';
-
-                    if (workshop.agenda_storage_path) {
-                        const loadingMsg = document.createElement('p');
-                        loadingMsg.className = 'subtitle';
-                        loadingMsg.style.cssText = 'margin: 0; font-size: 13px;';
-                        loadingMsg.textContent = 'Generating download link…';
-                        agendaContent.appendChild(loadingMsg);
-                        agendaSection.appendChild(agendaContent);
-
-                        const { url, error: dlErr } = await downloadWorkshopAgenda(supabase, workshop.agenda_storage_path);
-                        agendaContent.innerHTML = '';
-                        if (dlErr || !url) {
-                            const errMsg = document.createElement('p');
-                            errMsg.className = 'upload-message upload-message--error';
-                            errMsg.style.cssText = 'margin: 0; font-size: 13px;';
-                            errMsg.textContent = 'Could not generate download link. Try again later.';
-                            agendaContent.appendChild(errMsg);
-                        } else {
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.target = '_blank';
-                            link.rel = 'noopener noreferrer';
-                            link.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#1a73e8;text-decoration:underline;';
-                            link.innerHTML = `<i class="fa-solid fa-file-arrow-down"></i> ${String(workshop.agenda_filename || 'Download Agenda')}`;
-                            agendaContent.appendChild(link);
-                        }
-                    } else {
-                        const noAgendaWrap = document.createElement('div');
-                        noAgendaWrap.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
-
-                        const fileLabel = document.createElement('label');
-                        fileLabel.style.cssText = 'font-size:13px;color:#555;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
-                        const fileInput = document.createElement('input');
-                        fileInput.type = 'file';
-                        fileInput.accept = '.doc,.docx,.pdf,.txt';
-                        fileInput.style.cssText = 'font-size:13px;max-width:220px;';
-                        fileLabel.appendChild(fileInput);
-
-                        const uploadBtn = document.createElement('button');
-                        uploadBtn.type = 'button';
-                        uploadBtn.className = 'primary-button';
-                        uploadBtn.style.cssText = 'font-size:12px;padding:5px 12px;';
-                        uploadBtn.textContent = 'Attach Agenda';
-
-                        const uploadStatus = document.createElement('span');
-                        uploadStatus.style.cssText = 'font-size:12px;color:#555;';
-
-                        uploadBtn.addEventListener('click', async () => {
-                            const file = fileInput.files && fileInput.files[0];
-                            if (!file) {
-                                uploadStatus.textContent = 'Please select a file first.';
-                                return;
-                            }
-                            const MAX_SIZE = 20 * 1024 * 1024;
-                            if (file.size > MAX_SIZE) {
-                                uploadStatus.textContent = 'File exceeds 20 MB limit.';
-                                return;
-                            }
-                            uploadBtn.disabled = true;
-                            uploadStatus.textContent = 'Uploading…';
-                            const { storagePath, filename, contentType, error: uploadError } =
-                                await uploadWorkshopAgenda(supabase, workshop.id, file);
-                            if (uploadError) {
-                                uploadStatus.textContent = uploadError.message || 'Upload failed.';
-                                uploadBtn.disabled = false;
-                                return;
-                            }
-                            const { error: updateError } = await updateWorkshop(supabase, workshop.id, {
-                                agenda_storage_path: storagePath,
-                                agenda_filename: filename,
-                                agenda_content_type: contentType,
-                            });
-                            if (updateError) {
-                                uploadStatus.textContent = updateError.message || 'Failed to save agenda.';
-                                uploadBtn.disabled = false;
-                                return;
-                            }
-                            workshop.agenda_storage_path = storagePath;
-                            workshop.agenda_filename = filename;
-                            workshop.agenda_content_type = contentType;
-                            await renderAgendaSection();
-                        });
-
-                        noAgendaWrap.appendChild(fileInput);
-                        noAgendaWrap.appendChild(uploadBtn);
-                        noAgendaWrap.appendChild(uploadStatus);
-                        agendaContent.appendChild(noAgendaWrap);
-                    }
-
-                    agendaSection.appendChild(agendaContent);
-                };
-
-                await renderAgendaSection();
-                containerEl.appendChild(agendaSection);
-
-                // ── Section 2: Workshop Details ────────────────────────────────
-                const detailsSection = section('Workshop Details');
-
-                const detailRow = (label, value) => {
-                    if (!value) return null;
-                    const row = document.createElement('div');
-                    row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;font-size:13px;';
-                    const lbl = document.createElement('span');
-                    lbl.style.cssText = 'font-weight:600;color:#444;min-width:90px;flex-shrink:0;';
-                    lbl.textContent = label;
-                    const val = document.createElement('span');
-                    val.style.color = '#555';
-                    val.textContent = String(value);
-                    row.appendChild(lbl);
-                    row.appendChild(val);
-                    return row;
-                };
-
-                const dateRow = detailRow('Date:', workshop.date || null);
-                if (dateRow) detailsSection.appendChild(dateRow);
-
-                if (workshop.start_time) {
-                    const startFmt = formatWorkshopTime(workshop.start_time);
-                    const endFmt = workshop.end_time ? ` – ${formatWorkshopTime(workshop.end_time)}` : '';
-                    const timeRow = detailRow('Time:', `${startFmt}${endFmt}`);
-                    if (timeRow) detailsSection.appendChild(timeRow);
-                }
-
-                const descRow = detailRow('Description:', workshop.workshop_description || null);
-                if (descRow) detailsSection.appendChild(descRow);
-
-                containerEl.appendChild(detailsSection);
-
-                // ── Section 3: Confirmed Attendees ─────────────────────────────
-                const attendeesSection = section('Confirmed Attendees');
-                const { data: allAttendees } = await fetchWorkshopAttendees(supabase, workshop.id);
-                const confirmed = (allAttendees || []).filter(
-                    (a) => a.confirmation === true && a.notification_status === 'confirmation_sent'
-                );
-
-                if (confirmed.length === 0) {
-                    const none = document.createElement('p');
-                    none.className = 'subtitle';
-                    none.style.cssText = 'margin:0;font-size:13px;';
-                    none.textContent = 'No confirmed attendees yet.';
-                    attendeesSection.appendChild(none);
-                } else {
-                    const attList = document.createElement('ul');
-                    attList.style.cssText = 'list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;';
-                    confirmed.forEach((a) => {
-                        const li = document.createElement('li');
-                        li.style.cssText = 'font-size:13px;color:#444;display:flex;align-items:center;gap:6px;';
-                        li.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#2e7d32;font-size:11px;"></i>`;
-                        const nameSpan = document.createElement('span');
-                        nameSpan.textContent = a.name || a.email || `User ${a.user_id}`;
-                        if (a.email && a.name) {
-                            nameSpan.title = a.email;
-                        }
-                        li.appendChild(nameSpan);
-                        if (a.facilitator) {
-                            const fBadge = document.createElement('span');
-                            fBadge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e8f0fe;color:#1a73e8;';
-                            fBadge.textContent = 'Facilitator';
-                            li.appendChild(fBadge);
-                        }
-                        attList.appendChild(li);
-                    });
-                    attendeesSection.appendChild(attList);
-                }
-                containerEl.appendChild(attendeesSection);
-
-                // ── Section 4: Lessons Learned by Priority with Time Allocation ──
-                const isCreator = ctUser && String(workshop.created_by) === String(ctUser.id);
-                const totalMinutes = computeWorkshopDurationMinutes(workshop.start_time, workshop.end_time);
-                const availableMinutes = Math.max(0, totalMinutes - 10);
-
-                const lessonsSection = section('Lessons Learned');
-
-                const [wlResult, groupingsResult] = await Promise.all([
-                    fetchWorkshopLessons(supabase, workshop.id),
-                    fetchWorkshopGroupings(supabase, workshop.id),
-                ]);
-                const wlRows = wlResult.data || [];
-                const groupings = groupingsResult.data || [];
-
-                if (wlRows.length === 0) {
-                    const none = document.createElement('p');
-                    none.className = 'subtitle';
-                    none.style.cssText = 'margin:0;font-size:13px;';
-                    none.textContent = 'No lessons learned have been assigned to this workshop.';
-                    lessonsSection.appendChild(none);
-                    containerEl.appendChild(lessonsSection);
-                    return;
-                }
-
-                const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
-                const { data: lessons } = await supabase
-                    .from('lessons_learned')
-                    .select('id, title, category, review')
-                    .in('id', lessonIds);
-
-                const lessonMap = {};
-                (lessons || []).forEach((l) => { lessonMap[String(l.id)] = l; });
-
-                // wll row keyed by lessons_learned_id for quick lookup
-                const wllByLessonId = {};
-                wlRows.forEach((r) => { wllByLessonId[String(r.lessons_learned_id)] = r; });
-
-                // Build current state of overrides from fetched rows (mutated on save)
-                const groupingOverrides = new Map(groupings.map((g) => [String(g.id), g.time_override_minutes ?? null]));
-                const lessonOverrides = new Map(wlRows.map((r) => [String(r.id), r.time_override_minutes ?? null]));
-
-                const buildAgendaItems = () => {
-                    const items = [];
-                    // One item per grouping (that has lessons)
-                    groupings.forEach((g) => {
-                        const hasLessons = wlRows.some((r) => String(r.grouping_id) === String(g.id));
-                        if (!hasLessons) return;
-                        items.push({ id: String(g.id), type: 'group', priority: g.priority || null, timeOverride: groupingOverrides.get(String(g.id)) });
-                    });
-                    // One item per ungrouped lesson
-                    wlRows.filter((r) => !r.grouping_id).forEach((r) => {
-                        items.push({ id: String(r.id), type: 'lesson', priority: r.priority || null, timeOverride: lessonOverrides.get(String(r.id)) });
-                    });
-                    return items;
-                };
-
-                const timeBadge = (minutes) => {
-                    const badge = document.createElement('span');
-                    badge.style.cssText = 'display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8f0fe;color:#1a73e8;white-space:nowrap;';
-                    badge.textContent = `~${minutes} min`;
-                    return badge;
-                };
-
-                const makeTimeInput = (initialValue, onSave) => {
-                    const wrap = document.createElement('div');
-                    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
-                    const input = document.createElement('input');
-                    input.type = 'number';
-                    input.min = '1';
-                    input.value = String(initialValue);
-                    input.style.cssText = 'width:54px;font-size:12px;padding:2px 4px;border:1px solid #c5cae9;border-radius:4px;text-align:center;';
-                    const lbl = document.createElement('span');
-                    lbl.style.cssText = 'font-size:11px;color:#555;';
-                    lbl.textContent = 'min';
-
-                    const save = async () => {
-                        const val = parseInt(input.value, 10);
-                        if (!Number.isFinite(val) || val < 1) { input.value = String(initialValue); return; }
-                        input.disabled = true;
-                        await onSave(val);
-                        input.disabled = false;
-                    };
-                    input.addEventListener('blur', save);
-                    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
-                    wrap.appendChild(input);
-                    wrap.appendChild(lbl);
-                    return wrap;
-                };
-
-                // Re-renderable lessons content
-                const renderLessonsContent = () => {
-                    // Clear everything inside lessonsSection except the heading (first child)
-                    while (lessonsSection.children.length > 1) lessonsSection.removeChild(lessonsSection.lastChild);
-
-                    const agendaItems = buildAgendaItems();
-                    const timeMap = computeWorkshopTimeAllocations(agendaItems, availableMinutes);
-
-                    // Reset button — creator only, visible when any override exists
-                    const hasOverrides = isCreator && (
-                        [...groupingOverrides.values()].some((v) => v != null) ||
-                        [...lessonOverrides.values()].some((v) => v != null)
-                    );
-                    if (hasOverrides) {
-                        const resetRow = document.createElement('div');
-                        resetRow.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px;';
-                        const resetBtn = document.createElement('button');
-                        resetBtn.type = 'button';
-                        resetBtn.className = 'secondary-button';
-                        resetBtn.style.cssText = 'font-size:12px;padding:4px 12px;';
-                        resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
-                        resetBtn.addEventListener('click', async () => {
-                            resetBtn.disabled = true;
-                            resetBtn.textContent = 'Resetting…';
-                            const { error } = await clearWorkshopTimeOverrides(supabase, workshop.id);
-                            if (error) {
-                                console.error('clearWorkshopTimeOverrides error:', error);
-                                resetBtn.disabled = false;
-                                resetBtn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Reset to defaults';
-                                return;
-                            }
-                            groupingOverrides.forEach((_, key) => groupingOverrides.set(key, null));
-                            lessonOverrides.forEach((_, key) => lessonOverrides.set(key, null));
-                            renderLessonsContent();
-                        });
-                        resetRow.appendChild(resetBtn);
-                        lessonsSection.appendChild(resetRow);
-                    }
-
-                    // Warning if any non-overridden item gets < 5 min
-                    const hasShortItems = agendaItems.some((item) => {
-                        if (item.timeOverride != null) return false;
-                        return (timeMap.get(item.id) ?? 0) < 5;
-                    });
-                    if (hasShortItems) {
-                        const warn = document.createElement('div');
-                        warn.style.cssText = 'margin-bottom:12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:13px;color:#795548;';
-                        warn.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f9a825;margin-right:6px;"></i>Some items have less than 5 minutes allocated. Consider increasing the workshop duration or moving some lessons to a separate workshop.';
-                        lessonsSection.appendChild(warn);
-                    }
-
-                    // wll-id → timeMap key for ungrouped lessons
-                    const wllIdToItemId = new Map(wlRows.filter((r) => !r.grouping_id).map((r) => [String(r.lessons_learned_id), String(r.id)]));
-
-                    const renderLessonItem = (lessonId) => {
-                        const lesson = lessonMap[String(lessonId)];
-                        const wll = wllByLessonId[String(lessonId)];
-                        const item = document.createElement('div');
-                        item.style.cssText = 'padding:8px 10px;background:#f9f9f9;border-radius:6px;margin-bottom:6px;';
-
-                        const top = document.createElement('div');
-                        top.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
-
-                        const titleSpan = document.createElement('span');
-                        titleSpan.style.cssText = 'font-size:13px;font-weight:600;color:#333;flex:1;min-width:0;';
-                        titleSpan.textContent = lesson ? String(lesson.title || '') : `Lesson #${lessonId}`;
-                        top.appendChild(titleSpan);
-
-                        const lb = priorityBadge(wll ? wll.priority : null);
-                        if (lb) top.appendChild(lb);
-
-                        // Time allocation — only for ungrouped lessons
-                        if (wll && !wll.grouping_id) {
-                            const itemKey = String(wll.id);
-                            const mins = timeMap.get(itemKey) ?? 0;
-                            if (isCreator) {
-                                top.appendChild(makeTimeInput(mins, async (val) => {
-                                    const { error } = await updateWorkshopLessonTimeOverride(supabase, wll.id, val);
-                                    if (error) { console.error('updateWorkshopLessonTimeOverride error:', error); return; }
-                                    lessonOverrides.set(itemKey, val);
-                                    renderLessonsContent();
-                                }));
-                            } else {
-                                top.appendChild(timeBadge(mins));
-                            }
-                        }
-
-                        item.appendChild(top);
-
-                        if (lesson && lesson.category) {
-                            const cat = document.createElement('div');
-                            cat.style.cssText = 'font-size:11px;color:#777;margin-top:3px;';
-                            cat.textContent = String(lesson.category);
-                            item.appendChild(cat);
-                        }
-                        return item;
-                    };
-
-                    const renderGroupCard = (g, groupedWll) => {
-                        const groupWrap = document.createElement('div');
-                        groupWrap.style.cssText = 'margin-bottom:14px;border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;';
-                        const groupHeader = document.createElement('div');
-                        groupHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
-                        const groupTitle = document.createElement('span');
-                        groupTitle.style.cssText = 'font-size:13px;font-weight:700;color:#333;flex:1;';
-                        groupTitle.textContent = String(g.grouping_description || '');
-                        groupHeader.appendChild(groupTitle);
-                        const gb = priorityBadge(g.priority);
-                        if (gb) groupHeader.appendChild(gb);
-
-                        const itemKey = String(g.id);
-                        const mins = timeMap.get(itemKey) ?? 0;
-                        if (isCreator) {
-                            groupHeader.appendChild(makeTimeInput(mins, async (val) => {
-                                const { error } = await updateWorkshopGroupingTimeOverride(supabase, g.id, val);
-                                if (error) { console.error('updateWorkshopGroupingTimeOverride error:', error); return; }
-                                groupingOverrides.set(itemKey, val);
-                                renderLessonsContent();
-                            }));
-                        } else {
-                            groupHeader.appendChild(timeBadge(mins));
-                        }
-
-                        groupWrap.appendChild(groupHeader);
-                        groupedWll.forEach((wll) => groupWrap.appendChild(renderLessonItem(wll.lessons_learned_id)));
-                        return groupWrap;
-                    };
-
-                    const PRIORITY_LEVELS = ['high', 'medium', 'low', null];
-                    PRIORITY_LEVELS.forEach((level) => {
-                        groupings
-                            .filter((g) => (g.priority || null) === level)
-                            .forEach((g) => {
-                                const groupedWll = wlRows.filter((r) => String(r.grouping_id) === String(g.id));
-                                if (groupedWll.length === 0) return;
-                                lessonsSection.appendChild(renderGroupCard(g, groupedWll));
-                            });
-                        wlRows
-                            .filter((r) => !r.grouping_id && (r.priority || null) === level)
-                            .forEach((wll) => lessonsSection.appendChild(renderLessonItem(wll.lessons_learned_id)));
-                    });
-                };
-
-                renderLessonsContent();
-                containerEl.appendChild(lessonsSection);
-
-            } catch (err) {
-                console.error('handleMountPreview error:', err);
-                containerEl.innerHTML = `<p class="upload-message upload-message--error" style="margin-top:16px;">${err && err.message ? String(err.message) : 'Failed to load workshop preview.'}</p>`;
-            }
-        };
-
         const handleMountLessons = async (containerEl, categoryId) => {
             containerEl.innerHTML = '<p class="subtitle" style="margin: 16px 0 0;">Loading lessons…</p>';
 
@@ -8583,6 +8762,17 @@ const projectFormHTML = `
                 mountManageWorkshopsPanel(panelProps({ workshops: [], error }));
                 return;
             }
+            if (ctUser && ctUser.id != null) {
+                facilitatedWorkshopIds = await fetchFacilitatedWorkshopIds(
+                    supabase,
+                    ctUser.id,
+                    workshopsData.map((w) => w.id)
+                );
+            } else {
+                facilitatedWorkshopIds = new Set();
+            }
+            currentPreviewWorkshopId = null;
+            currentPreviewWorkshopMode = false;
             renderPanel(null, null);
         };
 

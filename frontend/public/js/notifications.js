@@ -328,7 +328,7 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
 
     const { data: attendeeRows, error: attendeeErr } = await supabase
         .from('workshop_attendees')
-        .select('id, workshop_id, notification_status, confirmation')
+        .select('id, workshop_id, notification_status, confirmation, facilitator')
         .eq('user_id', Number(userId))
         .or('notification_status.eq.sent,and(notification_status.eq.confirmation_sent,confirmation.eq.true)');
 
@@ -379,6 +379,7 @@ export async function fetchWorkshopInvitesForUser({ supabase, userId }) {
                 workshopId: a.workshop_id,
                 notification_status: a.notification_status,
                 confirmation: a.confirmation,
+                facilitator: a.facilitator === true,
                 workshop_title: w.workshop_title || '',
                 workshop_description: w.workshop_description || null,
                 date: w.date || null,
