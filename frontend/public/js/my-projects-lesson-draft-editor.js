@@ -237,6 +237,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         onLessonReviewSaved,
         forReviewCollaborative: forReviewCollaborativeRaw,
         lessonCreatorId: lessonCreatorIdCtx,
+        canCompleteLesson,
     } = ctx;
 
     const forReviewCollaborative = forReviewCollaborativeRaw === true;
@@ -317,6 +318,49 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                 btnSaveCompleteness.disabled = false;
             }
         });
+
+        if (canCompleteLesson) {
+            const btnComplete = document.createElement('button');
+            btnComplete.type = 'button';
+            btnComplete.className = 'save-lessons-button';
+            btnComplete.textContent = 'Complete';
+            toolbar.appendChild(btnComplete);
+            btnComplete.addEventListener('click', async () => {
+                try {
+                    btnComplete.disabled = true;
+                    btnSaveCompleteness.disabled = true;
+                    const result = await apiWrite(
+                        `/${encodeURIComponent(lessonId)}/complete`,
+                        'PATCH',
+                        { organizationId: orgId, userId },
+                    );
+                    if (result && result.ok === false && result.reason === 'insufficient') {
+                        setToolbarStatus(
+                            'This lesson learned does not have enough detail. Please refer to the guidelines of how a lesson learned should be completed.',
+                            true,
+                        );
+                        btnComplete.disabled = false;
+                        btnSaveCompleteness.disabled = false;
+                        return;
+                    }
+                    lessonRowState.review = 'complete';
+                    if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
+                    const mod = await import('./my-projects-lesson-detail.js');
+                    mountEl.innerHTML = '';
+                    await mod.mountLessonFullPage(
+                        mountEl,
+                        { ...lessonRowState, review: 'complete' },
+                        project,
+                        ctx,
+                    );
+                } catch (err) {
+                    console.error(err);
+                    setToolbarStatus(err.message || 'Could not complete lesson.', true);
+                    btnComplete.disabled = false;
+                    btnSaveCompleteness.disabled = false;
+                }
+            });
+        }
     }
     toolbar.appendChild(toolbarStatus);
 

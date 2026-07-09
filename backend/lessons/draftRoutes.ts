@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AssignmentKind, SubItemKind } from './types';
 import { updateLessonReview } from './updateLessonReview';
 import { updateCompleteness } from './updateCompleteness';
+import { completeLessonReview } from './completeLessonReview';
 import {
   applyMetadata,
   createAttachment,
@@ -59,6 +60,19 @@ export function registerDraftLessonRoutes(app: RouteApp, supabase: SupabaseClien
         organizationId,
       );
       return { ok: true, completenessQuality };
+    }),
+  );
+
+  // Complete a for-review lesson: recompute completeness then mark complete
+  app.patch(`${BASE}/:lessonId/complete`, (req, res) =>
+    run(res, 'complete', async () => {
+      const lessonId = req.params!.lessonId;
+      const organizationId = req.body?.organizationId;
+      const userId = req.body?.userId;
+      if (lessonId == null || organizationId == null) {
+        throw new Error('Missing lesson or organization.');
+      }
+      return completeLessonReview(supabase, { lessonId, organizationId, userId });
     }),
   );
 

@@ -6526,7 +6526,7 @@ const projectFormHTML = `
                                 <option value="for_review" selected>For Review</option>
                                 <option value="under_review">Under Review</option>
                                 <option value="workshop">Workshop</option>
-                                <option value="completed">Completed</option>
+                                <option value="complete">Completed</option>
                             </select>
                         </div>
                     </div>
@@ -9077,6 +9077,12 @@ const projectFormHTML = `
         return t === 'project manager' || t === 'subject matter expert';
     }
 
+    /** Project Manager or Administrator: can mark a for-review lesson as complete. */
+    function myProjectsViewerCanCompleteLesson() {
+        const t = ctUser && ctUser.usertype ? String(ctUser.usertype).trim().toLowerCase() : '';
+        return t === 'project manager' || t === 'administrator';
+    }
+
     /**
      * @param {string|number} projectId
      * @param {string|number|null|undefined} userId
@@ -9186,6 +9192,7 @@ const projectFormHTML = `
             projectId: project && project.project_id,
             userId: ctUser && ctUser.id != null ? ctUser.id : null,
             isLessonModerator: isModeratorFull,
+            canCompleteLesson: myProjectsViewerCanCompleteLesson(),
             assignedMetadataListIds: assignedIdsForDetail,
             projectTypeId:
                 project && project.project_type_id != null ? project.project_type_id : null,

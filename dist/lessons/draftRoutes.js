@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDraftLessonRoutes = registerDraftLessonRoutes;
 const updateLessonReview_1 = require("./updateLessonReview");
 const updateCompleteness_1 = require("./updateCompleteness");
+const completeLessonReview_1 = require("./completeLessonReview");
 const draftEditor_1 = require("./draftEditor");
 // Wraps a handler with uniform error handling, mirroring server.js style.
 function run(res, label, fn) {
@@ -26,6 +27,16 @@ function registerDraftLessonRoutes(app, supabase) {
         }
         const completenessQuality = await (0, updateCompleteness_1.updateCompleteness)(supabase, lessonId, organizationId);
         return { ok: true, completenessQuality };
+    }));
+    // Complete a for-review lesson: recompute completeness then mark complete
+    app.patch(`${BASE}/:lessonId/complete`, (req, res) => run(res, 'complete', async () => {
+        const lessonId = req.params.lessonId;
+        const organizationId = req.body?.organizationId;
+        const userId = req.body?.userId;
+        if (lessonId == null || organizationId == null) {
+            throw new Error('Missing lesson or organization.');
+        }
+        return (0, completeLessonReview_1.completeLessonReview)(supabase, { lessonId, organizationId, userId });
     }));
     // Save Draft / Send for Review status update
     app.patch(`${BASE}/:lessonId/review`, (req, res) => run(res, 'review', () => (0, updateLessonReview_1.updateLessonReview)(supabase, {
