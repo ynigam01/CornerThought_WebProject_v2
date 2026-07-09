@@ -17,14 +17,18 @@ export interface AttachmentInput {
   base64: string;
 }
 
+export interface CauseImpactItemInput {
+  text: string;
+  actions: string[];
+  lessons: string[];
+}
+
 export interface LessonEntryInput {
   title: string;
   // 'success' or 'issue'. Anything not 'success' is treated as 'issue'.
   category: string;
-  causes: string[];
-  impacts: string[];
-  actions: string[];
-  lessons: string[];
+  causes: Array<CauseImpactItemInput | string>;
+  impacts: Array<CauseImpactItemInput | string>;
   notes: string[];
   metadataItems: MetadataItemInput[];
   attachments: AttachmentInput[];

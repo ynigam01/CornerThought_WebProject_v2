@@ -8,13 +8,16 @@ export interface AttachmentInput {
     contentType: string;
     base64: string;
 }
+export interface CauseImpactItemInput {
+    text: string;
+    actions: string[];
+    lessons: string[];
+}
 export interface LessonEntryInput {
     title: string;
     category: string;
-    causes: string[];
-    impacts: string[];
-    actions: string[];
-    lessons: string[];
+    causes: Array<CauseImpactItemInput | string>;
+    impacts: Array<CauseImpactItemInput | string>;
     notes: string[];
     metadataItems: MetadataItemInput[];
     attachments: AttachmentInput[];

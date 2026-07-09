@@ -11,6 +11,83 @@ function bufferToPgBytea(buffer) {
 function normalizeCategory(category) {
     return String(category || '').toLowerCase() === 'success' ? 'success' : 'issue';
 }
+function asTrimmedStrings(values) {
+    if (!Array.isArray(values))
+        return [];
+    return values.map((value) => String(value ?? '').trim()).filter(Boolean);
+}
+// Accept either plain strings or { text, actions, lessons } objects from the client.
+// Also recover if a previous buggy save stringified the whole object into the text field.
+function normalizeCauseImpactItems(items) {
+    if (!Array.isArray(items))
+        return [];
+    return items
+        .map((item) => {
+        if (typeof item === 'string') {
+            const raw = item.trim();
+            if (!raw)
+                return null;
+            if (raw.startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && typeof parsed === 'object' && parsed.text != null) {
+                        return {
+                            text: String(parsed.text || '').trim(),
+                            actions: asTrimmedStrings(parsed.actions),
+                            lessons: asTrimmedStrings(parsed.lessons),
+                        };
+                    }
+                }
+                catch {
+                    // Fall through and treat as plain text.
+                }
+            }
+            return { text: raw, actions: [], lessons: [] };
+        }
+        if (!item || typeof item !== 'object')
+            return null;
+        const text = String(item.text || '').trim();
+        if (!text)
+            return null;
+        return {
+            text,
+            actions: asTrimmedStrings(item.actions),
+            lessons: asTrimmedStrings(item.lessons),
+        };
+    })
+        .filter((item) => item != null && Boolean(item.text));
+}
+async function insertLinkedActionsAndLessons(supabase, args) {
+    const { lessonId, parentId, parentKind, actions, lessons, userId, organizationId, projectId, } = args;
+    const causeId = parentKind === 'cause' ? parentId : null;
+    const impactId = parentKind === 'impact' ? parentId : null;
+    if (actions.length) {
+        const { error } = await supabase.from('action_items').insert(actions.map((actionItem) => ({
+            lessons_learned_id: lessonId,
+            action_item: actionItem,
+            lessons_learned_cause_id: causeId,
+            lessons_learned_impact_id: impactId,
+            created_by: userId,
+            organization_id: organizationId,
+            project_id: projectId,
+        })));
+        if (error)
+            throw new Error(error.message || 'Failed to save action items.');
+    }
+    if (lessons.length) {
+        const { error } = await supabase.from('future_project_considerations').insert(lessons.map((fpc) => ({
+            lessons_learned_id: lessonId,
+            fpc,
+            lessons_learned_cause_id: causeId,
+            lessons_learned_impact_id: impactId,
+            created_by: userId,
+            organization_id: organizationId,
+            project_id: projectId,
+        })));
+        if (error)
+            throw new Error(error.message || 'Failed to save lessons learned items.');
+    }
+}
 function splitMetadataLabel(label) {
     if (label.includes(':')) {
         return {
@@ -59,57 +136,59 @@ async function saveLessons(supabase, req) {
         const lessonId = lessonRows.id;
         savedCount += 1;
         lessonIds.push(lessonId);
-        const causes = Array.isArray(entry.causes) ? entry.causes : [];
-        if (causes.length) {
-            const { error } = await supabase.from('lessons_learned_causes').insert(causes.map((cause) => ({
+        const causes = normalizeCauseImpactItems(entry.causes);
+        for (const cause of causes) {
+            const { data: causeRow, error } = await supabase
+                .from('lessons_learned_causes')
+                .insert({
                 lessons_learned_id: lessonId,
-                cause,
+                cause: cause.text,
                 created_by: userId,
                 organization_id: organizationId,
                 project_id: projectId,
-            })));
-            if (error)
-                throw new Error(error.message || 'Failed to save causes.');
+            })
+                .select('id')
+                .single();
+            if (error || !causeRow?.id) {
+                throw new Error(error?.message || 'Failed to save causes.');
+            }
+            await insertLinkedActionsAndLessons(supabase, {
+                lessonId,
+                parentId: causeRow.id,
+                parentKind: 'cause',
+                actions: cause.actions,
+                lessons: cause.lessons,
+                userId,
+                organizationId,
+                projectId,
+            });
         }
-        const impacts = Array.isArray(entry.impacts) ? entry.impacts : [];
-        if (impacts.length) {
-            const { error } = await supabase.from('lessons_learned_impacts').insert(impacts.map((impact) => ({
+        const impacts = normalizeCauseImpactItems(entry.impacts);
+        for (const impact of impacts) {
+            const { data: impactRow, error } = await supabase
+                .from('lessons_learned_impacts')
+                .insert({
                 lessons_learned_id: lessonId,
-                impact,
+                impact: impact.text,
                 created_by: userId,
                 organization_id: organizationId,
                 project_id: projectId,
-            })));
-            if (error)
-                throw new Error(error.message || 'Failed to save impacts.');
-        }
-        const actions = Array.isArray(entry.actions) ? entry.actions : [];
-        if (actions.length) {
-            const { error } = await supabase.from('action_items').insert(actions.map((action_item) => ({
-                lessons_learned_id: lessonId,
-                action_item,
-                lessons_learned_impact_id: null,
-                lessons_learned_cause_id: null,
-                created_by: userId,
-                organization_id: organizationId,
-                project_id: projectId,
-            })));
-            if (error)
-                throw new Error(error.message || 'Failed to save action items.');
-        }
-        const lessons = Array.isArray(entry.lessons) ? entry.lessons : [];
-        if (lessons.length) {
-            const { error } = await supabase.from('future_project_considerations').insert(lessons.map((fpc) => ({
-                lessons_learned_id: lessonId,
-                fpc,
-                lessons_learned_impact_id: null,
-                lessons_learned_cause_id: null,
-                created_by: userId,
-                organization_id: organizationId,
-                project_id: projectId,
-            })));
-            if (error)
-                throw new Error(error.message || 'Failed to save lessons learned items.');
+            })
+                .select('id')
+                .single();
+            if (error || !impactRow?.id) {
+                throw new Error(error?.message || 'Failed to save impacts.');
+            }
+            await insertLinkedActionsAndLessons(supabase, {
+                lessonId,
+                parentId: impactRow.id,
+                parentKind: 'impact',
+                actions: impact.actions,
+                lessons: impact.lessons,
+                userId,
+                organizationId,
+                projectId,
+            });
         }
         const notes = Array.isArray(entry.notes) ? entry.notes : [];
         if (notes.length) {

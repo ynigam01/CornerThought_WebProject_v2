@@ -3513,16 +3513,6 @@ const projectFormHTML = `
                         <input type="text" id="impacts" placeholder="Enter an impact...">
                         <button type="button" class="add-impact-button">Add</button>
                     </div>
-                    <div class="input-group" id="actionsSection" style="display: none;">
-                        <label for="actions">Actions Taken</label>
-                        <input type="text" id="actions" placeholder="Enter an action...">
-                        <button type="button" class="add-action-button">Add</button>
-                    </div>
-                    <div class="input-group" id="lessonsSection" style="display: none;">
-                        <label for="lessons">Lessons Learned</label>
-                        <input type="text" id="lessons" placeholder="Enter a lesson...">
-                        <button type="button" class="add-lesson-button">Add</button>
-                    </div>
                     <div class="input-group" id="notesSection" style="display: none;">
                         <label for="notes">Notes</label>
                         <input type="text" id="notes" placeholder="Enter a note...">
@@ -4382,8 +4372,6 @@ const projectFormHTML = `
         // Show all sections
         document.getElementById("causesSection").style.display = "block";
         document.getElementById("impactsSection").style.display = "block";
-        document.getElementById("actionsSection").style.display = "block";
-        document.getElementById("lessonsSection").style.display = "block";
         document.getElementById("notesSection").style.display = "block";
         // Keep the form open - don't close it
     }
@@ -4446,18 +4434,6 @@ const projectFormHTML = `
         impactsContainer.dataset.type = "impacts";
         impactsContainer.style.display = "none";
         impactsContainer.innerHTML = '<div class="sub-item-header"><strong>Impacts:</strong></div><ul class="sub-item-list"></ul>';
-        
-        const actionsContainer = document.createElement("div");
-        actionsContainer.className = "sub-item-container";
-        actionsContainer.dataset.type = "actions";
-        actionsContainer.style.display = "none";
-        actionsContainer.innerHTML = '<div class="sub-item-header"><strong>Actions Taken:</strong></div><ul class="sub-item-list"></ul>';
-        
-        const lessonsContainer = document.createElement("div");
-        lessonsContainer.className = "sub-item-container";
-        lessonsContainer.dataset.type = "lessons";
-        lessonsContainer.style.display = "none";
-        lessonsContainer.innerHTML = '<div class="sub-item-header"><strong>Lessons Learned:</strong></div><ul class="sub-item-list"></ul>';
 
         const notesContainer = document.createElement("div");
         notesContainer.className = "sub-item-container";
@@ -4473,8 +4449,6 @@ const projectFormHTML = `
         
         entry.appendChild(causesContainer);
         entry.appendChild(impactsContainer);
-        entry.appendChild(actionsContainer);
-        entry.appendChild(lessonsContainer);
         entry.appendChild(notesContainer);
         entry.appendChild(metadataContainer);
 
@@ -4500,8 +4474,6 @@ const projectFormHTML = `
         // Store references to the lists for this entry
         entry.causesList = causesContainer.querySelector('.sub-item-list');
         entry.impactsList = impactsContainer.querySelector('.sub-item-list');
-        entry.actionsList = actionsContainer.querySelector('.sub-item-list');
-        entry.lessonsList = lessonsContainer.querySelector('.sub-item-list');
         entry.notesList = notesContainer.querySelector('.sub-item-list');
         entry.metadataList = metadataContainer.querySelector('.sub-item-list');
         entry.attachments = [];
@@ -4616,26 +4588,6 @@ const projectFormHTML = `
         }
     };
 
-    // Handle Add Action button click
-    document.querySelector(".add-action-button").onclick = () => {
-        const actionText = document.getElementById("actions").value.trim();
-        if (actionText) {
-            addSubItemEntry('actions', actionText);
-            // Reset the actions field
-            document.getElementById("actions").value = "";
-        }
-    };
-
-    // Handle Add Lesson button click
-    document.querySelector(".add-lesson-button").onclick = () => {
-        const lessonText = document.getElementById("lessons").value.trim();
-        if (lessonText) {
-            addSubItemEntry('lessons', lessonText);
-            // Reset the lessons field
-            document.getElementById("lessons").value = "";
-        }
-    };
-
     // Handle Add Note button click
     document.querySelector(".add-note-button").onclick = () => {
         const noteText = document.getElementById("notes").value.trim();
@@ -4654,12 +4606,21 @@ const projectFormHTML = `
         if (!targetEntry) return;
         const container = targetEntry.querySelector(`.sub-item-container[data-type="${listType}"]`);
         const list = targetEntry[`${listType}List`];
+        if (!container || !list) return;
 
-        // Show the container if it's hidden
         container.style.display = "block";
 
-        // Add the item as a clickable bullet point
+        if (listType === 'causes' || listType === 'impacts') {
+            list.appendChild(buildCauseImpactListItem(listType, text));
+            return;
+        }
+
+        list.appendChild(buildSimpleSubItem(listType, text));
+    }
+
+    function buildSimpleSubItem(listType, text) {
         const item = document.createElement("li");
+        item.className = 'sub-item-simple';
         item.style.display = "flex";
         item.style.alignItems = "center";
         item.style.justifyContent = "space-between";
@@ -4673,22 +4634,20 @@ const projectFormHTML = `
         label.textContent = text;
         label.style.cursor = "pointer";
 
-        // Add hover effect
         item.addEventListener('mouseenter', () => {
             item.style.backgroundColor = "#f0f0f0";
         });
-
         item.addEventListener('mouseleave', () => {
             item.style.backgroundColor = "transparent";
         });
 
-        // Add click event to edit the sub-item
         label.addEventListener('click', () => {
             const capitalizedType = listType.charAt(0).toUpperCase() + listType.slice(1);
             openEditModal(capitalizedType, text, (newText) => {
                 label.textContent = newText;
             });
         });
+
         const removeBtn = document.createElement('button');
         removeBtn.type = 'button';
         removeBtn.textContent = '✕';
@@ -4700,15 +4659,160 @@ const projectFormHTML = `
         removeBtn.style.fontWeight = 'bold';
         removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
+            const parentList = item.parentElement;
             item.remove();
-            if (list && list.children.length === 0) {
-                container.style.display = "none";
+            if (parentList && parentList.children.length === 0) {
+                const parentContainer = parentList.closest('.sub-item-container');
+                if (parentContainer) parentContainer.style.display = "none";
             }
         });
 
         item.appendChild(label);
         item.appendChild(removeBtn);
-        list.appendChild(item);
+        return item;
+    }
+
+    function buildCauseImpactListItem(listType, text) {
+        const item = document.createElement('li');
+        item.className = 'sub-item-row';
+
+        const header = document.createElement('div');
+        header.className = 'sub-item-row-header';
+
+        const label = document.createElement('span');
+        label.className = 'sub-item-label';
+        label.textContent = text;
+        label.title = 'Click to edit';
+
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'sub-item-row-actions';
+
+        const actionBtn = document.createElement('button');
+        actionBtn.type = 'button';
+        actionBtn.className = 'sub-item-link-btn sub-item-link-btn--action';
+        actionBtn.title = 'Add action taken';
+        actionBtn.innerHTML = '<i class="fas fa-tasks" aria-hidden="true"></i>';
+
+        const lessonBtn = document.createElement('button');
+        lessonBtn.type = 'button';
+        lessonBtn.className = 'sub-item-link-btn sub-item-link-btn--lesson';
+        lessonBtn.title = 'Add lesson learned';
+        lessonBtn.innerHTML = '<i class="fas fa-lightbulb" aria-hidden="true"></i>';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'sub-item-remove-btn';
+        removeBtn.textContent = '✕';
+        removeBtn.title = `Remove ${listType === 'causes' ? 'cause' : 'impact'}`;
+
+        const nestedList = document.createElement('ul');
+        nestedList.className = 'sub-item-nested-list';
+
+        label.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const title = listType === 'causes' ? 'Cause' : 'Impact';
+            openEditModal(title, label.textContent, (newText) => {
+                label.textContent = newText;
+            });
+        });
+
+        actionBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEditModal('Action Taken', '', (newText) => {
+                addNestedCauseImpactItem(item, 'action', newText);
+            });
+        });
+
+        lessonBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEditModal('Lesson Learned', '', (newText) => {
+                addNestedCauseImpactItem(item, 'lesson', newText);
+            });
+        });
+
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const parentList = item.parentElement;
+            item.remove();
+            if (parentList && parentList.children.length === 0) {
+                const parentContainer = parentList.closest('.sub-item-container');
+                if (parentContainer) parentContainer.style.display = "none";
+            }
+        });
+
+        actionsWrap.appendChild(actionBtn);
+        actionsWrap.appendChild(lessonBtn);
+        actionsWrap.appendChild(removeBtn);
+        header.appendChild(label);
+        header.appendChild(actionsWrap);
+        item.appendChild(header);
+        item.appendChild(nestedList);
+        return item;
+    }
+
+    function addNestedCauseImpactItem(parentItem, nestedType, text) {
+        if (!parentItem || !text) return;
+        const nestedList = parentItem.querySelector('.sub-item-nested-list');
+        if (!nestedList) return;
+
+        const nestedItem = document.createElement('li');
+        nestedItem.className = `sub-item-nested sub-item-nested--${nestedType}`;
+        nestedItem.dataset.nestedType = nestedType;
+        nestedItem.dataset.nestedText = text;
+
+        const prefix = nestedType === 'action' ? 'Action' : 'Lesson';
+        const label = document.createElement('span');
+        label.className = 'sub-item-nested-label';
+        label.textContent = `${prefix}: ${text}`;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'sub-item-nested-remove-btn';
+        removeBtn.textContent = '✕';
+        removeBtn.title = `Remove ${nestedType === 'action' ? 'action' : 'lesson'}`;
+
+        label.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const modalTitle = nestedType === 'action' ? 'Action Taken' : 'Lesson Learned';
+            openEditModal(modalTitle, nestedItem.dataset.nestedText || '', (newText) => {
+                nestedItem.dataset.nestedText = newText;
+                label.textContent = `${prefix}: ${newText}`;
+            });
+        });
+
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            nestedItem.remove();
+        });
+
+        nestedItem.appendChild(label);
+        nestedItem.appendChild(removeBtn);
+        nestedList.appendChild(nestedItem);
+    }
+
+    function getNestedCauseImpactItems(parentItem, nestedType) {
+        if (!parentItem) return [];
+        return Array.from(parentItem.querySelectorAll(`.sub-item-nested--${nestedType}`))
+            .map((nestedItem) => String(nestedItem.dataset.nestedText || '').trim())
+            .filter(Boolean);
+    }
+
+    function serializeCauseImpactItems(entry, type) {
+        if (!entry) return [];
+        const list = entry.querySelector(`.sub-item-container[data-type="${type}"] .sub-item-list`);
+        if (!list) return [];
+        return Array.from(list.querySelectorAll(':scope > li.sub-item-row'))
+            .map((row) => {
+                const label = row.querySelector('.sub-item-label');
+                const text = label ? label.textContent.trim() : '';
+                if (!text) return null;
+                return {
+                    text,
+                    actions: getNestedCauseImpactItems(row, 'action'),
+                    lessons: getNestedCauseImpactItems(row, 'lesson'),
+                };
+            })
+            .filter(Boolean);
     }
 
     function renderMetadataList(entry) {
@@ -4910,7 +5014,7 @@ const projectFormHTML = `
         if (!entry) return [];
         const list = entry.querySelector(`.sub-item-container[data-type="${type}"] .sub-item-list`);
         if (!list) return [];
-        return Array.from(list.querySelectorAll('li'))
+        return Array.from(list.querySelectorAll(':scope > li.sub-item-simple'))
             .map(li => {
                 const label = li.querySelector('span');
                 return (label ? label.textContent : li.textContent).trim();
@@ -5005,10 +5109,8 @@ const projectFormHTML = `
                 serializedEntries.push({
                     title,
                     category,
-                    causes: getEntrySubItems(entry, 'causes'),
-                    impacts: getEntrySubItems(entry, 'impacts'),
-                    actions: getEntrySubItems(entry, 'actions'),
-                    lessons: getEntrySubItems(entry, 'lessons'),
+                    causes: serializeCauseImpactItems(entry, 'causes'),
+                    impacts: serializeCauseImpactItems(entry, 'impacts'),
                     notes: getEntrySubItems(entry, 'notes'),
                     metadataItems,
                     attachments,
@@ -5107,14 +5209,10 @@ const projectFormHTML = `
         // Hide all sections
         document.getElementById("causesSection").style.display = "none";
         document.getElementById("impactsSection").style.display = "none";
-        document.getElementById("actionsSection").style.display = "none";
-        document.getElementById("lessonsSection").style.display = "none";
         document.getElementById("notesSection").style.display = "none";
         // Reset all fields
         document.getElementById("causes").value = "";
         document.getElementById("impacts").value = "";
-        document.getElementById("actions").value = "";
-        document.getElementById("lessons").value = "";
         document.getElementById("notes").value = "";
     }
 
@@ -5544,8 +5642,6 @@ const projectFormHTML = `
         inputField.disabled = false;
         document.getElementById("causesSection").style.display = "block";
         document.getElementById("impactsSection").style.display = "block";
-        document.getElementById("actionsSection").style.display = "block";
-        document.getElementById("lessonsSection").style.display = "block";
         document.getElementById("notesSection").style.display = "block";
         location.hash = 'adddata';
         setTimeout(() => {
@@ -5622,10 +5718,13 @@ const projectFormHTML = `
 
     // Function to open edit modal
     function openEditModal(title, currentText, callback) {
-        editModalTitle.textContent = `Edit ${title}`;
+        editModalTitle.textContent = currentText ? `Edit ${title}` : `Add ${title}`;
         editTextarea.value = currentText;
         editModal.classList.add("show");
         currentEditCallback = callback;
+        if (saveEdit) {
+            saveEdit.textContent = currentText ? 'Change' : 'Add';
+        }
         
         // Focus on textarea and select all text
         setTimeout(() => {
@@ -5639,6 +5738,7 @@ const projectFormHTML = `
         editModal.classList.remove("show");
         currentEditCallback = null;
         editTextarea.value = "";
+        if (saveEdit) saveEdit.textContent = 'Change';
     }
 
     // Event listeners for edit modal
