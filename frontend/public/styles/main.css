@@ -2897,6 +2897,62 @@ body {
     width: 100%;
 }
 
+.analyze-parse-modal .modal-content {
+    max-width: 720px;
+    width: 90%;
+    padding: 24px 28px 20px;
+    box-sizing: border-box;
+}
+
+.analyze-parse-modal .subtitle {
+    margin-bottom: 12px;
+}
+
+.analyze-parse-modal .input-group textarea {
+    width: 100%;
+    min-height: 280px;
+    resize: vertical;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+.analyze-parse-modal .input-group textarea:focus {
+    outline: none;
+    border-color: #e85d04;
+    box-shadow: 0 0 0 2px rgba(232, 93, 4, 0.15);
+}
+
+.analyze-parse-modal .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.analyze-parse-modal .modal-actions button {
+    margin-left: 0;
+    padding: 8px 15px;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.analyze-parse-modal .modal-actions #cancelAnalyzeParse {
+    background-color: #ffffff;
+    color: #333;
+    border: 1px solid #ccc;
+}
+
+.analyze-parse-modal .modal-actions #cancelAnalyzeParse:hover {
+    background-color: #f5f5f5;
+}
+
 /* Create New Workshop modal — inset content from card edges */
 .create-workshop-modal .modal-content,
 .edit-workshop-modal .modal-content {

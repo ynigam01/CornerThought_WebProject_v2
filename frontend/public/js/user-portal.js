@@ -182,6 +182,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let addDataProjectNameEl = null;
     let addDataEditingEntry = null;
     let addMetadataButton = null;
+    let analyzeParseButton = null;
+    let analyzeParseModal = null;
+    let analyzeParseTextarea = null;
+    let analyzeParseCancelButton = null;
+    let analyzeParseSubmitButton = null;
     let addDataMetadataModal = null;
     let addDataMetadataSelect = null;
     let addDataMetadataStatus = null;
@@ -3561,6 +3566,23 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const analyzeParseModalHTML = `
+    <div class="modal modal--center analyze-parse-modal" id="analyzeParseModal">
+        <div class="modal-content analyze-parse-modal-content">
+            <span class="close-button" id="closeAnalyzeParse">&times;</span>
+            <h3>Analyze and Parse</h3>
+            <p class="subtitle">Paste or type the text you want analyzed. This can be multiple paragraphs.</p>
+            <div class="input-group">
+                <label for="analyzeParseTextarea">Source text</label>
+                <textarea id="analyzeParseTextarea" rows="14" placeholder="Enter or paste your text here..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="cancelAnalyzeParse">Cancel</button>
+                <button type="button" id="submitAnalyzeParse" class="analyze-parse-button">Analyze and Parse</button>
+            </div>
+        </div>
+    </div>`;
+
     const addUserModalHTML = `
     <div class="modal" id="addUserModal">
         <div class="modal-content" style="width: 500px; max-width: 90%; padding: 30px;">
@@ -3717,6 +3739,7 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", addDataFormHTML);
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
     document.body.insertAdjacentHTML("beforeend", addDataMetadataModalHTML);
+    document.body.insertAdjacentHTML("beforeend", analyzeParseModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
     document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
     document.body.insertAdjacentHTML("beforeend", editWorkshopModalHTML);
@@ -4058,6 +4081,11 @@ const projectFormHTML = `
     const addDataProjectLabel = document.getElementById("addDataProjectLabel");
     addDataProjectNameEl = document.getElementById("addDataProjectName");
     addMetadataButton = document.getElementById("addMetadataButton");
+    analyzeParseButton = document.getElementById("analyzeParseButton");
+    analyzeParseModal = document.getElementById("analyzeParseModal");
+    analyzeParseTextarea = document.getElementById("analyzeParseTextarea");
+    analyzeParseCancelButton = document.getElementById("cancelAnalyzeParse");
+    analyzeParseSubmitButton = document.getElementById("submitAnalyzeParse");
     saveLessonsButton = document.getElementById("saveLessonsButton");
     saveDraftButton = document.getElementById("saveDraftButton");
     addDataMetadataSelect = document.getElementById("addDataMetadataSelect");
@@ -4073,6 +4101,10 @@ const projectFormHTML = `
     document.getElementById("closeAddDataMetadata").onclick = () => {
         if (addDataMetadataModal) addDataMetadataModal.classList.remove("show");
     };
+    const closeAnalyzeParseBtn = document.getElementById("closeAnalyzeParse");
+    if (closeAnalyzeParseBtn) {
+        closeAnalyzeParseBtn.onclick = () => closeAnalyzeParseModal();
+    }
     document.getElementById("closeAddDataProject").onclick = () => {
         if (addDataProjectModal) addDataProjectModal.classList.remove("show");
     };
@@ -4085,6 +4117,9 @@ const projectFormHTML = `
         addDataMetadataCancelButton.onclick = () => {
             if (addDataMetadataModal) addDataMetadataModal.classList.remove("show");
         };
+    }
+    if (analyzeParseCancelButton) {
+        analyzeParseCancelButton.addEventListener('click', () => closeAnalyzeParseModal());
     }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
@@ -4223,6 +4258,9 @@ const projectFormHTML = `
     }
     if (addDataMetadataModal && e.target === addDataMetadataModal) {
         addDataMetadataModal.classList.remove("show");
+    }
+    if (analyzeParseModal && e.target === analyzeParseModal) {
+        closeAnalyzeParseModal();
     }
     if (e.target === addUserModal) addUserModal.classList.remove("show");
     if (editOrgUserModal && e.target === editOrgUserModal) {
@@ -5271,6 +5309,31 @@ const projectFormHTML = `
         });
     }
 
+    function closeAnalyzeParseModal() {
+        if (!analyzeParseModal) return;
+        analyzeParseModal.classList.remove('show');
+        if (analyzeParseTextarea) analyzeParseTextarea.value = '';
+    }
+
+    function openAnalyzeParseModal() {
+        if (hasUnsavedData()) {
+            alert('Unsaved data is being developed in the Add Data area. Please save or delete it before using Analyze and Parse.');
+            return;
+        }
+        if (!analyzeParseModal) return;
+        if (analyzeParseTextarea) analyzeParseTextarea.value = '';
+        analyzeParseModal.classList.add('show');
+        if (analyzeParseTextarea) {
+            setTimeout(() => analyzeParseTextarea.focus(), 100);
+        }
+    }
+
+    if (analyzeParseButton) {
+        analyzeParseButton.addEventListener('click', () => {
+            openAnalyzeParseModal();
+        });
+    }
+
     if (saveLessonsButton) {
         saveLessonsButton.addEventListener('click', () => {
             saveLessonsLearned({ review: 'for review' });
@@ -5765,6 +5828,10 @@ const projectFormHTML = `
         if (e.key !== 'Escape') return;
         if (editModal.classList.contains('show')) {
             closeEditModalFunc();
+            return;
+        }
+        if (analyzeParseModal && analyzeParseModal.classList.contains('show')) {
+            closeAnalyzeParseModal();
             return;
         }
         const cwm = document.getElementById('createWorkshopModal');
