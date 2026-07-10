@@ -14,6 +14,7 @@ export interface CauseImpactItemInput {
     lessons: string[];
 }
 export interface LessonEntryInput {
+    highLevelTitle?: string;
     title: string;
     category: string;
     causes: Array<CauseImpactItemInput | string>;

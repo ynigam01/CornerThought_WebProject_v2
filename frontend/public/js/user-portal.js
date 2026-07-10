@@ -3504,7 +3504,11 @@ const projectFormHTML = `
             <div id="addDataProjectLabel" class="subtitle" style="margin-bottom: 10px;"></div>
             <form id="addDataForm">
                 <div class="input-group">
-                    <label for="issueSuccess">Issue/Success</label>
+                    <label for="entryTitle">Title</label>
+                    <input type="text" id="entryTitle" required>
+                </div>
+                <div class="input-group">
+                    <label for="issueSuccess">Description</label>
                     <input type="text" id="issueSuccess" required>
                 </div>
                     <div class="button-group">
@@ -4423,20 +4427,25 @@ const projectFormHTML = `
     };
 
     function handleIssueSuccessSubmit(type) {
-        const text = document.getElementById("issueSuccess").value.trim();
-        if (!text) return;
+        const titleText = (document.getElementById("entryTitle")?.value || '').trim();
+        const descriptionText = (document.getElementById("issueSuccess")?.value || '').trim();
+        if (!titleText || !descriptionText) return;
 
         if (addDataEditingEntry) {
-            updateIssueSuccessEntry(addDataEditingEntry, type, text);
+            updateIssueSuccessEntry(addDataEditingEntry, type, titleText, descriptionText);
         } else {
-            addIssueSuccessEntry(type, text);
+            addIssueSuccessEntry(type, titleText, descriptionText);
         }
 
-        // Grey out the field and disable it
-        const inputField = document.getElementById("issueSuccess");
-        inputField.style.backgroundColor = "#f5f5f5";
-        inputField.style.color = "#999";
-        inputField.disabled = true;
+        // Grey out the fields and disable them
+        const titleField = document.getElementById("entryTitle");
+        const descriptionField = document.getElementById("issueSuccess");
+        [titleField, descriptionField].forEach((inputField) => {
+            if (!inputField) return;
+            inputField.style.backgroundColor = "#f5f5f5";
+            inputField.style.color = "#999";
+            inputField.disabled = true;
+        });
         // Show all sections
         document.getElementById("causesSection").style.display = "block";
         document.getElementById("impactsSection").style.display = "block";
@@ -4454,8 +4463,16 @@ const projectFormHTML = `
         handleIssueSuccessSubmit("Success");
     };
 
+    function renderEntryMainText(entryTextEl, type, titleText, descriptionText) {
+        if (!entryTextEl) return;
+        entryTextEl.innerHTML = `
+            <div class="entry-title-line"><strong>${type}:</strong> ${titleText}</div>
+            <div class="entry-description-line">${descriptionText}</div>
+        `;
+    }
+
     // Function to add Issue/Success entry to display area
-    function addIssueSuccessEntry(type, text) {
+    function addIssueSuccessEntry(type, titleText, descriptionText) {
         const displayArea = getActiveDisplayArea();
         const entryRow = document.createElement("div");
         entryRow.className = "issue-success-row";
@@ -4463,7 +4480,8 @@ const projectFormHTML = `
         const entry = document.createElement("div");
         entry.className = "issue-success-entry";
         entry.dataset.type = type;
-        entry.dataset.text = text;
+        entry.dataset.highLevelTitle = titleText;
+        entry.dataset.text = descriptionText;
         if (addDataSelectedProject && addDataSelectedProject.id != null) {
             entry.dataset.projectId = addDataSelectedProject.id;
             entry.dataset.projectName = addDataSelectedProject.name || '';
@@ -4476,9 +4494,7 @@ const projectFormHTML = `
         const mainContent = document.createElement("div");
         mainContent.className = "entry-main-content";
         mainContent.innerHTML = `
-            <div class="entry-text">
-                <strong>${type}:</strong> ${text}
-            </div>
+            <div class="entry-text"></div>
             <div class="entry-actions">
                 <button class="edit-entry-button" title="Edit ${type}">
                     <i class="fas fa-edit"></i>
@@ -4488,6 +4504,8 @@ const projectFormHTML = `
                 </button>
             </div>
         `;
+        const entryTextEl = mainContent.querySelector('.entry-text');
+        renderEntryMainText(entryTextEl, type, titleText, descriptionText);
         entry.appendChild(mainContent);
         
         // Add containers for all sub-items
@@ -4622,13 +4640,12 @@ const projectFormHTML = `
         });
     }
 
-    function updateIssueSuccessEntry(entry, type, text) {
+    function updateIssueSuccessEntry(entry, type, titleText, descriptionText) {
         entry.dataset.type = type;
-        entry.dataset.text = text;
+        entry.dataset.highLevelTitle = titleText;
+        entry.dataset.text = descriptionText;
         const textElement = entry.querySelector('.entry-text');
-        if (textElement) {
-            textElement.innerHTML = `<strong>${type}:</strong> ${text}`;
-        }
+        renderEntryMainText(textElement, type, titleText, descriptionText);
         const editButton = entry.querySelector('.edit-entry-button');
         if (editButton) {
             editButton.setAttribute('title', `Edit ${type}`);
@@ -5148,6 +5165,9 @@ const projectFormHTML = `
             // Serialize the DOM entries into a plain JSON payload for the backend.
             const serializedEntries = [];
             for (const entry of entries) {
+                const highLevelTitle = (entry.dataset && entry.dataset.highLevelTitle)
+                    ? entry.dataset.highLevelTitle
+                    : '';
                 const title = (entry.dataset && entry.dataset.text) ? entry.dataset.text : '';
                 const typeRaw = entry.dataset && entry.dataset.type ? entry.dataset.type : '';
                 const category = String(typeRaw || '').toLowerCase() === 'success' ? 'success' : 'issue';
@@ -5175,6 +5195,7 @@ const projectFormHTML = `
                 }
 
                 serializedEntries.push({
+                    highLevelTitle,
                     title,
                     category,
                     causes: serializeCauseImpactItems(entry, 'causes'),
@@ -5268,7 +5289,14 @@ const projectFormHTML = `
 
     // Function to reset the Add Data form
     function resetAddDataForm() {
+        const titleField = document.getElementById("entryTitle");
         const inputField = document.getElementById("issueSuccess");
+        if (titleField) {
+            titleField.value = "";
+            titleField.disabled = false;
+            titleField.style.backgroundColor = "";
+            titleField.style.color = "";
+        }
         inputField.value = "";
         inputField.disabled = false;
         inputField.style.backgroundColor = "";
@@ -5770,7 +5798,12 @@ const projectFormHTML = `
         }
         resetAddDataForm();
         addDataEditingEntry = entry;
+        const titleField = document.getElementById("entryTitle");
         const inputField = document.getElementById("issueSuccess");
+        if (titleField) {
+            titleField.value = entry.dataset.highLevelTitle || '';
+            titleField.disabled = false;
+        }
         inputField.value = entry.dataset.text || '';
         inputField.disabled = false;
         document.getElementById("causesSection").style.display = "block";

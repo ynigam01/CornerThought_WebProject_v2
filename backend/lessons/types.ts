@@ -24,6 +24,9 @@ export interface CauseImpactItemInput {
 }
 
 export interface LessonEntryInput {
+  // Short title shown as "Issue/Success: [title]" — stored in high_level_title.
+  highLevelTitle?: string;
+  // Longer description — stored in lessons_learned.title.
   title: string;
   // 'success' or 'issue'. Anything not 'success' is treated as 'issue'.
   category: string;

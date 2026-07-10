@@ -3450,6 +3450,18 @@ body {
     margin-right: 15px;
 }
 
+.entry-title-line {
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.entry-description-line {
+    color: #555;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    font-weight: 400;
+}
+
 .entry-actions {
     display: flex;
     gap: 8px;

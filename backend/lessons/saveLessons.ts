@@ -154,12 +154,14 @@ export async function saveLessons(
 
   for (const entry of entries) {
     const title = entry.title || '';
+    const highLevelTitle = entry.highLevelTitle || '';
     const category = normalizeCategory(entry.category);
 
     const { data: lessonRows, error: lessonErr } = await supabase
       .from('lessons_learned')
       .insert({
         title,
+        high_level_title: highLevelTitle || null,
         category,
         review: reviewForDb,
         share: '',
