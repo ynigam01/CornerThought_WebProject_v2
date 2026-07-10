@@ -13,6 +13,7 @@ import {
     fetchWorkshopInvitesForUser,
 } from './notifications.js';
 import { mountProjectAnalysisPortal, clearProjectAnalysisPortal } from './project_analysis_portal.js';
+import { analyzeAndParse } from './analyze-parse.js';
 import {
     mountWorkshopModule,
     clearWorkshopModule,
@@ -187,6 +188,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let analyzeParseTextarea = null;
     let analyzeParseCancelButton = null;
     let analyzeParseSubmitButton = null;
+    let analyzeParseResultModal = null;
+    let analyzeParseResultContent = null;
     let addDataMetadataModal = null;
     let addDataMetadataSelect = null;
     let addDataMetadataStatus = null;
@@ -3583,6 +3586,19 @@ const projectFormHTML = `
         </div>
     </div>`;
 
+    const analyzeParseResultModalHTML = `
+    <div class="modal modal--center analyze-parse-result-modal" id="analyzeParseResultModal">
+        <div class="modal-content analyze-parse-result-modal-content">
+            <span class="close-button" id="closeAnalyzeParseResult">&times;</span>
+            <h3>Analyze and Parse Result</h3>
+            <p class="subtitle">Raw response from Meta Llama.</p>
+            <pre id="analyzeParseResultContent" class="analyze-parse-result-content"></pre>
+            <div class="modal-actions">
+                <button type="button" id="closeAnalyzeParseResultButton">Close</button>
+            </div>
+        </div>
+    </div>`;
+
     const addUserModalHTML = `
     <div class="modal" id="addUserModal">
         <div class="modal-content" style="width: 500px; max-width: 90%; padding: 30px;">
@@ -3740,6 +3756,7 @@ const projectFormHTML = `
     document.body.insertAdjacentHTML("beforeend", addDataProjectModalHTML);
     document.body.insertAdjacentHTML("beforeend", addDataMetadataModalHTML);
     document.body.insertAdjacentHTML("beforeend", analyzeParseModalHTML);
+    document.body.insertAdjacentHTML("beforeend", analyzeParseResultModalHTML);
     document.body.insertAdjacentHTML("beforeend", addUserModalHTML);
     document.body.insertAdjacentHTML("beforeend", createWorkshopModalHTML);
     document.body.insertAdjacentHTML("beforeend", editWorkshopModalHTML);
@@ -4086,6 +4103,8 @@ const projectFormHTML = `
     analyzeParseTextarea = document.getElementById("analyzeParseTextarea");
     analyzeParseCancelButton = document.getElementById("cancelAnalyzeParse");
     analyzeParseSubmitButton = document.getElementById("submitAnalyzeParse");
+    analyzeParseResultModal = document.getElementById("analyzeParseResultModal");
+    analyzeParseResultContent = document.getElementById("analyzeParseResultContent");
     saveLessonsButton = document.getElementById("saveLessonsButton");
     saveDraftButton = document.getElementById("saveDraftButton");
     addDataMetadataSelect = document.getElementById("addDataMetadataSelect");
@@ -4120,6 +4139,14 @@ const projectFormHTML = `
     }
     if (analyzeParseCancelButton) {
         analyzeParseCancelButton.addEventListener('click', () => closeAnalyzeParseModal());
+    }
+    const closeAnalyzeParseResultBtn = document.getElementById('closeAnalyzeParseResult');
+    const closeAnalyzeParseResultButton = document.getElementById('closeAnalyzeParseResultButton');
+    if (closeAnalyzeParseResultBtn) {
+        closeAnalyzeParseResultBtn.addEventListener('click', () => closeAnalyzeParseResultModal());
+    }
+    if (closeAnalyzeParseResultButton) {
+        closeAnalyzeParseResultButton.addEventListener('click', () => closeAnalyzeParseResultModal());
     }
     document.getElementById("closeAddUser").onclick = () => addUserModal.classList.remove("show");
     document.getElementById("cancelAddUser").onclick = () => addUserModal.classList.remove("show");
@@ -4261,6 +4288,9 @@ const projectFormHTML = `
     }
     if (analyzeParseModal && e.target === analyzeParseModal) {
         closeAnalyzeParseModal();
+    }
+    if (analyzeParseResultModal && e.target === analyzeParseResultModal) {
+        closeAnalyzeParseResultModal();
     }
     if (e.target === addUserModal) addUserModal.classList.remove("show");
     if (editOrgUserModal && e.target === editOrgUserModal) {
@@ -5313,6 +5343,24 @@ const projectFormHTML = `
         if (!analyzeParseModal) return;
         analyzeParseModal.classList.remove('show');
         if (analyzeParseTextarea) analyzeParseTextarea.value = '';
+        if (analyzeParseSubmitButton) {
+            analyzeParseSubmitButton.disabled = false;
+            analyzeParseSubmitButton.textContent = 'Analyze and Parse';
+        }
+    }
+
+    function closeAnalyzeParseResultModal() {
+        if (!analyzeParseResultModal) return;
+        analyzeParseResultModal.classList.remove('show');
+        if (analyzeParseResultContent) analyzeParseResultContent.textContent = '';
+    }
+
+    function openAnalyzeParseResultModal(content) {
+        if (!analyzeParseResultModal) return;
+        if (analyzeParseResultContent) {
+            analyzeParseResultContent.textContent = content || '';
+        }
+        analyzeParseResultModal.classList.add('show');
     }
 
     function openAnalyzeParseModal() {
@@ -5322,6 +5370,10 @@ const projectFormHTML = `
         }
         if (!analyzeParseModal) return;
         if (analyzeParseTextarea) analyzeParseTextarea.value = '';
+        if (analyzeParseSubmitButton) {
+            analyzeParseSubmitButton.disabled = false;
+            analyzeParseSubmitButton.textContent = 'Analyze and Parse';
+        }
         analyzeParseModal.classList.add('show');
         if (analyzeParseTextarea) {
             setTimeout(() => analyzeParseTextarea.focus(), 100);
@@ -5331,6 +5383,24 @@ const projectFormHTML = `
     if (analyzeParseButton) {
         analyzeParseButton.addEventListener('click', () => {
             openAnalyzeParseModal();
+        });
+    }
+
+    if (analyzeParseSubmitButton) {
+        analyzeParseSubmitButton.addEventListener('click', async () => {
+            const reportText = analyzeParseTextarea ? analyzeParseTextarea.value : '';
+            analyzeParseSubmitButton.disabled = true;
+            analyzeParseSubmitButton.textContent = 'Analyzing...';
+            try {
+                const content = await analyzeAndParse(reportText);
+                closeAnalyzeParseModal();
+                openAnalyzeParseResultModal(content);
+            } catch (err) {
+                console.error('Analyze and Parse failed:', err);
+                alert(err.message || 'Analyze and Parse failed.');
+                analyzeParseSubmitButton.disabled = false;
+                analyzeParseSubmitButton.textContent = 'Analyze and Parse';
+            }
         });
     }
 
@@ -5832,6 +5902,10 @@ const projectFormHTML = `
         }
         if (analyzeParseModal && analyzeParseModal.classList.contains('show')) {
             closeAnalyzeParseModal();
+            return;
+        }
+        if (analyzeParseResultModal && analyzeParseResultModal.classList.contains('show')) {
+            closeAnalyzeParseResultModal();
             return;
         }
         const cwm = document.getElementById('createWorkshopModal');

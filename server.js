@@ -343,6 +343,44 @@ app.post('/api/openrouter/test', async (req, res) => {
   }
 });
 
+// POST /api/openrouter/chat - send system + user messages to Llama via OpenRouter
+app.post('/api/openrouter/chat', async (req, res) => {
+  if (!getOpenRouterApiKey()) {
+    return res.status(400).json({
+      error: 'OPENROUTER_API_KEY is not set. Add it to .env.backfill and restart the server.',
+    });
+  }
+
+  const messages = req.body && Array.isArray(req.body.messages) ? req.body.messages : null;
+  if (!messages || messages.length === 0) {
+    return res.status(400).json({ error: 'messages must be a non-empty array.' });
+  }
+
+  try {
+    const data = await chatCompletion({ messages });
+    const content =
+      data &&
+      data.choices &&
+      data.choices[0] &&
+      data.choices[0].message
+        ? data.choices[0].message.content
+        : null;
+    return res.json({
+      ok: true,
+      model: OPENROUTER_MODEL,
+      content,
+    });
+  } catch (err) {
+    if (err && err.code === 'MISSING_API_KEY') {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('OpenRouter chat failed:', err);
+    return res.status(502).json({
+      error: err?.message || 'OpenRouter request failed.',
+    });
+  }
+});
+
 // Draft lesson editor write endpoints (/api/draft-lessons/...)
 registerDraftLessonRoutes(app, supabase);
 

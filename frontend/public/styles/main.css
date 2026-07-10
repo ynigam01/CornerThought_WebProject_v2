@@ -2953,6 +2953,55 @@ body {
     background-color: #f5f5f5;
 }
 
+.analyze-parse-result-modal .modal-content {
+    max-width: 720px;
+    width: 90%;
+    padding: 24px 28px 20px;
+    box-sizing: border-box;
+}
+
+.analyze-parse-result-modal .subtitle {
+    margin-bottom: 12px;
+}
+
+.analyze-parse-result-content {
+    margin: 0;
+    max-height: 50vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #f7f7f7;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    padding: 12px 14px;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: #222;
+}
+
+.analyze-parse-result-modal .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.analyze-parse-result-modal .modal-actions button {
+    margin-left: 0;
+    padding: 8px 15px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    background-color: #ffffff;
+    color: #333;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.analyze-parse-result-modal .modal-actions button:hover {
+    background-color: #f5f5f5;
+}
+
 /* Create New Workshop modal — inset content from card edges */
 .create-workshop-modal .modal-content,
 .edit-workshop-modal .modal-content {
