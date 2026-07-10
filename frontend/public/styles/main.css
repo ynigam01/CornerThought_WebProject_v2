@@ -2802,6 +2802,20 @@ body {
     background-color: #2980b9;
 }
 
+.analyze-parse-button {
+    background-color: #e85d04;
+    color: #ffffff;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.analyze-parse-button:hover {
+    background-color: #c44d03;
+}
+
 .save-lessons-button {
     background-color: #2d9cdb;
     color: #ffffff;

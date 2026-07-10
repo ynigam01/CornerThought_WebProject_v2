@@ -13,6 +13,11 @@ const {
 } = require('./same-metadata-tracker');
 const { saveLessons } = require('./dist/lessons/saveLessons');
 const { registerDraftLessonRoutes } = require('./dist/lessons/draftRoutes');
+const {
+  OPENROUTER_MODEL,
+  chatCompletion,
+  getApiKey: getOpenRouterApiKey,
+} = require('./backend/openrouter/client');
 
 // Load env vars (reuse .env.backfill for now)
 dotenv.config({ path: '.env.backfill' });
@@ -20,6 +25,8 @@ dotenv.config({ path: '.env.backfill' });
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const HF_API_TOKEN = process.env.HF_API_TOKEN;
+// Optional until Analyze/Parse is wired; required only by /api/openrouter/test.
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !HF_API_TOKEN) {
   console.error('Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or HF_API_TOKEN for server.js');
@@ -300,6 +307,41 @@ app.post('/api/lessons/draft', (req, res) => handleSaveLessons(req, res, 'draft'
 
 // POST /api/lessons/submit - save Add Data entries and mark them for review
 app.post('/api/lessons/submit', (req, res) => handleSaveLessons(req, res, 'for review'));
+
+// POST /api/openrouter/test - verify OpenRouter + Llama 3.3 70B connectivity
+app.post('/api/openrouter/test', async (req, res) => {
+  if (!getOpenRouterApiKey()) {
+    return res.status(400).json({
+      error: 'OPENROUTER_API_KEY is not set. Add it to .env.backfill and restart the server.',
+    });
+  }
+
+  try {
+    const data = await chatCompletion({
+      messages: [{ role: 'user', content: 'Reply with the word: ok' }],
+    });
+    const content =
+      data &&
+      data.choices &&
+      data.choices[0] &&
+      data.choices[0].message
+        ? data.choices[0].message.content
+        : null;
+    return res.json({
+      ok: true,
+      model: OPENROUTER_MODEL,
+      content,
+    });
+  } catch (err) {
+    if (err && err.code === 'MISSING_API_KEY') {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('OpenRouter test failed:', err);
+    return res.status(502).json({
+      error: err?.message || 'OpenRouter request failed.',
+    });
+  }
+});
 
 // Draft lesson editor write endpoints (/api/draft-lessons/...)
 registerDraftLessonRoutes(app, supabase);
