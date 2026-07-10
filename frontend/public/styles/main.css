@@ -3949,6 +3949,26 @@ body {
     transform: translateY(-1px);
 }
 
+.edit-modal .edit-action-completed-button {
+    background-color: #28a745;
+    color: white;
+}
+
+.edit-modal .edit-action-completed-button:hover {
+    background-color: #218838;
+    transform: translateY(-1px);
+}
+
+.edit-modal .edit-action-recommended-button {
+    background-color: #007bff;
+    color: white;
+}
+
+.edit-modal .edit-action-recommended-button:hover {
+    background-color: #0069d9;
+    transform: translateY(-1px);
+}
+
 .edit-modal .cancel-edit-button {
     background-color: #6c757d;
     color: white;

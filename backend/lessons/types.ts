@@ -17,9 +17,15 @@ export interface AttachmentInput {
   base64: string;
 }
 
+export interface ActionItemInput {
+  text: string;
+  // Stored in action_items.status
+  status: 'completed' | 'recommended';
+}
+
 export interface CauseImpactItemInput {
   text: string;
-  actions: string[];
+  actions: ActionItemInput[];
   lessons: string[];
 }
 

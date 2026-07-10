@@ -4803,9 +4803,11 @@ const projectFormHTML = `
 
         actionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openEditModal('Action Taken', '', (newText) => {
-                addNestedCauseImpactItem(item, 'action', newText);
-            });
+            openEditModal('Action', '', (result) => {
+                const text = typeof result === 'string' ? result : result?.text;
+                const status = typeof result === 'string' ? 'completed' : (result?.status || 'completed');
+                addNestedCauseImpactItem(item, 'action', text, status);
+            }, { mode: 'action', status: 'completed' });
         });
 
         lessonBtn.addEventListener('click', (e) => {
@@ -4835,7 +4837,13 @@ const projectFormHTML = `
         return item;
     }
 
-    function addNestedCauseImpactItem(parentItem, nestedType, text) {
+    function actionDisplayPrefix(status) {
+        return String(status || '').toLowerCase() === 'recommended'
+            ? 'Recommended Action'
+            : 'Completed Action';
+    }
+
+    function addNestedCauseImpactItem(parentItem, nestedType, text, status = 'completed') {
         if (!parentItem || !text) return;
         const nestedList = parentItem.querySelector('.sub-item-nested-list');
         if (!nestedList) return;
@@ -4844,8 +4852,13 @@ const projectFormHTML = `
         nestedItem.className = `sub-item-nested sub-item-nested--${nestedType}`;
         nestedItem.dataset.nestedType = nestedType;
         nestedItem.dataset.nestedText = text;
+        if (nestedType === 'action') {
+            nestedItem.dataset.actionStatus = status === 'recommended' ? 'recommended' : 'completed';
+        }
 
-        const prefix = nestedType === 'action' ? 'Action' : 'Lesson';
+        const prefix = nestedType === 'action'
+            ? actionDisplayPrefix(nestedItem.dataset.actionStatus)
+            : 'Lesson';
         const label = document.createElement('span');
         label.className = 'sub-item-nested-label';
         label.textContent = `${prefix}: ${text}`;
@@ -4858,10 +4871,25 @@ const projectFormHTML = `
 
         label.addEventListener('click', (e) => {
             e.stopPropagation();
-            const modalTitle = nestedType === 'action' ? 'Action Taken' : 'Lesson Learned';
-            openEditModal(modalTitle, nestedItem.dataset.nestedText || '', (newText) => {
+            if (nestedType === 'action') {
+                openEditModal('Action', nestedItem.dataset.nestedText || '', (result) => {
+                    const newText = typeof result === 'string' ? result : result?.text;
+                    const newStatus = typeof result === 'string'
+                        ? (nestedItem.dataset.actionStatus || 'completed')
+                        : (result?.status || 'completed');
+                    if (!newText) return;
+                    nestedItem.dataset.nestedText = newText;
+                    nestedItem.dataset.actionStatus = newStatus === 'recommended' ? 'recommended' : 'completed';
+                    label.textContent = `${actionDisplayPrefix(nestedItem.dataset.actionStatus)}: ${newText}`;
+                }, {
+                    mode: 'action',
+                    status: nestedItem.dataset.actionStatus || 'completed',
+                });
+                return;
+            }
+            openEditModal('Lesson Learned', nestedItem.dataset.nestedText || '', (newText) => {
                 nestedItem.dataset.nestedText = newText;
-                label.textContent = `${prefix}: ${newText}`;
+                label.textContent = `Lesson: ${newText}`;
             });
         });
 
@@ -4878,7 +4906,19 @@ const projectFormHTML = `
     function getNestedCauseImpactItems(parentItem, nestedType) {
         if (!parentItem) return [];
         return Array.from(parentItem.querySelectorAll(`.sub-item-nested--${nestedType}`))
-            .map((nestedItem) => String(nestedItem.dataset.nestedText || '').trim())
+            .map((nestedItem) => {
+                const text = String(nestedItem.dataset.nestedText || '').trim();
+                if (!text) return null;
+                if (nestedType === 'action') {
+                    return {
+                        text,
+                        status: nestedItem.dataset.actionStatus === 'recommended'
+                            ? 'recommended'
+                            : 'completed',
+                    };
+                }
+                return text;
+            })
             .filter(Boolean);
     }
 
@@ -5879,19 +5919,37 @@ const projectFormHTML = `
     const closeEditModal = document.getElementById("closeEditModal");
     const cancelEdit = document.getElementById("cancelEdit");
     const saveEdit = document.getElementById("saveEdit");
+    const editActionCompleted = document.getElementById("editActionCompleted");
+    const editActionRecommended = document.getElementById("editActionRecommended");
 
     let currentEditCallback = null;
+    let currentEditMode = 'default';
+
+    function setEditModalActionMode(isActionMode) {
+        currentEditMode = isActionMode ? 'action' : 'default';
+        if (saveEdit) saveEdit.hidden = isActionMode;
+        if (editActionCompleted) editActionCompleted.hidden = !isActionMode;
+        if (editActionRecommended) editActionRecommended.hidden = !isActionMode;
+    }
 
     // Function to open edit modal
-    function openEditModal(title, currentText, callback) {
-        editModalTitle.textContent = currentText ? `Edit ${title}` : `Add ${title}`;
+    // callback(text) for normal fields, or callback({ text, status }) for actions
+    function openEditModal(title, currentText, callback, options = {}) {
+        const isActionMode = options.mode === 'action';
+        setEditModalActionMode(isActionMode);
+
+        if (isActionMode) {
+            editModalTitle.textContent = currentText ? 'Edit Action' : 'Add Action';
+        } else {
+            editModalTitle.textContent = currentText ? `Edit ${title}` : `Add ${title}`;
+        }
         editTextarea.value = currentText;
         editModal.classList.add("show");
         currentEditCallback = callback;
-        if (saveEdit) {
+        if (saveEdit && !isActionMode) {
             saveEdit.textContent = currentText ? 'Change' : 'Add';
         }
-        
+
         // Focus on textarea and select all text
         setTimeout(() => {
             editTextarea.focus();
@@ -5903,14 +5961,28 @@ const projectFormHTML = `
     function closeEditModalFunc() {
         editModal.classList.remove("show");
         currentEditCallback = null;
+        currentEditMode = 'default';
         editTextarea.value = "";
-        if (saveEdit) saveEdit.textContent = 'Change';
+        if (saveEdit) {
+            saveEdit.textContent = 'Change';
+            saveEdit.hidden = false;
+        }
+        if (editActionCompleted) editActionCompleted.hidden = true;
+        if (editActionRecommended) editActionRecommended.hidden = true;
+    }
+
+    function submitActionEdit(status) {
+        const newText = editTextarea.value.trim();
+        if (newText && currentEditCallback) {
+            currentEditCallback({ text: newText, status });
+        }
+        closeEditModalFunc();
     }
 
     // Event listeners for edit modal
     closeEditModal.onclick = closeEditModalFunc;
     cancelEdit.onclick = closeEditModalFunc;
-    
+
     saveEdit.onclick = () => {
         const newText = editTextarea.value.trim();
         if (newText && currentEditCallback) {
@@ -5918,6 +5990,13 @@ const projectFormHTML = `
         }
         closeEditModalFunc();
     };
+
+    if (editActionCompleted) {
+        editActionCompleted.onclick = () => submitActionEdit('completed');
+    }
+    if (editActionRecommended) {
+        editActionRecommended.onclick = () => submitActionEdit('recommended');
+    }
 
     // Close modal when clicking outside
     editModal.onclick = (e) => {

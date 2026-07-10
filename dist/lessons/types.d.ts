@@ -8,9 +8,13 @@ export interface AttachmentInput {
     contentType: string;
     base64: string;
 }
+export interface ActionItemInput {
+    text: string;
+    status: 'completed' | 'recommended';
+}
 export interface CauseImpactItemInput {
     text: string;
-    actions: string[];
+    actions: ActionItemInput[];
     lessons: string[];
 }
 export interface LessonEntryInput {

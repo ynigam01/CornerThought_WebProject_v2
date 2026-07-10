@@ -16,6 +16,30 @@ function asTrimmedStrings(values) {
         return [];
     return values.map((value) => String(value ?? '').trim()).filter(Boolean);
 }
+function normalizeActionStatus(status) {
+    return String(status || '').toLowerCase() === 'recommended' ? 'recommended' : 'completed';
+}
+function normalizeActionItems(values) {
+    if (!Array.isArray(values))
+        return [];
+    return values
+        .map((value) => {
+        if (typeof value === 'string') {
+            const text = value.trim();
+            return text ? { text, status: 'completed' } : null;
+        }
+        if (!value || typeof value !== 'object')
+            return null;
+        const text = String(value.text || '').trim();
+        if (!text)
+            return null;
+        return {
+            text,
+            status: normalizeActionStatus(value.status),
+        };
+    })
+        .filter((item) => item != null);
+}
 // Accept either plain strings or { text, actions, lessons } objects from the client.
 // Also recover if a previous buggy save stringified the whole object into the text field.
 function normalizeCauseImpactItems(items) {
@@ -33,7 +57,7 @@ function normalizeCauseImpactItems(items) {
                     if (parsed && typeof parsed === 'object' && parsed.text != null) {
                         return {
                             text: String(parsed.text || '').trim(),
-                            actions: asTrimmedStrings(parsed.actions),
+                            actions: normalizeActionItems(parsed.actions),
                             lessons: asTrimmedStrings(parsed.lessons),
                         };
                     }
@@ -51,7 +75,7 @@ function normalizeCauseImpactItems(items) {
             return null;
         return {
             text,
-            actions: asTrimmedStrings(item.actions),
+            actions: normalizeActionItems(item.actions),
             lessons: asTrimmedStrings(item.lessons),
         };
     })
@@ -64,7 +88,8 @@ async function insertLinkedActionsAndLessons(supabase, args) {
     if (actions.length) {
         const { error } = await supabase.from('action_items').insert(actions.map((actionItem) => ({
             lessons_learned_id: lessonId,
-            action_item: actionItem,
+            action_item: actionItem.text,
+            status: actionItem.status,
             lessons_learned_cause_id: causeId,
             lessons_learned_impact_id: impactId,
             created_by: userId,
