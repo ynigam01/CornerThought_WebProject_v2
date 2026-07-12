@@ -4638,6 +4638,8 @@ const projectFormHTML = `
             e.stopPropagation();
             openAddDataFormForEdit(entry);
         });
+
+        return entry;
     }
 
     function updateIssueSuccessEntry(entry, type, titleText, descriptionText) {
@@ -4688,19 +4690,22 @@ const projectFormHTML = `
         const displayArea = getActiveDisplayArea();
         const entries = displayArea.querySelectorAll('.issue-success-entry');
         const targetEntry = addDataEditingEntry || (entries.length > 0 ? entries[entries.length - 1] : null);
-        if (!targetEntry) return;
+        if (!targetEntry) return null;
         const container = targetEntry.querySelector(`.sub-item-container[data-type="${listType}"]`);
         const list = targetEntry[`${listType}List`];
-        if (!container || !list) return;
+        if (!container || !list) return null;
 
         container.style.display = "block";
 
         if (listType === 'causes' || listType === 'impacts') {
-            list.appendChild(buildCauseImpactListItem(listType, text));
-            return;
+            const item = buildCauseImpactListItem(listType, text);
+            list.appendChild(item);
+            return item;
         }
 
-        list.appendChild(buildSimpleSubItem(listType, text));
+        const item = buildSimpleSubItem(listType, text);
+        list.appendChild(item);
+        return item;
     }
 
     function buildSimpleSubItem(listType, text) {
@@ -5448,6 +5453,69 @@ const projectFormHTML = `
         }
     }
 
+    function applyAnalyzeParseResultToAddData(parsed) {
+        if (!parsed) return;
+
+        const display = getActiveDisplayArea();
+        if (display) display.style.display = 'block';
+
+        const entry = addIssueSuccessEntry(
+            'Issue',
+            parsed.highLevelTitle,
+            parsed.description
+        );
+        if (!entry) {
+            throw new Error('Failed to create Add Data entry from Analyze and Parse result.');
+        }
+        addDataEditingEntry = entry;
+
+        const parentByTempId = new Map();
+
+        (parsed.causes || []).forEach((cause) => {
+            const row = addSubItemEntry('causes', cause.text);
+            if (row && cause.tempId) {
+                row.dataset.tempId = cause.tempId;
+                parentByTempId.set(cause.tempId, row);
+            }
+        });
+
+        (parsed.impacts || []).forEach((impact) => {
+            const row = addSubItemEntry('impacts', impact.text);
+            if (row && impact.tempId) {
+                row.dataset.tempId = impact.tempId;
+                parentByTempId.set(impact.tempId, row);
+            }
+        });
+
+        function nestUnderLinkedParent(item, nestedType, status) {
+            if (!item || !item.text) return;
+            const parent = item.linkedTo ? parentByTempId.get(item.linkedTo) : null;
+            if (!parent) {
+                console.warn(
+                    `Analyze and Parse: skipped ${nestedType} "${item.text}" — unknown linked_to "${item.linkedTo || ''}".`
+                );
+                return;
+            }
+            addNestedCauseImpactItem(parent, nestedType, item.text, status);
+        }
+
+        (parsed.actionsTaken || []).forEach((item) => {
+            nestUnderLinkedParent(item, 'action', 'completed');
+        });
+        (parsed.recommendedActions || []).forEach((item) => {
+            nestUnderLinkedParent(item, 'action', 'recommended');
+        });
+        (parsed.lessons || []).forEach((item) => {
+            nestUnderLinkedParent(item, 'lesson');
+        });
+
+        if (parsed.originalText) {
+            addSubItemEntry('notes', `Original Input: ${parsed.originalText}`);
+        }
+
+        addDataEditingEntry = entry;
+    }
+
     if (analyzeParseButton) {
         analyzeParseButton.addEventListener('click', () => {
             openAnalyzeParseModal();
@@ -5460,9 +5528,9 @@ const projectFormHTML = `
             analyzeParseSubmitButton.disabled = true;
             analyzeParseSubmitButton.textContent = 'Analyzing...';
             try {
-                const content = await analyzeAndParse(reportText);
+                const parsed = await analyzeAndParse(reportText);
                 closeAnalyzeParseModal();
-                openAnalyzeParseResultModal(content);
+                applyAnalyzeParseResultToAddData(parsed);
             } catch (err) {
                 console.error('Analyze and Parse failed:', err);
                 alert(err.message || 'Analyze and Parse failed.');

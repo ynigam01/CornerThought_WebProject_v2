@@ -56,10 +56,100 @@ The output should be in JSON format only (do not include markdown or extra comme
 
 `;
 
+function stripMarkdownFences(raw) {
+  let text = String(raw || '').trim();
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    text = fenced[1].trim();
+  }
+  return text;
+}
+
+function firstTextValue(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = String(item ?? '').trim();
+      if (text) return text;
+    }
+    return '';
+  }
+  return String(value ?? '').trim();
+}
+
+function normalizeLinkedItems(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const text = String(item.text || '').trim();
+      if (!text) return null;
+      return {
+        tempId: String(item.temp_id || '').trim(),
+        text,
+        linkedTo: String(item.linked_to || '').trim(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeCauseImpactItems(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const text = String(item.text || '').trim();
+      if (!text) return null;
+      return {
+        tempId: String(item.temp_id || '').trim(),
+        text,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Parse model content into a normalized Add Data payload.
+ * @param {string} content
+ * @param {string} originalText
+ */
+export function parseAnalyzeParseJson(content, originalText) {
+  const stripped = stripMarkdownFences(content);
+  let parsed;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (_) {
+    throw new Error('Model response was not valid JSON.');
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Model response was not valid JSON.');
+  }
+
+  const highLevelTitle = firstTextValue(parsed['what happened (high level summary)']);
+  const description = firstTextValue(parsed['what happened (detailed)']);
+
+  if (!highLevelTitle || !description) {
+    throw new Error(
+      'Model JSON is missing required fields: what happened (high level summary) and what happened (detailed).'
+    );
+  }
+
+  return {
+    highLevelTitle,
+    description,
+    causes: normalizeCauseImpactItems(parsed.causes),
+    impacts: normalizeCauseImpactItems(parsed.impacts),
+    actionsTaken: normalizeLinkedItems(parsed['actions taken']),
+    recommendedActions: normalizeLinkedItems(parsed['recommended actions']),
+    lessons: normalizeLinkedItems(parsed.lessons),
+    originalText: String(originalText || '').trim(),
+  };
+}
+
 /**
  * Call Meta Llama with the system prompt and the user's report text.
  * @param {string} reportText - Text from the Analyze and Parse popup
- * @returns {Promise<string>} Model reply content
+ * @returns {Promise<object>} Normalized parsed lesson data for Add Data UI
  */
 export async function analyzeAndParse(reportText) {
   const trimmed = String(reportText || '').trim();
@@ -115,5 +205,5 @@ export async function analyzeAndParse(reportText) {
     throw new Error('The model returned an empty response.');
   }
 
-  return String(content);
+  return parseAnalyzeParseJson(content, trimmed);
 }
