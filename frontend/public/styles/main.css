@@ -2001,13 +2001,31 @@ body {
 
 /* --- Draft lesson editor (My Projects full view) --- */
 .org-lesson-draft-editor .lesson-draft-toolbar {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.org-lesson-draft-editor .lesson-draft-toolbar-main {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 10px;
-    margin-bottom: 14px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #e2e8f0;
+    width: 100%;
+}
+
+.org-lesson-draft-editor .lesson-draft-toolbar-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.org-lesson-draft-editor .lesson-draft-find-relevant-btn {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .org-lesson-draft-editor .lesson-draft-toolbar-status {
@@ -2178,6 +2196,26 @@ body {
 
 .modal.lesson-draft-metadata-modal.show.modal--center .lesson-draft-metadata-content {
     width: min(560px, calc(100vw - 32px));
+}
+
+.modal.lesson-llm-text-modal.show.modal--center .lesson-llm-text-modal-content {
+    width: min(720px, calc(100vw - 32px));
+}
+
+.lesson-llm-text-pre {
+    margin: 0;
+    padding: 12px 14px;
+    max-height: min(60vh, 520px);
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #1e293b;
 }
 
 .lesson-draft-dialog .lesson-draft-dialog-header {

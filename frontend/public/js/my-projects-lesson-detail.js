@@ -81,7 +81,7 @@ export async function fetchLessonStructure(supabase, { organizationId, projectId
             supabase
                 .from('action_items')
                 .select(
-                    'id, action_item, lessons_learned_cause_id, lessons_learned_impact_id, created_by'
+                    'id, action_item, status, lessons_learned_cause_id, lessons_learned_impact_id, created_by'
                 )
         ),
         filterLesson(
@@ -125,6 +125,274 @@ export async function fetchLessonStructure(supabase, { organizationId, projectId
         metadata: Array.isArray(metaResp.data) ? metaResp.data : [],
         attachments: Array.isArray(attachResp.data) ? attachResp.data : [],
     };
+}
+
+function sameId(a, b) {
+    if (a == null || b == null) return false;
+    return String(a) === String(b);
+}
+
+function actionPrefixForLlm(status) {
+    return String(status || '')
+        .trim()
+        .toLowerCase() === 'recommended'
+        ? 'Recommended Action'
+        : 'Action Taken';
+}
+
+function appendLinkedItemsForLlm(lines, parentId, actions, fpcs, linkKey) {
+    const linkedActions = (actions || []).filter((a) => a && sameId(a[linkKey], parentId));
+    const linkedFpcs = (fpcs || []).filter((f) => f && sameId(f[linkKey], parentId));
+    linkedActions.forEach((a) => {
+        lines.push(`-\t${actionPrefixForLlm(a.status)}: ${a.action_item || ''}`);
+    });
+    linkedFpcs.forEach((f) => {
+        lines.push(`-\tLesson: ${f.fpc || ''}`);
+    });
+}
+
+/**
+ * Builds plain text for a lesson learned (issue/success + nested structure)
+ * suitable for sending to an LLM.
+ * @param {{ category?: unknown, title?: unknown }} lessonRow
+ * @param {{
+ *   causes?: Array<{ id?: unknown, cause?: unknown }>,
+ *   impacts?: Array<{ id?: unknown, impact?: unknown }>,
+ *   actions?: Array<{
+ *     action_item?: unknown,
+ *     status?: unknown,
+ *     lessons_learned_cause_id?: unknown,
+ *     lessons_learned_impact_id?: unknown,
+ *   }>,
+ *   fpcs?: Array<{
+ *     fpc?: unknown,
+ *     lessons_learned_cause_id?: unknown,
+ *     lessons_learned_impact_id?: unknown,
+ *   }>,
+ *   notes?: Array<{ notes?: unknown }>,
+ *   metadata?: Array<{ metadata_type?: unknown, metadata?: unknown }>,
+ * }} detail
+ * @returns {string}
+ */
+export function formatLessonForLlm(lessonRow, detail) {
+    const lines = [];
+    const categoryRaw = lessonRow && lessonRow.category ? String(lessonRow.category).trim() : '';
+    const categoryLower = categoryRaw.toLowerCase();
+    const categoryLabel =
+        categoryLower === 'success' ? 'Success' : categoryLower === 'issue' ? 'Issue' : 'Lesson';
+    const title =
+        lessonRow && lessonRow.title != null && String(lessonRow.title).trim() !== ''
+            ? String(lessonRow.title).trim()
+            : '(Untitled)';
+    lines.push(`${categoryLabel}: ${title}`);
+
+    const causes = detail && Array.isArray(detail.causes) ? detail.causes : [];
+    const impacts = detail && Array.isArray(detail.impacts) ? detail.impacts : [];
+    const actions = detail && Array.isArray(detail.actions) ? detail.actions : [];
+    const fpcs = detail && Array.isArray(detail.fpcs) ? detail.fpcs : [];
+    const notes = detail && Array.isArray(detail.notes) ? detail.notes : [];
+    const metadata = detail && Array.isArray(detail.metadata) ? detail.metadata : [];
+
+    causes.forEach((cause, i) => {
+        lines.push(`Cause ${i + 1}: ${cause && cause.cause != null ? String(cause.cause) : ''}`);
+        appendLinkedItemsForLlm(lines, cause && cause.id, actions, fpcs, 'lessons_learned_cause_id');
+    });
+
+    impacts.forEach((impact, i) => {
+        lines.push(`Impact ${i + 1}: ${impact && impact.impact != null ? String(impact.impact) : ''}`);
+        appendLinkedItemsForLlm(
+            lines,
+            impact && impact.id,
+            actions,
+            fpcs,
+            'lessons_learned_impact_id'
+        );
+    });
+
+    const unassignedActions = actions.filter(
+        (a) => a && !a.lessons_learned_cause_id && !a.lessons_learned_impact_id
+    );
+    const unassignedFpcs = fpcs.filter(
+        (f) => f && !f.lessons_learned_cause_id && !f.lessons_learned_impact_id
+    );
+    if (unassignedActions.length || unassignedFpcs.length) {
+        lines.push('Unassigned:');
+        unassignedActions.forEach((a) => {
+            lines.push(`-\t${actionPrefixForLlm(a.status)}: ${a.action_item || ''}`);
+        });
+        unassignedFpcs.forEach((f) => {
+            lines.push(`-\tLesson: ${f.fpc || ''}`);
+        });
+    }
+
+    notes.forEach((note, i) => {
+        lines.push(`Note ${i + 1}: ${note && note.notes != null ? String(note.notes) : ''}`);
+    });
+
+    const metaLabels = formatMetadataRows(metadata);
+    if (metaLabels.length) {
+        lines.push(`Metadata: ${metaLabels.join(', ')}`);
+    }
+
+    return lines.join('\n');
+}
+
+/** @type {Record<number, string>} */
+let lastProjectDetailsNumberToIdMap = {};
+
+/**
+ * Temporary number → project_details.id map from the last Find Relevant run.
+ * @returns {Record<number, string>}
+ */
+export function getLastProjectDetailsNumberToIdMap() {
+    return { ...lastProjectDetailsNumberToIdMap };
+}
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ organizationId: string|number|null, projectId: string|number|null }} params
+ * @returns {Promise<Array<{ id?: unknown, parameter_name?: unknown, parameter_entry?: unknown }>>}
+ */
+export async function fetchProjectDetailsForLlm(supabase, { organizationId, projectId }) {
+    const orgId = organizationId;
+    const pid = projectId;
+    if (orgId == null || pid == null) {
+        throw new Error('Missing organization or project.');
+    }
+
+    const { data: rows, error } = await supabase
+        .from('project_details')
+        .select('id, parameter_name, parameter_entry')
+        .eq('organization_id', orgId)
+        .eq('project_id', pid)
+        .order('parameter_name', { ascending: true })
+        .limit(5000);
+
+    if (error) {
+        throw new Error(error.message || 'Failed to load project details.');
+    }
+
+    return (Array.isArray(rows) ? rows : []).filter((row) => {
+        if (!row) return false;
+        const name = row.parameter_name != null ? String(row.parameter_name).trim() : '';
+        const entry = row.parameter_entry != null ? String(row.parameter_entry).trim() : '';
+        return Boolean(name || entry);
+    });
+}
+
+/**
+ * Builds numbered project-details text and a temporary number → id map.
+ * @param {Array<{ id?: unknown, parameter_name?: unknown, parameter_entry?: unknown }>} rows
+ * @returns {{ text: string, numberToIdMap: Record<number, string> }}
+ */
+export function formatProjectDetailsForLlm(rows) {
+    const numberToIdMap = {};
+    const parts = [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    list.forEach((row, index) => {
+        const n = index + 1;
+        const name = row && row.parameter_name != null ? String(row.parameter_name).trim() : '';
+        const entry = row && row.parameter_entry != null ? String(row.parameter_entry).trim() : '';
+        parts.push(`${n}. ${name}: ${entry}`);
+        if (row && row.id != null) {
+            numberToIdMap[n] = String(row.id);
+        }
+    });
+
+    return {
+        text: parts.join(', '),
+        numberToIdMap,
+    };
+}
+
+/**
+ * Shows formatted lesson text in a centered read-only popup.
+ * @param {string} text
+ */
+export function openLessonLlmTextPopup(text) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal show modal--center lesson-draft-dialog lesson-llm-text-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const content = document.createElement('div');
+    content.className = 'modal-content lesson-draft-dialog-content lesson-llm-text-modal-content';
+
+    const head = document.createElement('div');
+    head.className = 'lesson-draft-dialog-header';
+    const h = document.createElement('h3');
+    h.textContent = 'Find Relevant Lessons Learned';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'lesson-draft-dialog-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.innerHTML = '&times;';
+    head.appendChild(h);
+    head.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'lesson-draft-dialog-body';
+    const pre = document.createElement('pre');
+    pre.className = 'lesson-llm-text-pre';
+    pre.textContent = text || '';
+    body.appendChild(pre);
+
+    const actions = document.createElement('div');
+    actions.className = 'lesson-draft-dialog-actions';
+    const closeAction = document.createElement('button');
+    closeAction.type = 'button';
+    closeAction.className = 'secondary-button';
+    closeAction.textContent = 'Close';
+    actions.appendChild(closeAction);
+
+    content.appendChild(head);
+    content.appendChild(body);
+    content.appendChild(actions);
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
+
+    function cleanup() {
+        overlay.remove();
+    }
+
+    closeBtn.addEventListener('click', cleanup);
+    closeAction.addEventListener('click', cleanup);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) cleanup();
+    });
+}
+
+/**
+ * Loads lesson structure + project details and shows the LLM-formatted text popup.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ id?: unknown, category?: unknown, title?: unknown }} lessonRow
+ * @param {{ organizationId: string|number|null, projectId: string|number|null }} ctx
+ */
+export async function showFindRelevantLessonText(supabase, lessonRow, ctx) {
+    const [detail, projectDetailRows] = await Promise.all([
+        fetchLessonStructure(supabase, {
+            organizationId: ctx.organizationId,
+            projectId: ctx.projectId,
+            lessonId: lessonRow && lessonRow.id,
+        }),
+        fetchProjectDetailsForLlm(supabase, {
+            organizationId: ctx.organizationId,
+            projectId: ctx.projectId,
+        }),
+    ]);
+
+    const lessonText = formatLessonForLlm(lessonRow, detail);
+    const { text: projectDetailsText, numberToIdMap } =
+        formatProjectDetailsForLlm(projectDetailRows);
+    lastProjectDetailsNumberToIdMap = { ...numberToIdMap };
+
+    let text = lessonText;
+    if (projectDetailsText) {
+        text = `${lessonText}\n\nProject Details:\n${projectDetailsText}`;
+    }
+
+    openLessonLlmTextPopup(text);
 }
 
 /**
@@ -764,6 +1032,10 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'lesson-draft-toolbar';
+    const toolbarMain = document.createElement('div');
+    toolbarMain.className = 'lesson-draft-toolbar-main';
+    const toolbarLeft = document.createElement('div');
+    toolbarLeft.className = 'lesson-draft-toolbar-left';
     const forReviewLabel = document.createElement('div');
     forReviewLabel.className = 'lesson-for-review-toolbar-label';
     forReviewLabel.textContent = 'For review';
@@ -771,12 +1043,19 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
     btnSaveCompleteness.type = 'button';
     btnSaveCompleteness.className = 'save-lessons-button';
     btnSaveCompleteness.textContent = 'Save';
+    const btnFindRelevant = document.createElement('button');
+    btnFindRelevant.type = 'button';
+    btnFindRelevant.className = 'analyze-parse-button lesson-draft-find-relevant-btn';
+    btnFindRelevant.textContent = 'Find Relevant Lessons Learned';
     const toolbarStatus = document.createElement('div');
     toolbarStatus.className = 'lesson-draft-toolbar-status upload-message';
     toolbarStatus.setAttribute('aria-live', 'polite');
-    toolbar.appendChild(forReviewLabel);
-    toolbar.appendChild(btnSaveCompleteness);
-    toolbar.appendChild(toolbarStatus);
+    toolbarLeft.appendChild(forReviewLabel);
+    toolbarLeft.appendChild(btnSaveCompleteness);
+    toolbarLeft.appendChild(toolbarStatus);
+    toolbarMain.appendChild(toolbarLeft);
+    toolbarMain.appendChild(btnFindRelevant);
+    toolbar.appendChild(toolbarMain);
     card.appendChild(toolbar);
 
     function setToolbarStatus(msg, isError = false) {
@@ -785,6 +1064,21 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
         if (!msg) return;
         toolbarStatus.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
     }
+
+    btnFindRelevant.addEventListener('click', async () => {
+        try {
+            btnFindRelevant.disabled = true;
+            await showFindRelevantLessonText(supabase, row, {
+                organizationId,
+                projectId: pid,
+            });
+        } catch (err) {
+            console.error(err);
+            setToolbarStatus(err.message || 'Could not build lesson text.', true);
+        } finally {
+            btnFindRelevant.disabled = false;
+        }
+    });
 
     card.appendChild(buildLessonPrimaryTitle(row));
 

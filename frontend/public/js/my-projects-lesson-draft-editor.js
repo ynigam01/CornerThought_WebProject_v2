@@ -8,6 +8,7 @@ import {
     buildLessonPrimaryTitle,
     pgByteaToUint8Array,
     fetchUserNamesById,
+    showFindRelevantLessonText,
 } from './my-projects-lesson-detail.js';
 
 // Sends a write to the draft-lesson backend endpoints and returns the parsed JSON.
@@ -290,6 +291,10 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'lesson-draft-toolbar';
+    const toolbarMain = document.createElement('div');
+    toolbarMain.className = 'lesson-draft-toolbar-main';
+    const toolbarLeft = document.createElement('div');
+    toolbarLeft.className = 'lesson-draft-toolbar-left';
     const btnSaveDraft = document.createElement('button');
     btnSaveDraft.type = 'button';
     btnSaveDraft.className = 'save-lessons-button';
@@ -298,22 +303,26 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     btnSendReview.type = 'button';
     btnSendReview.className = 'save-lessons-button';
     btnSendReview.textContent = 'Send for Review';
+    const btnFindRelevant = document.createElement('button');
+    btnFindRelevant.type = 'button';
+    btnFindRelevant.className = 'analyze-parse-button lesson-draft-find-relevant-btn';
+    btnFindRelevant.textContent = 'Find Relevant Lessons Learned';
     const toolbarStatus = document.createElement('div');
     toolbarStatus.className = 'lesson-draft-toolbar-status upload-message';
     toolbarStatus.setAttribute('aria-live', 'polite');
     if (!forReviewCollaborative) {
-        toolbar.appendChild(btnSaveDraft);
-        toolbar.appendChild(btnSendReview);
+        toolbarLeft.appendChild(btnSaveDraft);
+        toolbarLeft.appendChild(btnSendReview);
     } else {
         const forReviewLabel = document.createElement('div');
         forReviewLabel.className = 'lesson-for-review-toolbar-label';
         forReviewLabel.textContent = 'For review';
-        toolbar.appendChild(forReviewLabel);
+        toolbarLeft.appendChild(forReviewLabel);
         const btnSaveCompleteness = document.createElement('button');
         btnSaveCompleteness.type = 'button';
         btnSaveCompleteness.className = 'save-lessons-button';
         btnSaveCompleteness.textContent = 'Save';
-        toolbar.appendChild(btnSaveCompleteness);
+        toolbarLeft.appendChild(btnSaveCompleteness);
         btnSaveCompleteness.addEventListener('click', async () => {
             try {
                 btnSaveCompleteness.disabled = true;
@@ -332,7 +341,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             btnComplete.type = 'button';
             btnComplete.className = 'save-lessons-button';
             btnComplete.textContent = 'Complete';
-            toolbar.appendChild(btnComplete);
+            toolbarLeft.appendChild(btnComplete);
             btnComplete.addEventListener('click', async () => {
                 try {
                     btnComplete.disabled = true;
@@ -370,7 +379,25 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             });
         }
     }
-    toolbar.appendChild(toolbarStatus);
+    toolbarLeft.appendChild(toolbarStatus);
+    toolbarMain.appendChild(toolbarLeft);
+    toolbarMain.appendChild(btnFindRelevant);
+    toolbar.appendChild(toolbarMain);
+
+    btnFindRelevant.addEventListener('click', async () => {
+        try {
+            btnFindRelevant.disabled = true;
+            await showFindRelevantLessonText(supabase, lessonRowState, {
+                organizationId: orgId,
+                projectId: pid,
+            });
+        } catch (err) {
+            console.error(err);
+            setToolbarStatus(err.message || 'Could not build lesson text.', true);
+        } finally {
+            btnFindRelevant.disabled = false;
+        }
+    });
 
     const titleRow = document.createElement('div');
     titleRow.className = 'lesson-draft-title-row';
