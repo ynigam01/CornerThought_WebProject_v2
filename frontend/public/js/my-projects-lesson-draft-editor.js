@@ -273,6 +273,14 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     };
 
     let contributorNameMap = new Map();
+    let hasMetadataTags = false;
+
+    function confirmDraftSaveWithoutMetadataTag() {
+        if (hasMetadataTags) return true;
+        return confirm(
+            'This lesson was not given a tag. It will appear as Unassigned in My Projects until tagged. Save anyway?'
+        );
+    }
 
     mountEl.innerHTML = '';
     const card = document.createElement('article');
@@ -511,6 +519,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                 projectId: pid,
                 lessonId,
             });
+            hasMetadataTags = Array.isArray(detail.metadata) && detail.metadata.length > 0;
             contributorNameMap = await fetchUserNamesById(
                 supabase,
                 collectDetailContributorIds(detail)
@@ -1346,6 +1355,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
 
     if (!forReviewCollaborative) {
         btnSaveDraft.addEventListener('click', async () => {
+            if (!confirmDraftSaveWithoutMetadataTag()) return;
             try {
                 btnSaveDraft.disabled = true;
                 btnSendReview.disabled = true;
@@ -1356,7 +1366,12 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
                     forReviewCollaborative,
                 });
                 lessonRowState.review = 'draft';
-                setToolbarStatus('Draft status saved.', false);
+                setToolbarStatus(
+                    hasMetadataTags
+                        ? 'Draft status saved.'
+                        : 'Draft status saved. Note: this lesson has no tag and will appear as Unassigned.',
+                    false
+                );
                 if (typeof onLessonReviewSaved === 'function') onLessonReviewSaved();
             } catch (err) {
                 console.error(err);
@@ -1368,6 +1383,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
         });
 
         btnSendReview.addEventListener('click', async () => {
+            if (!confirmDraftSaveWithoutMetadataTag()) return;
             try {
                 btnSaveDraft.disabled = true;
                 btnSendReview.disabled = true;

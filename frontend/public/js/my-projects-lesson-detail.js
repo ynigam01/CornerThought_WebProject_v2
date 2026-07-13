@@ -611,8 +611,17 @@ async function assertMyProjectsForReviewLessonAccess(row, project, ctx) {
     if (!isLessonForReviewMyProjects(row)) return;
     const { supabase, organizationId, projectId: ctxPid, userId, isLessonModerator, assignedMetadataListIds } = ctx;
     const pid = project && project.project_id != null ? project.project_id : ctxPid;
+    const isCreator = userId != null && String(row && row.created_by) === String(userId);
+
+    const metaIds = await loadLessonMetadataListIdsForProject(supabase, organizationId, pid, row.id);
+    // Unassigned (no metadata for this org/project): creator only.
+    if (metaIds.length === 0) {
+        if (isCreator) return;
+        throw new Error('You do not have permission to view this lesson.');
+    }
+
     if (isLessonModerator === true) return;
-    if (userId != null && String(row && row.created_by) === String(userId)) return;
+    if (isCreator) return;
 
     let assigned =
         assignedMetadataListIds instanceof Set ? assignedMetadataListIds : null;
@@ -620,7 +629,6 @@ async function assertMyProjectsForReviewLessonAccess(row, project, ctx) {
         assigned = await loadAssignedMetadataListIdsForMyProjects(supabase, organizationId, pid, userId);
     }
 
-    const metaIds = await loadLessonMetadataListIdsForProject(supabase, organizationId, pid, row.id);
     if (metaIds.some((id) => assigned.has(id))) return;
 
     throw new Error('You do not have permission to view this lesson.');
@@ -637,6 +645,19 @@ export async function mountLessonFullPage(mountEl, row, project, ctx) {
     const { supabase, organizationId, projectId, userId } = ctx;
 
     if (isLessonDraftForEditing(row)) {
+        const isCreator =
+            userId != null && String(row && row.created_by) === String(userId);
+        if (!isCreator) {
+            mountEl.innerHTML = '';
+            const card = document.createElement('article');
+            card.className = 'lesson-detail-card org-lesson-full-page-card';
+            const err = document.createElement('div');
+            err.className = 'upload-message upload-message--error';
+            err.textContent = 'You do not have permission to view this lesson.';
+            card.appendChild(err);
+            mountEl.appendChild(card);
+            return;
+        }
         const { mountDraftLessonEditor } = await import('./my-projects-lesson-draft-editor.js');
         return mountDraftLessonEditor(mountEl, row, project, ctx);
     }

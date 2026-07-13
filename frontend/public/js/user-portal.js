@@ -5009,6 +5009,33 @@ const projectFormHTML = `
         }
     }
 
+    function entryHasMetadataTag(entry) {
+        const items = Array.isArray(entry && entry.metadataItems) ? entry.metadataItems : [];
+        return items.some((item) => item && (item.id != null || String(item.label || '').trim()));
+    }
+
+    function confirmSaveWithoutMetadataTags(entries) {
+        const untaggedCount = (Array.isArray(entries) ? entries : []).filter(
+            (entry) => !entryHasMetadataTag(entry)
+        ).length;
+        if (untaggedCount === 0) return true;
+
+        const lessonWord = untaggedCount === 1 ? 'lesson was' : 'lessons were';
+        const pronoun = untaggedCount === 1 ? 'It' : 'They';
+        return confirm(
+            `${untaggedCount} ${lessonWord} not given a tag. ${pronoun} will appear as Unassigned in My Projects until tagged. Save anyway?`
+        );
+    }
+
+    function metadataTagWarningSuffix(entries) {
+        const untaggedCount = (Array.isArray(entries) ? entries : []).filter(
+            (entry) => !entryHasMetadataTag(entry)
+        ).length;
+        if (untaggedCount === 0) return '';
+        const lessonWord = untaggedCount === 1 ? 'lesson was' : 'lessons were';
+        return ` Note: ${untaggedCount} ${lessonWord} saved without a tag and will appear as Unassigned.`;
+    }
+
     function normalizeAttachmentInputFiles(fileLikeList) {
         if (!fileLikeList) return [];
         const fileArray = Array.from(fileLikeList).filter(Boolean);
@@ -5191,6 +5218,10 @@ const projectFormHTML = `
             return;
         }
 
+        if (!confirmSaveWithoutMetadataTags(entries)) {
+            return;
+        }
+
         const projectId = addDataSelectedProject.id;
         const projectTypeId = addDataSelectedProject.project_type_id || null;
         const orgId = ctUser.organizationid;
@@ -5311,6 +5342,7 @@ const projectFormHTML = `
             let statusMsg = isDraftSave
                 ? `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} as draft.`
                 : `Saved ${savedCount} lesson${savedCount === 1 ? '' : 's'} successfully.`;
+            statusMsg += metadataTagWarningSuffix(entries);
             if (!isDraftSave && notificationWarnings.length) {
                 const unique = [...new Set(notificationWarnings)];
                 statusMsg += ` Note: ${unique.join(' ')}`;
@@ -9691,12 +9723,15 @@ const projectFormHTML = `
     }
 
     const MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID = '__my_projects_lesson_no_metadata__';
+    const MY_PROJECTS_UNASSIGNED_LABEL = 'Unassigned';
 
     /**
-     * When Status is For Review and no category is selected, include lessons the user created
-     * (including tags outside their assignments). Highlights creator's cards in yellow.
+     * When Status is Draft or For Review and no category is selected, include lessons the
+     * current user created that have no lessons_learned_metadata rows for this org/project
+     * under an "Unassigned" heading (creator-only). For Review also includes the creator's
+     * lessons tagged outside their assignments, with yellow card highlight.
      */
-    async function mergeMyProjectsCreatorForReviewSupplementGroups({
+    async function mergeMyProjectsCreatorSupplementGroups({
         orderedGroups,
         allCategoryOptions,
         categoryLabelById,
@@ -9716,9 +9751,14 @@ const projectFormHTML = `
                 lessons: Array.isArray(g.lessons) ? g.lessons.slice() : [],
             }));
 
-        if (normalizeMyProjectsReviewValue(selectedStatus) !== 'for review' || myUserId == null) {
+        const statusNorm = normalizeMyProjectsReviewValue(selectedStatus);
+        const isForReview = statusNorm === 'for review';
+        const isDraft = statusNorm === 'draft';
+        if ((!isForReview && !isDraft) || myUserId == null) {
             return { groups: deepCopyGroups(orderedGroups), yellowLessonIds };
         }
+
+        const reviewDbValue = isDraft ? 'draft' : 'for review';
 
         const { data: supRowsRaw, error: supErr } = await supabase
             .from('lessons_learned')
@@ -9726,23 +9766,25 @@ const projectFormHTML = `
             .eq('organization_id', organizationId)
             .eq('project_id', projectId)
             .eq('created_by', myUserId)
-            .eq('review', 'for review')
+            .eq('review', reviewDbValue)
             .order('id', { ascending: false });
 
         if (requestToken !== resultsToken) return { groups: deepCopyGroups(orderedGroups), yellowLessonIds };
         if (supErr) {
-            console.error('Error loading creator For Review lessons (supplement):', supErr);
+            console.error('Error loading creator lessons (My Projects supplement):', supErr);
             return { groups: deepCopyGroups(orderedGroups), yellowLessonIds };
         }
 
         const supRows = Array.isArray(supRowsRaw) ? supRowsRaw : [];
         if (supRows.length === 0) {
             const base = deepCopyGroups(orderedGroups);
-            base.forEach((g) => {
-                (g.lessons || []).forEach((row) => {
-                    if (String(row && row.created_by) === String(myUserId)) yellowLessonIds.add(String(row.id));
+            if (isForReview) {
+                base.forEach((g) => {
+                    (g.lessons || []).forEach((row) => {
+                        if (String(row && row.created_by) === String(myUserId)) yellowLessonIds.add(String(row.id));
+                    });
                 });
-            });
+            }
             return { groups: base, yellowLessonIds };
         }
 
@@ -9762,7 +9804,7 @@ const projectFormHTML = `
 
         if (requestToken !== resultsToken) return { groups: deepCopyGroups(orderedGroups), yellowLessonIds };
         if (linkErr) {
-            console.error('Error loading metadata links for creator For Review supplement:', linkErr);
+            console.error('Error loading metadata links for My Projects creator supplement:', linkErr);
             return { groups: deepCopyGroups(orderedGroups), yellowLessonIds };
         }
 
@@ -9772,7 +9814,7 @@ const projectFormHTML = `
         );
 
         const supLabelById = new Map();
-        if (listIds.length > 0) {
+        if (listIds.length > 0 && isForReview) {
             const { data: listRows, error: listErr } = await supabase
                 .from('lessons_learned_metadata_list')
                 .select('id, metadata, metadata_type')
@@ -9797,50 +9839,50 @@ const projectFormHTML = `
         const supplementalByListId = new Map();
         const seenSupInGroup = new Map();
 
-        supLinks.forEach((link) => {
-            const lid = link && link.lessons_learned_id != null ? String(link.lessons_learned_id) : '';
-            const mid = link && link.lessons_learned_metadata_list_id != null ? String(link.lessons_learned_metadata_list_id) : '';
-            if (!lid || !mid) return;
-            const row = supLessonById.get(lid);
-            if (!row) return;
-            const metaIdsForLesson = supMetaMap.get(lid) || [];
-            if (
-                !myProjectsUserCanViewForReviewLesson(row, {
-                    isLessonModerator: isModerator,
-                    userId: myUserId,
-                    assignedMetadataListIds: assignedSet,
-                    lessonMetadataListIds: metaIdsForLesson,
-                })
-            ) {
-                return;
-            }
-            if (!supplementalByListId.has(mid)) supplementalByListId.set(mid, []);
-            if (!seenSupInGroup.has(mid)) seenSupInGroup.set(mid, new Set());
-            const seen = seenSupInGroup.get(mid);
-            if (seen.has(lid)) return;
-            seen.add(lid);
-            supplementalByListId.get(mid).push(row);
-        });
+        // For Review: also surface creator lessons tagged outside assigned categories.
+        if (isForReview) {
+            supLinks.forEach((link) => {
+                const lid = link && link.lessons_learned_id != null ? String(link.lessons_learned_id) : '';
+                const mid = link && link.lessons_learned_metadata_list_id != null ? String(link.lessons_learned_metadata_list_id) : '';
+                if (!lid || !mid) return;
+                const row = supLessonById.get(lid);
+                if (!row) return;
+                const metaIdsForLesson = supMetaMap.get(lid) || [];
+                if (
+                    !myProjectsUserCanViewForReviewLesson(row, {
+                        isLessonModerator: isModerator,
+                        userId: myUserId,
+                        assignedMetadataListIds: assignedSet,
+                        lessonMetadataListIds: metaIdsForLesson,
+                    })
+                ) {
+                    return;
+                }
+                if (!supplementalByListId.has(mid)) supplementalByListId.set(mid, []);
+                if (!seenSupInGroup.has(mid)) seenSupInGroup.set(mid, new Set());
+                const seen = seenSupInGroup.get(mid);
+                if (seen.has(lid)) return;
+                seen.add(lid);
+                supplementalByListId.get(mid).push(row);
+            });
+        }
 
-        const lessonsWithLink = new Set(supLinks.map((l) => l && l.lessons_learned_id != null ? String(l.lessons_learned_id) : '').filter(Boolean));
+        // Draft + For Review: creator-only lessons with no metadata for this org/project → Unassigned.
+        const lessonsWithLink = new Set(
+            supLinks
+                .map((l) => (l && l.lessons_learned_id != null ? String(l.lessons_learned_id) : ''))
+                .filter(Boolean)
+        );
+        const nid = MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID;
+        if (!supplementalByListId.has(nid)) supplementalByListId.set(nid, []);
+        if (!seenSupInGroup.has(nid)) seenSupInGroup.set(nid, new Set());
+        const seenN = seenSupInGroup.get(nid);
         supLessonIds.forEach((lid) => {
             if (lessonsWithLink.has(lid)) return;
             const row = supLessonById.get(lid);
             if (!row) return;
-            if (
-                !myProjectsUserCanViewForReviewLesson(row, {
-                    isLessonModerator: isModerator,
-                    userId: myUserId,
-                    assignedMetadataListIds: assignedSet,
-                    lessonMetadataListIds: [],
-                })
-            ) {
-                return;
-            }
-            const nid = MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID;
-            if (!supplementalByListId.has(nid)) supplementalByListId.set(nid, []);
-            if (!seenSupInGroup.has(nid)) seenSupInGroup.set(nid, new Set());
-            const seenN = seenSupInGroup.get(nid);
+            // Unassigned is creator-only (query already filters created_by); never expose to others.
+            if (String(row.created_by) !== String(myUserId)) return;
             if (seenN.has(lid)) return;
             seenN.add(lid);
             supplementalByListId.get(nid).push(row);
@@ -9858,8 +9900,8 @@ const projectFormHTML = `
             const aNo = a === MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID;
             const bNo = b === MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID;
             if (aNo !== bNo) return aNo ? 1 : -1;
-            const la = supLabelById.get(a) || categoryLabelById.get(a) || String(a);
-            const lb = supLabelById.get(b) || categoryLabelById.get(b) || String(b);
+            const la = categoryLabelById.get(a) || supLabelById.get(a) || String(a);
+            const lb = categoryLabelById.get(b) || supLabelById.get(b) || String(b);
             return String(la).localeCompare(String(lb));
         });
 
@@ -9867,14 +9909,18 @@ const projectFormHTML = `
             const rows = supplementalByListId.get(listKey) || [];
             const label =
                 listKey === MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID
-                    ? 'No metadata tag'
-                    : categoryLabelById.get(listKey) || supLabelById.get(listKey) || 'Unlabeled Category';
+                    ? MY_PROJECTS_UNASSIGNED_LABEL
+                    : categoryLabelById.get(listKey) ||
+                      supLabelById.get(listKey) ||
+                      'Unlabeled Category';
 
             let target = groupByKey.get(String(listKey));
             if (!target) {
                 target = { id: listKey, label, lessons: [] };
                 merged.push(target);
                 groupByKey.set(String(listKey), target);
+            } else if (listKey === MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID) {
+                target.label = MY_PROJECTS_UNASSIGNED_LABEL;
             }
 
             rows.forEach((row) => {
@@ -9885,11 +9931,13 @@ const projectFormHTML = `
             });
         });
 
-        merged.forEach((g) => {
-            (g.lessons || []).forEach((row) => {
-                if (String(row && row.created_by) === String(myUserId)) yellowLessonIds.add(String(row.id));
+        if (isForReview) {
+            merged.forEach((g) => {
+                (g.lessons || []).forEach((row) => {
+                    if (String(row && row.created_by) === String(myUserId)) yellowLessonIds.add(String(row.id));
+                });
             });
-        });
+        }
 
         const nonEmpty = merged.filter((g) => g.lessons.length > 0);
         const ordered = [];
@@ -9934,7 +9982,16 @@ const projectFormHTML = `
                     .filter((item) => item.id)
                 : [];
 
-            if (allCategoryOptions.length === 0) {
+            const statusSelectEarly = document.getElementById('myProjectsStatusSelect');
+            const selectedStatusEarly = normalizeMyProjectsReviewValue(
+                statusSelectEarly ? statusSelectEarly.value : ''
+            );
+            const myUserIdEarly = ctUser && ctUser.id != null ? ctUser.id : null;
+            const allowCreatorUnassignedSupplement =
+                (selectedStatusEarly === 'for review' || selectedStatusEarly === 'draft') &&
+                myUserIdEarly != null;
+
+            if (allCategoryOptions.length === 0 && !allowCreatorUnassignedSupplement) {
                 setMyProjectsLessonsResultsPanelVisible(false);
                 setMyProjectsLessonsStatus('No categories available yet.');
                 return;
@@ -9948,23 +10005,27 @@ const projectFormHTML = `
                 const categoryIds = allCategoryOptions.map((item) => item.id);
                 const categoryLabelById = new Map(allCategoryOptions.map((item) => [item.id, item.label]));
 
-                const { data: metadataLinks, error: linkErr } = await supabase
-                    .from('lessons_learned_metadata')
-                    .select('lessons_learned_id, lessons_learned_metadata_list_id')
-                    .eq('organization_id', organizationId)
-                    .eq('project_id', projectId)
-                    .in('lessons_learned_metadata_list_id', categoryIds)
-                    .limit(5000);
+                let links = [];
+                if (categoryIds.length > 0) {
+                    const { data: metadataLinks, error: linkErr } = await supabase
+                        .from('lessons_learned_metadata')
+                        .select('lessons_learned_id, lessons_learned_metadata_list_id')
+                        .eq('organization_id', organizationId)
+                        .eq('project_id', projectId)
+                        .in('lessons_learned_metadata_list_id', categoryIds)
+                        .limit(5000);
 
-                if (requestToken !== myProjectsLessonsResultsRequestToken) return;
+                    if (requestToken !== myProjectsLessonsResultsRequestToken) return;
 
-                if (linkErr) {
-                    console.error('Error loading lessons metadata links for My Projects:', linkErr);
-                    setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
-                    return;
+                    if (linkErr) {
+                        console.error('Error loading lessons metadata links for My Projects:', linkErr);
+                        setMyProjectsLessonsStatus('Failed to load lessons learned.', true);
+                        return;
+                    }
+
+                    links = Array.isArray(metadataLinks) ? metadataLinks : [];
                 }
 
-                const links = Array.isArray(metadataLinks) ? metadataLinks : [];
                 const lessonIds = Array.from(
                     new Set(
                         links
@@ -9976,10 +10037,10 @@ const projectFormHTML = `
                 const statusSelect = document.getElementById('myProjectsStatusSelect');
                 const selectedStatus = normalizeMyProjectsReviewValue(statusSelect ? statusSelect.value : '');
                 const myUserId = ctUser && ctUser.id != null ? ctUser.id : null;
-                const allowCreatorForReviewSupplement =
-                    selectedStatus === 'for review' && myUserId != null;
+                const allowCreatorSupplement =
+                    (selectedStatus === 'for review' || selectedStatus === 'draft') && myUserId != null;
 
-                if (lessonIds.length === 0 && !allowCreatorForReviewSupplement) {
+                if (lessonIds.length === 0 && !allowCreatorSupplement) {
                     setMyProjectsLessonsStatus('No issues or successes found for your assigned categories.');
                     return;
                 }
@@ -10066,7 +10127,7 @@ const projectFormHTML = `
                     }))
                     .filter((group) => group.lessons.length > 0);
 
-                const mergeResult = await mergeMyProjectsCreatorForReviewSupplementGroups({
+                const mergeResult = await mergeMyProjectsCreatorSupplementGroups({
                     orderedGroups,
                     allCategoryOptions,
                     categoryLabelById,
