@@ -301,16 +301,19 @@ export function formatProjectDetailsForLlm(rows) {
     });
 
     return {
-        text: parts.join(', '),
+        text: parts.join('\n'),
         numberToIdMap,
     };
 }
 
 /**
  * Shows formatted lesson text in a centered read-only popup.
+ * Includes a Find button that sends the text to Meta Llama and replaces the body.
  * @param {string} text
  */
 export function openLessonLlmTextPopup(text) {
+    const sourceText = String(text || '');
+
     const overlay = document.createElement('div');
     overlay.className = 'modal show modal--center lesson-draft-dialog lesson-llm-text-modal';
     overlay.setAttribute('role', 'dialog');
@@ -335,7 +338,7 @@ export function openLessonLlmTextPopup(text) {
     body.className = 'lesson-draft-dialog-body';
     const pre = document.createElement('pre');
     pre.className = 'lesson-llm-text-pre';
-    pre.textContent = text || '';
+    pre.textContent = sourceText;
     body.appendChild(pre);
 
     const actions = document.createElement('div');
@@ -344,7 +347,12 @@ export function openLessonLlmTextPopup(text) {
     closeAction.type = 'button';
     closeAction.className = 'secondary-button';
     closeAction.textContent = 'Close';
+    const findAction = document.createElement('button');
+    findAction.type = 'button';
+    findAction.className = 'analyze-parse-button';
+    findAction.textContent = 'Find';
     actions.appendChild(closeAction);
+    actions.appendChild(findAction);
 
     content.appendChild(head);
     content.appendChild(body);
@@ -360,6 +368,24 @@ export function openLessonLlmTextPopup(text) {
     closeAction.addEventListener('click', cleanup);
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) cleanup();
+    });
+
+    findAction.addEventListener('click', async () => {
+        try {
+            findAction.disabled = true;
+            closeAction.disabled = true;
+            findAction.textContent = 'Finding...';
+            const { findRelevantLessons } = await import('./find-relevant-lessons.js');
+            const responseText = await findRelevantLessons(sourceText);
+            pre.textContent = responseText;
+        } catch (err) {
+            console.error(err);
+            alert(err.message || 'Find Relevant Lessons Learned failed.');
+        } finally {
+            findAction.disabled = false;
+            closeAction.disabled = false;
+            findAction.textContent = 'Find';
+        }
     });
 }
 
