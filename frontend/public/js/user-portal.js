@@ -12047,6 +12047,40 @@ const projectFormHTML = `
                 const orgManageProjectsSubmodule = document.getElementById('orgManageProjectsSubmodule');
                 const orgProjectsSelect = document.getElementById('orgProjectsSelect');
                 const orgProjectDetailsSelect = document.getElementById('orgProjectDetailsSelect');
+                const orgUpdateProjectEmbeddingsButton = document.getElementById(
+                    'orgUpdateProjectEmbeddingsButton'
+                );
+                const orgProjectEmbeddingsStatus = document.getElementById(
+                    'orgProjectEmbeddingsStatus'
+                );
+
+                function setOrgProjectEmbeddingsStatus(message, kind) {
+                    if (!orgProjectEmbeddingsStatus) return;
+                    orgProjectEmbeddingsStatus.classList.remove(
+                        'upload-message--success',
+                        'upload-message--error'
+                    );
+                    if (!message) {
+                        orgProjectEmbeddingsStatus.style.display = 'none';
+                        orgProjectEmbeddingsStatus.textContent = '';
+                        return;
+                    }
+                    orgProjectEmbeddingsStatus.style.display = '';
+                    orgProjectEmbeddingsStatus.textContent = message;
+                    if (kind === 'error') {
+                        orgProjectEmbeddingsStatus.classList.add('upload-message--error');
+                    } else if (kind === 'success') {
+                        orgProjectEmbeddingsStatus.classList.add('upload-message--success');
+                    }
+                }
+
+                function resetOrgProjectEmbeddingsControls() {
+                    if (orgUpdateProjectEmbeddingsButton) {
+                        orgUpdateProjectEmbeddingsButton.disabled = true;
+                        orgUpdateProjectEmbeddingsButton.textContent = 'Update Project Embeddings';
+                    }
+                    setOrgProjectEmbeddingsStatus('', null);
+                }
 
                 // Create New Asset module within Organization Settings
                 const createNewAssetButton = document.getElementById('createNewAssetButton');
@@ -13604,6 +13638,7 @@ const projectFormHTML = `
                             orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
                             orgProjectDetailsSelect.disabled = true;
                         }
+                        resetOrgProjectEmbeddingsControls();
 
                         // Load projects for this organization
                         await loadOrgProjectsForManagePanel();
@@ -13617,10 +13652,202 @@ const projectFormHTML = `
                         if (!projectIdRaw) {
                             orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
                             orgProjectDetailsSelect.disabled = true;
+                            resetOrgProjectEmbeddingsControls();
                             return;
                         }
+                        if (orgUpdateProjectEmbeddingsButton) {
+                            orgUpdateProjectEmbeddingsButton.disabled = false;
+                        }
+                        setOrgProjectEmbeddingsStatus('', null);
                         const numericId = Number.isNaN(Number(projectIdRaw)) ? projectIdRaw : Number(projectIdRaw);
                         loadOrgProjectDetailsForManagePanel(numericId);
+                    });
+                }
+
+                if (orgUpdateProjectEmbeddingsButton) {
+                    orgUpdateProjectEmbeddingsButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+
+                        if (!organizationId) {
+                            setOrgProjectEmbeddingsStatus(
+                                'Could not determine your organization. Please log out and log back in.',
+                                'error'
+                            );
+                            return;
+                        }
+
+                        const projectIdRaw = orgProjectsSelect ? orgProjectsSelect.value : '';
+                        if (!projectIdRaw) {
+                            setOrgProjectEmbeddingsStatus('Please select a project first.', 'error');
+                            return;
+                        }
+
+                        const projectId = Number.isNaN(Number(projectIdRaw))
+                            ? projectIdRaw
+                            : Number(projectIdRaw);
+
+                        orgUpdateProjectEmbeddingsButton.disabled = true;
+                        orgUpdateProjectEmbeddingsButton.textContent = 'Updating...';
+                        setOrgProjectEmbeddingsStatus('Embedding project description…', null);
+
+                        let projectStatusLabel = 'skipped';
+                        let detailTotal = 0;
+                        let sawError = false;
+
+                        try {
+                            const response = await fetch(
+                                '/api/backfill-project-and-details-embeddings',
+                                {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ organizationId, projectId }),
+                                }
+                            );
+
+                            if (!response.ok) {
+                                let data = null;
+                                try {
+                                    data = await response.json();
+                                } catch (_) {
+                                    data = null;
+                                }
+                                throw new Error(
+                                    (data && data.error) ||
+                                        `Failed to update embeddings (${response.status}).`
+                                );
+                            }
+
+                            if (!response.body || typeof response.body.getReader !== 'function') {
+                                throw new Error('Streaming response is not supported in this browser.');
+                            }
+
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            let buffer = '';
+
+                            while (true) {
+                                const { value, done } = await reader.read();
+                                if (done) break;
+                                buffer += decoder.decode(value, { stream: true });
+
+                                let newlineIndex = buffer.indexOf('\n');
+                                while (newlineIndex !== -1) {
+                                    const line = buffer.slice(0, newlineIndex).trim();
+                                    buffer = buffer.slice(newlineIndex + 1);
+                                    newlineIndex = buffer.indexOf('\n');
+                                    if (!line) continue;
+
+                                    let event = null;
+                                    try {
+                                        event = JSON.parse(line);
+                                    } catch (_) {
+                                        continue;
+                                    }
+
+                                    if (!event || !event.type) continue;
+
+                                    if (event.type === 'start') {
+                                        detailTotal = Number(event.detailTotal) || 0;
+                                        setOrgProjectEmbeddingsStatus(
+                                            'Embedding project description…',
+                                            null
+                                        );
+                                    } else if (event.type === 'project') {
+                                        projectStatusLabel = event.status || 'skipped';
+                                        setOrgProjectEmbeddingsStatus(
+                                            `Project description: ${projectStatusLabel}. Embedding details (0/${detailTotal})…`,
+                                            null
+                                        );
+                                    } else if (event.type === 'detail') {
+                                        const index = Number(event.index) || 0;
+                                        const total = Number(event.total) || detailTotal;
+                                        setOrgProjectEmbeddingsStatus(
+                                            `Project description: ${projectStatusLabel}. Details: ${index}/${total}…`,
+                                            null
+                                        );
+                                    } else if (event.type === 'done') {
+                                        const details = event.details || {};
+                                        const processed = Number(details.processed) || 0;
+                                        const skipped = Number(details.skipped) || 0;
+                                        const failed = Number(details.failed) || 0;
+                                        const finalProjectStatus =
+                                            event.projectStatus || projectStatusLabel;
+                                        const hasFailures =
+                                            failed > 0 || finalProjectStatus === 'failed';
+                                        setOrgProjectEmbeddingsStatus(
+                                            `Project description: ${finalProjectStatus}. ` +
+                                                `Details updated ${processed}, skipped ${skipped}` +
+                                                (failed > 0 ? `, failed ${failed}` : '') +
+                                                '.',
+                                            hasFailures ? 'error' : 'success'
+                                        );
+                                    } else if (event.type === 'error') {
+                                        sawError = true;
+                                        setOrgProjectEmbeddingsStatus(
+                                            event.message || 'Failed to update embeddings.',
+                                            'error'
+                                        );
+                                    }
+                                }
+                            }
+
+                            const trailing = buffer.trim();
+                            if (trailing) {
+                                try {
+                                    const event = JSON.parse(trailing);
+                                    if (event && event.type === 'done') {
+                                        const details = event.details || {};
+                                        const processed = Number(details.processed) || 0;
+                                        const skipped = Number(details.skipped) || 0;
+                                        const failed = Number(details.failed) || 0;
+                                        const finalProjectStatus =
+                                            event.projectStatus || projectStatusLabel;
+                                        const hasFailures =
+                                            failed > 0 || finalProjectStatus === 'failed';
+                                        setOrgProjectEmbeddingsStatus(
+                                            `Project description: ${finalProjectStatus}. ` +
+                                                `Details updated ${processed}, skipped ${skipped}` +
+                                                (failed > 0 ? `, failed ${failed}` : '') +
+                                                '.',
+                                            hasFailures ? 'error' : 'success'
+                                        );
+                                    } else if (event && event.type === 'error') {
+                                        sawError = true;
+                                        setOrgProjectEmbeddingsStatus(
+                                            event.message || 'Failed to update embeddings.',
+                                            'error'
+                                        );
+                                    }
+                                } catch (_) {
+                                    // ignore incomplete trailing buffer
+                                }
+                            }
+
+                            if (
+                                sawError &&
+                                orgProjectEmbeddingsStatus &&
+                                !orgProjectEmbeddingsStatus.textContent
+                            ) {
+                                setOrgProjectEmbeddingsStatus(
+                                    'Failed to update embeddings.',
+                                    'error'
+                                );
+                            }
+                        } catch (err) {
+                            console.error('Project embedding backfill failed:', err);
+                            setOrgProjectEmbeddingsStatus(
+                                err && err.message
+                                    ? err.message
+                                    : 'Failed to update project embeddings.',
+                                'error'
+                            );
+                        } finally {
+                            orgUpdateProjectEmbeddingsButton.textContent =
+                                'Update Project Embeddings';
+                            orgUpdateProjectEmbeddingsButton.disabled = !(
+                                orgProjectsSelect && orgProjectsSelect.value
+                            );
+                        }
                     });
                 }
 
@@ -13647,6 +13874,7 @@ const projectFormHTML = `
                             orgProjectDetailsSelect.innerHTML = '<option value=\"\">Select a project to see its details</option>';
                             orgProjectDetailsSelect.disabled = true;
                         }
+                        resetOrgProjectEmbeddingsControls();
                     };
                 }
 

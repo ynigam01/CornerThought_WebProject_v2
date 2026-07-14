@@ -332,6 +332,157 @@ app.post('/api/backfill-project-type-embeddings', async (req, res) => {
   }
 });
 
+// POST /api/backfill-project-and-details-embeddings
+// Streams NDJSON progress while filling missing embeddings for one project
+// (project_description) and its project_details ("parameter_name: parameter_entry").
+app.post('/api/backfill-project-and-details-embeddings', async (req, res) => {
+  const organizationId = req.body?.organizationId;
+  const projectId = req.body?.projectId;
+  const batchDelayMs = 1100;
+
+  const writeEvent = (event) => {
+    res.write(`${JSON.stringify(event)}\n`);
+  };
+
+  try {
+    if (organizationId == null || organizationId === '') {
+      return res.status(400).json({ error: 'organizationId is required' });
+    }
+    if (projectId == null || projectId === '') {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('project_id, project_description, search_embedding')
+      .eq('organization_id', organizationId)
+      .eq('project_id', projectId)
+      .maybeSingle();
+
+    if (projectError) {
+      console.error('Error loading project for embedding backfill:', projectError);
+      return res.status(500).json({ error: 'Failed to load project' });
+    }
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found for this organization' });
+    }
+
+    const { data: detailRows, error: detailsError } = await supabase
+      .from('project_details')
+      .select('id, parameter_name, parameter_entry, search_embedding')
+      .eq('organization_id', organizationId)
+      .eq('project_id', projectId);
+
+    if (detailsError) {
+      console.error('Error loading project_details for embedding backfill:', detailsError);
+      return res.status(500).json({ error: 'Failed to load project details' });
+    }
+
+    const allDetails = detailRows || [];
+    const detailsNeedingEmbed = allDetails.filter((row) => {
+      if (row.search_embedding != null) return false;
+      const name = String(row.parameter_name || '').trim();
+      const entry = String(row.parameter_entry || '').trim();
+      return Boolean(name || entry);
+    });
+    const detailTotal = detailsNeedingEmbed.length;
+
+    res.status(200);
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+
+    writeEvent({ type: 'start', detailTotal });
+
+    let projectStatus = 'skipped';
+    const description = String(project.project_description || '').trim();
+    if (project.search_embedding != null || !description) {
+      projectStatus = 'skipped';
+      writeEvent({ type: 'project', status: projectStatus });
+    } else {
+      try {
+        const embedding = await getEmbedding(description);
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update({ search_embedding: embedding })
+          .eq('project_id', project.project_id)
+          .eq('organization_id', organizationId);
+
+        if (updateError) {
+          console.error(`Error updating project_id=${project.project_id}:`, updateError);
+          projectStatus = 'failed';
+        } else {
+          projectStatus = 'updated';
+        }
+      } catch (err) {
+        console.error(`Error embedding project_id=${project.project_id}:`, err?.message || err);
+        projectStatus = 'failed';
+      }
+      writeEvent({ type: 'project', status: projectStatus });
+      await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+    }
+
+    let processed = 0;
+    let skipped = allDetails.length - detailTotal;
+    let failed = 0;
+
+    for (let i = 0; i < detailsNeedingEmbed.length; i += 1) {
+      const row = detailsNeedingEmbed[i];
+      const name = String(row.parameter_name || '').trim();
+      const entry = String(row.parameter_entry || '').trim();
+      const text = `${name}: ${entry}`.trim();
+      const index = i + 1;
+      let status = 'failed';
+
+      try {
+        const embedding = await getEmbedding(text);
+        const { error: updateError } = await supabase
+          .from('project_details')
+          .update({ search_embedding: embedding })
+          .eq('id', row.id);
+
+        if (updateError) {
+          console.error(`Error updating project_details id=${row.id}:`, updateError);
+          failed += 1;
+          status = 'failed';
+        } else {
+          processed += 1;
+          status = 'updated';
+        }
+      } catch (err) {
+        console.error(`Error embedding project_details id=${row.id}:`, err?.message || err);
+        failed += 1;
+        status = 'failed';
+      }
+
+      writeEvent({ type: 'detail', index, total: detailTotal, status });
+      await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+    }
+
+    writeEvent({
+      type: 'done',
+      projectStatus,
+      details: { processed, skipped, failed, total: allDetails.length },
+    });
+    return res.end();
+  } catch (err) {
+    console.error('Unexpected error in /api/backfill-project-and-details-embeddings:', err);
+    if (res.headersSent) {
+      try {
+        writeEvent({ type: 'error', message: err?.message || 'Internal server error' });
+        res.end();
+      } catch (_) {
+        // ignore write failures after stream errors
+      }
+      return;
+    }
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Shared handler for saving Add Data lessons learned (draft or for-review).
 async function handleSaveLessons(req, res, review) {
   try {
