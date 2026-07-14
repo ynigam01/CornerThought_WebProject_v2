@@ -13751,6 +13751,96 @@ const projectFormHTML = `
                     });
                 }
 
+                // Update Project Type Embeddings (backfill missing search_embedding)
+                const orgUpdateProjectTypeEmbeddingsButton = document.getElementById(
+                    'orgUpdateProjectTypeEmbeddingsButton'
+                );
+                const orgProjectTypeEmbeddingsStatus = document.getElementById(
+                    'orgProjectTypeEmbeddingsStatus'
+                );
+
+                function setOrgProjectTypeEmbeddingsStatus(message, kind) {
+                    if (!orgProjectTypeEmbeddingsStatus) return;
+                    orgProjectTypeEmbeddingsStatus.classList.remove(
+                        'upload-message--success',
+                        'upload-message--error'
+                    );
+                    if (!message) {
+                        orgProjectTypeEmbeddingsStatus.style.display = 'none';
+                        orgProjectTypeEmbeddingsStatus.textContent = '';
+                        return;
+                    }
+                    orgProjectTypeEmbeddingsStatus.style.display = '';
+                    orgProjectTypeEmbeddingsStatus.textContent = message;
+                    if (kind === 'error') {
+                        orgProjectTypeEmbeddingsStatus.classList.add('upload-message--error');
+                    } else if (kind === 'success') {
+                        orgProjectTypeEmbeddingsStatus.classList.add('upload-message--success');
+                    }
+                }
+
+                if (orgUpdateProjectTypeEmbeddingsButton) {
+                    orgUpdateProjectTypeEmbeddingsButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+
+                        if (!organizationId) {
+                            setOrgProjectTypeEmbeddingsStatus(
+                                'Could not determine your organization. Please log out and log back in.',
+                                'error'
+                            );
+                            return;
+                        }
+
+                        orgUpdateProjectTypeEmbeddingsButton.disabled = true;
+                        orgUpdateProjectTypeEmbeddingsButton.textContent = 'Updating...';
+                        setOrgProjectTypeEmbeddingsStatus('Updating project type embeddings…', null);
+
+                        try {
+                            const response = await fetch('/api/backfill-project-type-embeddings', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ organizationId }),
+                            });
+
+                            let data = null;
+                            try {
+                                data = await response.json();
+                            } catch (_) {
+                                data = null;
+                            }
+
+                            if (!response.ok) {
+                                throw new Error(
+                                    (data && data.error) ||
+                                        `Failed to update embeddings (${response.status}).`
+                                );
+                            }
+
+                            const processed = Number(data && data.processed) || 0;
+                            const skipped = Number(data && data.skipped) || 0;
+                            const failed = Number(data && data.failed) || 0;
+                            setOrgProjectTypeEmbeddingsStatus(
+                                `Updated ${processed} embedding${processed === 1 ? '' : 's'}. ` +
+                                    `Skipped ${skipped} already filled or empty. ` +
+                                    (failed > 0 ? `Failed: ${failed}.` : ''),
+                                failed > 0 ? 'error' : 'success'
+                            );
+                        } catch (err) {
+                            console.error('Project type embedding backfill failed:', err);
+                            setOrgProjectTypeEmbeddingsStatus(
+                                err && err.message
+                                    ? err.message
+                                    : 'Failed to update project type embeddings.',
+                                'error'
+                            );
+                        } finally {
+                            orgUpdateProjectTypeEmbeddingsButton.disabled = false;
+                            orgUpdateProjectTypeEmbeddingsButton.textContent =
+                                'Update Project Type Embeddings';
+                        }
+                    });
+                }
+
                 // Handle "Create Project Type" form submission for this organization
                 if (orgProjectTypesForm) {
                     orgProjectTypesForm.addEventListener('submit', async (e) => {

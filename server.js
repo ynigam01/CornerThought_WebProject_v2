@@ -271,6 +271,67 @@ app.post('/api/search-projects', async (req, res) => {
   }
 });
 
+// POST /api/backfill-project-type-embeddings
+// Fills missing project_type.search_embedding for one organization.
+app.post('/api/backfill-project-type-embeddings', async (req, res) => {
+  try {
+    const organizationId = req.body?.organizationId;
+    if (organizationId == null || organizationId === '') {
+      return res.status(400).json({ error: 'organizationId is required' });
+    }
+
+    const { data: rows, error: fetchError } = await supabase
+      .from('project_type')
+      .select('id, project_type, search_embedding')
+      .eq('organization_id', organizationId);
+
+    if (fetchError) {
+      console.error('Error fetching project_type rows for embedding backfill:', fetchError);
+      return res.status(500).json({ error: 'Failed to load project types' });
+    }
+
+    const allRows = rows || [];
+    const total = allRows.length;
+    let processed = 0;
+    let skipped = 0;
+    let failed = 0;
+    const batchDelayMs = 1100;
+
+    for (const row of allRows) {
+      const typeText = String(row.project_type || '').trim();
+      if (row.search_embedding != null || !typeText) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        const embedding = await getEmbedding(typeText);
+        const { error: updateError } = await supabase
+          .from('project_type')
+          .update({ search_embedding: embedding })
+          .eq('id', row.id);
+
+        if (updateError) {
+          console.error(`Error updating project_type id=${row.id}:`, updateError);
+          failed += 1;
+        } else {
+          processed += 1;
+        }
+      } catch (err) {
+        console.error(`Error embedding project_type id=${row.id}:`, err?.message || err);
+        failed += 1;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+    }
+
+    return res.json({ processed, skipped, failed, total });
+  } catch (err) {
+    console.error('Unexpected error in /api/backfill-project-type-embeddings:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Shared handler for saving Add Data lessons learned (draft or for-review).
 async function handleSaveLessons(req, res, review) {
   try {
