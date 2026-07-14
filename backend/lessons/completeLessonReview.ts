@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Id } from './types';
 import { updateCompleteness } from './updateCompleteness';
+import { embedLessonOnComplete } from './embedLessonOnComplete';
 
 export interface CompleteLessonRequest {
   lessonId: Id;
@@ -39,6 +40,10 @@ export async function completeLessonReview(
     .eq('organization_id', organizationId);
 
   if (error) throw new Error(error.message || 'Could not complete lesson.');
+
+  void embedLessonOnComplete(supabase, lessonId, organizationId).catch((err) => {
+    console.error('embedLessonOnComplete failed:', err);
+  });
 
   return { ok: true };
 }

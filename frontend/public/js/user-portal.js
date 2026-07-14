@@ -12202,9 +12202,12 @@ const projectFormHTML = `
 
                     const thead = document.createElement('thead');
                     const headRow = document.createElement('tr');
-                    const th = document.createElement('th');
-                    th.textContent = 'Name';
-                    headRow.appendChild(th);
+                    const thName = document.createElement('th');
+                    thName.textContent = 'Name';
+                    headRow.appendChild(thName);
+                    const thType = document.createElement('th');
+                    thType.textContent = 'User Type';
+                    headRow.appendChild(thType);
                     thead.appendChild(headRow);
                     table.appendChild(thead);
 
@@ -12215,9 +12218,16 @@ const projectFormHTML = `
                         tr.title = 'Click to edit this user';
                         tr.tabIndex = 0;
 
-                        const td = document.createElement('td');
-                        td.textContent = row.name || '(No name)';
-                        tr.appendChild(td);
+                        const tdName = document.createElement('td');
+                        tdName.textContent = row.name || '(No name)';
+                        tr.appendChild(tdName);
+
+                        const tdType = document.createElement('td');
+                        const displayType = row.usertype === 'Company Administrator'
+                            ? 'Administrator'
+                            : (row.usertype || '—');
+                        tdType.textContent = displayType;
+                        tr.appendChild(tdType);
 
                         const openEditor = () => openEditOrgUserModal(row);
                         tr.addEventListener('click', openEditor);
