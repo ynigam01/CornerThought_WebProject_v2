@@ -6,6 +6,11 @@ interface ApiRequest {
 interface ApiResponse {
     status(code: number): ApiResponse;
     json(payload: unknown): ApiResponse;
+    setHeader?(name: string, value: string): void;
+    write?(chunk: string): boolean;
+    end?(chunk?: string): void;
+    flushHeaders?(): void;
+    headersSent?: boolean;
 }
 type Handler = (req: ApiRequest, res: ApiResponse) => void | Promise<void>;
 interface RouteApp {

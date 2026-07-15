@@ -1120,6 +1120,64 @@ body {
     color: #333;
 }
 
+.lesson-relevant-results {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 0 16px;
+}
+
+.lesson-relevant-results[hidden] {
+    display: none !important;
+}
+
+.lesson-relevant-card {
+    position: relative;
+    background: #fdf2f1;
+    border: 1px solid #f5e6e5;
+    border-radius: 10px;
+    padding: 16px 40px 16px 18px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    cursor: pointer;
+    color: #333;
+    line-height: 1.45;
+}
+
+.lesson-relevant-card:hover {
+    border-color: #ebcfcb;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+}
+
+.lesson-relevant-card:focus {
+    outline: 2px solid #4a90d9;
+    outline-offset: 2px;
+}
+
+.lesson-relevant-card-text {
+    font-size: 15px;
+}
+
+.lesson-relevant-card-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #666;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0;
+}
+
+.lesson-relevant-card-dismiss:hover {
+    color: #222;
+    background: rgba(0, 0, 0, 0.05);
+}
+
 .lesson-detail-section {
     margin-top: 16px;
     padding: 16px;
@@ -1474,6 +1532,10 @@ body {
 }
 
 .my-projects-project-analysis-category-panel {
+    margin-top: 14px;
+}
+
+#projectAnalysisCreateEmbeddingsStatus {
     margin-top: 14px;
 }
 

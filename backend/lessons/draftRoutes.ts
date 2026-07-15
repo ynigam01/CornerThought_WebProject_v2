@@ -4,6 +4,7 @@ import { updateLessonReview } from './updateLessonReview';
 import { updateCompleteness } from './updateCompleteness';
 import { completeLessonReview } from './completeLessonReview';
 import { embedLessonForFind } from './embedLessonForFind';
+import { embedCompletedLessonsForProject } from './embedCompletedLessonsForProject';
 import {
   applyMetadata,
   createAttachment,
@@ -24,6 +25,11 @@ interface ApiRequest {
 interface ApiResponse {
   status(code: number): ApiResponse;
   json(payload: unknown): ApiResponse;
+  setHeader?(name: string, value: string): void;
+  write?(chunk: string): boolean;
+  end?(chunk?: string): void;
+  flushHeaders?(): void;
+  headersSent?: boolean;
 }
 type Handler = (req: ApiRequest, res: ApiResponse) => void | Promise<void>;
 interface RouteApp {
@@ -76,6 +82,54 @@ export function registerDraftLessonRoutes(app: RouteApp, supabase: SupabaseClien
       return completeLessonReview(supabase, { lessonId, organizationId, userId });
     }),
   );
+
+  // Backfill missing embeddings for all completed lessons on a project (NDJSON progress)
+  // Registered before /:lessonId/embed so the static path is not captured as a lessonId.
+  app.post(`${BASE}/embed-completed-for-project`, async (req, res) => {
+    const organizationId = req.body?.organizationId;
+    const projectId = req.body?.projectId;
+    const writeEvent = (event: unknown) => {
+      if (typeof res.write === 'function') {
+        res.write(`${JSON.stringify(event)}\n`);
+      }
+    };
+
+    try {
+      if (organizationId == null || organizationId === '') {
+        res.status(400).json({ error: 'organizationId is required' });
+        return;
+      }
+      if (projectId == null || projectId === '') {
+        res.status(400).json({ error: 'projectId is required' });
+        return;
+      }
+
+      res.status(200);
+      if (typeof res.setHeader === 'function') {
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Accel-Buffering', 'no');
+      }
+      if (typeof res.flushHeaders === 'function') {
+        res.flushHeaders();
+      }
+
+      await embedCompletedLessonsForProject(
+        supabase,
+        { organizationId, projectId },
+        (event) => writeEvent(event),
+      );
+      if (typeof res.end === 'function') res.end();
+    } catch (err: any) {
+      console.error('Draft lesson embed completed for project failed:', err);
+      if (res.headersSent) {
+        writeEvent({ type: 'error', message: err?.message || 'Request failed.' });
+        if (typeof res.end === 'function') res.end();
+        return;
+      }
+      res.status(500).json({ error: err?.message || 'Request failed.' });
+    }
+  });
 
   // Await embeddings before Find Relevant (draft / for-review)
   app.post(`${BASE}/:lessonId/embed`, (req, res) =>

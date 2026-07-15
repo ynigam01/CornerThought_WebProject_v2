@@ -9,6 +9,8 @@ import {
     pgByteaToUint8Array,
     fetchUserNamesById,
     showFindRelevantLessonText,
+    renderRelevantLessonCards,
+    mountLessonFullPage,
 } from './my-projects-lesson-detail.js';
 
 // Sends a write to the draft-lesson backend endpoints and returns the parsed JSON.
@@ -391,6 +393,13 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             await showFindRelevantLessonText(supabase, lessonRowState, {
                 organizationId: orgId,
                 projectId: pid,
+                onRankedResults: (results) => {
+                    renderRelevantLessonCards(relevantResultsHost, results, {
+                        onOpen: (openedLessonId, openedProjectId) => {
+                            void openRankedRelevantLesson(openedLessonId, openedProjectId);
+                        },
+                    });
+                },
             });
         } catch (err) {
             console.error(err);
@@ -399,6 +408,49 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
             btnFindRelevant.disabled = false;
         }
     });
+
+    const relevantResultsHost = document.createElement('div');
+    relevantResultsHost.id = 'lessonRelevantResultsHost';
+    relevantResultsHost.className = 'lesson-relevant-results';
+    relevantResultsHost.hidden = true;
+
+    async function openRankedRelevantLesson(openedLessonId, openedProjectIdFromCard = null) {
+        try {
+            const { data, error } = await supabase
+                .from('lessons_learned')
+                .select('id, title, high_level_title, category, review, created_by, project_id')
+                .eq('id', openedLessonId)
+                .eq('organization_id', orgId)
+                .maybeSingle();
+            if (error) throw new Error(error.message || 'Failed to load lesson.');
+            if (!data) throw new Error('Lesson not found.');
+
+            const openedProjectId =
+                data.project_id != null
+                    ? data.project_id
+                    : openedProjectIdFromCard != null
+                      ? openedProjectIdFromCard
+                      : null;
+            if (openedProjectId == null) throw new Error('Lesson has no project.');
+
+            const { data: openedProject, error: projErr } = await supabase
+                .from('projects')
+                .select('project_id, project_type_id, project_name')
+                .eq('project_id', openedProjectId)
+                .eq('organization_id', orgId)
+                .maybeSingle();
+            if (projErr) throw new Error(projErr.message || 'Failed to load project.');
+
+            const projectForOpen = openedProject || { project_id: openedProjectId };
+            await mountLessonFullPage(mountEl, data, projectForOpen, {
+                ...ctx,
+                projectId: openedProjectId,
+            });
+        } catch (err) {
+            console.error(err);
+            setToolbarStatus(err.message || 'Could not open lesson.', true);
+        }
+    }
 
     const titleRow = document.createElement('div');
     titleRow.className = 'lesson-draft-title-row';
@@ -424,6 +476,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     detailHost.className = 'lesson-draft-detail-host';
 
     card.appendChild(toolbar);
+    card.appendChild(relevantResultsHost);
     card.appendChild(titleRow);
     card.appendChild(detailHost);
     mountEl.appendChild(card);

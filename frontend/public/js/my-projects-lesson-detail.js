@@ -308,7 +308,8 @@ export function formatProjectDetailsForLlm(rows) {
 
 /**
  * Shows formatted lesson text in a centered read-only popup.
- * Includes a Find button that sends the text to Meta Llama and replaces the body.
+ * Includes a Find button that sends the text to Meta Llama, ranks lessons, and
+ * reports only a count in the popup. Ranked results are passed to onRankedResults.
  * When embedBeforeFind is set (draft / for-review), Find stays disabled until
  * lesson embeddings finish.
  * @param {string} text
@@ -317,11 +318,20 @@ export function formatProjectDetailsForLlm(rows) {
  *     lessonId: string|number,
  *     organizationId: string|number,
  *   } | null,
+ *   rankContext?: {
+ *     lessonId: string|number,
+ *     organizationId: string|number,
+ *     projectId: string|number,
+ *   } | null,
+ *   onRankedResults?: (results: Array<object>) => void,
  * }} [options]
  */
 export function openLessonLlmTextPopup(text, options = {}) {
     const sourceText = String(text || '');
     const embedBeforeFind = options && options.embedBeforeFind ? options.embedBeforeFind : null;
+    const rankContext = options && options.rankContext ? options.rankContext : null;
+    const onRankedResults =
+        options && typeof options.onRankedResults === 'function' ? options.onRankedResults : null;
     const needsEmbed =
         embedBeforeFind &&
         embedBeforeFind.lessonId != null &&
@@ -410,11 +420,72 @@ export function openLessonLlmTextPopup(text, options = {}) {
             findAction.disabled = true;
             closeAction.disabled = true;
             findAction.textContent = 'Finding...';
+            setEmbedStatus('Finding relevant project parameters…', null);
+
             const { findRelevantLessons } = await import('./find-relevant-lessons.js');
             const responseText = await findRelevantLessons(sourceText);
-            pre.textContent = responseText;
+
+            let matches = [];
+            try {
+                matches = parseLlamaMatchesJson(responseText);
+            } catch (parseErr) {
+                console.error(parseErr);
+                pre.textContent =
+                    parseErr && parseErr.message
+                        ? parseErr.message
+                        : 'Could not parse parameter matches from the model.';
+                setEmbedStatus('', null);
+                return;
+            }
+
+            if (
+                !rankContext ||
+                rankContext.lessonId == null ||
+                rankContext.organizationId == null ||
+                rankContext.projectId == null
+            ) {
+                pre.textContent = 'Found 0 relevant lessons learned.';
+                if (onRankedResults) onRankedResults([]);
+                setEmbedStatus('', null);
+                return;
+            }
+
+            setEmbedStatus('Ranking relevant lessons…', null);
+            const rankResponse = await fetch('/api/find-relevant-lessons/rank', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lessonId: rankContext.lessonId,
+                    organizationId: rankContext.organizationId,
+                    projectId: rankContext.projectId,
+                    matches,
+                    projectDetailsNumberToIdMap: getLastProjectDetailsNumberToIdMap(),
+                }),
+            });
+
+            let rankData = null;
+            try {
+                rankData = await rankResponse.json();
+            } catch (_) {
+                rankData = null;
+            }
+
+            if (!rankResponse.ok) {
+                throw new Error(
+                    (rankData && rankData.error) ||
+                        `Failed to rank relevant lessons (${rankResponse.status}).`,
+                );
+            }
+
+            const results = Array.isArray(rankData && rankData.results) ? rankData.results : [];
+            const n = results.length;
+            pre.textContent = `Found ${n} relevant lesson${n === 1 ? '' : 's'} learned.`;
+            setEmbedStatus('', null);
+            if (onRankedResults) onRankedResults(results);
         } catch (err) {
             console.error(err);
+            pre.textContent = err.message || 'Find Relevant Lessons Learned failed.';
+            setEmbedStatus('', null);
             alert(err.message || 'Find Relevant Lessons Learned failed.');
         } finally {
             findAction.disabled = false;
@@ -473,11 +544,125 @@ export function openLessonLlmTextPopup(text, options = {}) {
 }
 
 /**
+ * Parse Llama JSON for Find Relevant parameter matches.
+ * @param {string} raw
+ * @returns {Array<{ number?: number, name?: string, entry?: string }>}
+ */
+export function parseLlamaMatchesJson(raw) {
+    let text = String(raw || '').trim();
+    if (!text) throw new Error('Empty model response.');
+
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence && fence[1]) text = fence[1].trim();
+
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        text = text.slice(start, end + 1);
+    }
+
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text);
+    } catch (_) {
+        throw new Error('Model response was not valid JSON.');
+    }
+
+    const matches = parsed && Array.isArray(parsed.matches) ? parsed.matches : null;
+    if (!matches) {
+        throw new Error('Model JSON must include a "matches" array.');
+    }
+    return matches;
+}
+
+/**
+ * Renders ranked relevant-lesson peach cards into a host element.
+ * @param {HTMLElement|null} hostEl
+ * @param {Array<{ lessonId?: unknown, title?: unknown, highLevelTitle?: unknown, category?: unknown }>} results
+ * @param {{ onOpen?: (lessonId: string|number, projectId?: string|number|null) => void }} [opts]
+ */
+export function renderRelevantLessonCards(hostEl, results, opts = {}) {
+    if (!hostEl) return;
+    hostEl.innerHTML = '';
+    hostEl.className = 'lesson-relevant-results';
+    const list = Array.isArray(results) ? results : [];
+    if (!list.length) {
+        hostEl.hidden = true;
+        return;
+    }
+    hostEl.hidden = false;
+
+    list.forEach((item) => {
+        if (!item || item.lessonId == null) return;
+        const card = document.createElement('div');
+        card.className = 'lesson-relevant-card';
+        card.setAttribute('role', 'button');
+        card.tabIndex = 0;
+        card.dataset.lessonId = String(item.lessonId);
+        if (item.projectId != null) card.dataset.projectId = String(item.projectId);
+
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'lesson-relevant-card-dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss');
+        dismiss.innerHTML = '&times;';
+        dismiss.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            card.remove();
+            if (!hostEl.querySelector('.lesson-relevant-card')) {
+                hostEl.hidden = true;
+                hostEl.innerHTML = '';
+            }
+        });
+
+        const categoryRaw = item.category != null ? String(item.category).trim().toLowerCase() : '';
+        const categoryLabel =
+            categoryRaw === 'success' ? 'Success' : categoryRaw === 'issue' ? 'Issue' : 'Lesson';
+        const labelText =
+            item.highLevelTitle != null && String(item.highLevelTitle).trim()
+                ? String(item.highLevelTitle).trim()
+                : item.title != null && String(item.title).trim()
+                  ? String(item.title).trim()
+                  : '(Untitled)';
+
+        const textWrap = document.createElement('div');
+        textWrap.className = 'lesson-relevant-card-text';
+        const strong = document.createElement('strong');
+        strong.textContent = `${categoryLabel}: `;
+        textWrap.appendChild(strong);
+        textWrap.appendChild(document.createTextNode(labelText));
+
+        card.appendChild(dismiss);
+        card.appendChild(textWrap);
+
+        const open = () => {
+            if (typeof opts.onOpen === 'function') {
+                opts.onOpen(item.lessonId, item.projectId != null ? item.projectId : null);
+            }
+        };
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                open();
+            }
+        });
+
+        hostEl.appendChild(card);
+    });
+}
+
+/**
  * Loads lesson structure + project details and shows the LLM-formatted text popup.
  * For draft / for-review lessons, embeddings are refreshed before Find is enabled.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown }} lessonRow
- * @param {{ organizationId: string|number|null, projectId: string|number|null }} ctx
+ * @param {{
+ *   organizationId: string|number|null,
+ *   projectId: string|number|null,
+ *   onRankedResults?: (results: Array<object>) => void,
+ * }} ctx
  */
 export async function showFindRelevantLessonText(supabase, lessonRow, ctx) {
     const [detail, projectDetailRows] = await Promise.all([
@@ -513,6 +698,15 @@ export async function showFindRelevantLessonText(supabase, lessonRow, ctx) {
             needsEmbed && lessonId != null && ctx.organizationId != null
                 ? { lessonId, organizationId: ctx.organizationId }
                 : null,
+        rankContext:
+            lessonId != null && ctx.organizationId != null && ctx.projectId != null
+                ? {
+                      lessonId,
+                      organizationId: ctx.organizationId,
+                      projectId: ctx.projectId,
+                  }
+                : null,
+        onRankedResults: ctx.onRankedResults,
     });
 }
 
@@ -1209,6 +1403,13 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
             await showFindRelevantLessonText(supabase, row, {
                 organizationId,
                 projectId: pid,
+                onRankedResults: (results) => {
+                    renderRelevantLessonCards(relevantResultsHost, results, {
+                        onOpen: (openedLessonId, openedProjectId) => {
+                            void openRankedRelevantLesson(openedLessonId, openedProjectId);
+                        },
+                    });
+                },
             });
         } catch (err) {
             console.error(err);
@@ -1218,6 +1419,50 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
         }
     });
 
+    const relevantResultsHost = document.createElement('div');
+    relevantResultsHost.id = 'lessonRelevantResultsHost';
+    relevantResultsHost.className = 'lesson-relevant-results';
+    relevantResultsHost.hidden = true;
+
+    async function openRankedRelevantLesson(openedLessonId, openedProjectIdFromCard = null) {
+        try {
+            const { data, error } = await supabase
+                .from('lessons_learned')
+                .select('id, title, high_level_title, category, review, created_by, project_id')
+                .eq('id', openedLessonId)
+                .eq('organization_id', organizationId)
+                .maybeSingle();
+            if (error) throw new Error(error.message || 'Failed to load lesson.');
+            if (!data) throw new Error('Lesson not found.');
+
+            const openedProjectId =
+                data.project_id != null
+                    ? data.project_id
+                    : openedProjectIdFromCard != null
+                      ? openedProjectIdFromCard
+                      : null;
+            if (openedProjectId == null) throw new Error('Lesson has no project.');
+
+            const { data: openedProject, error: projErr } = await supabase
+                .from('projects')
+                .select('project_id, project_type_id, project_name')
+                .eq('project_id', openedProjectId)
+                .eq('organization_id', organizationId)
+                .maybeSingle();
+            if (projErr) throw new Error(projErr.message || 'Failed to load project.');
+
+            const projectForOpen = openedProject || { project_id: openedProjectId };
+            await mountLessonFullPage(mountEl, data, projectForOpen, {
+                ...ctx,
+                projectId: openedProjectId,
+            });
+        } catch (err) {
+            console.error(err);
+            setToolbarStatus(err.message || 'Could not open lesson.', true);
+        }
+    }
+
+    card.appendChild(relevantResultsHost);
     card.appendChild(buildLessonPrimaryTitle(row));
 
     const detailHost = document.createElement('div');

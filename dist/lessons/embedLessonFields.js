@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.embedLessonFields = embedLessonFields;
+exports.lessonNeedsMissingEmbeddings = lessonNeedsMissingEmbeddings;
 const getEmbedding_1 = require("../embeddings/getEmbedding");
 const BATCH_DELAY_MS = 1100;
 function sleep(ms) {
@@ -24,9 +25,11 @@ function formatMetadataEmbedText(metadataType, metadata) {
         return `${type}: ${metaText}`;
     return type || metaText;
 }
-async function embedAndUpdate(supabase, table, id, column, text, label) {
+async function embedAndUpdate(supabase, table, id, column, text, label, existingEmbedding, onlyMissing) {
     const trimmed = String(text || '').trim();
     if (!trimmed)
+        return;
+    if (onlyMissing && existingEmbedding != null)
         return;
     try {
         const embedding = await (0, getEmbedding_1.getEmbedding)(trimmed);
@@ -45,16 +48,17 @@ async function embedAndUpdate(supabase, table, id, column, text, label) {
     await sleep(BATCH_DELAY_MS);
 }
 /**
- * Embeds all searchable text fields for a lesson into their vector columns.
- * Always rewrites present text. Per-row failures are logged and skipped.
+ * Embeds searchable text fields for a lesson into their vector columns.
+ * By default rewrites present text. With onlyMissing, skips fields that already have embeddings.
  */
-async function embedLessonFields(supabase, lessonId, organizationId) {
+async function embedLessonFields(supabase, lessonId, organizationId, options = {}) {
+    const onlyMissing = options.onlyMissing === true;
     if (lessonId == null || organizationId == null) {
         throw new Error('Missing lesson or organization.');
     }
     const { data: lesson, error: lessonError } = await supabase
         .from('lessons_learned')
-        .select('id, title, high_level_title')
+        .select('id, title, high_level_title, title_search_embedding, high_level_search_embedding')
         .eq('id', lessonId)
         .eq('organization_id', organizationId)
         .maybeSingle();
@@ -65,7 +69,8 @@ async function embedLessonFields(supabase, lessonId, organizationId) {
         throw new Error('Lesson not found for embedding.');
     }
     const title = String(lesson.title || '').trim();
-    if (title) {
+    if (title &&
+        !(onlyMissing && lesson.title_search_embedding != null)) {
         try {
             const embedding = await (0, getEmbedding_1.getEmbedding)(title);
             const { error } = await supabase
@@ -84,7 +89,8 @@ async function embedLessonFields(supabase, lessonId, organizationId) {
         await sleep(BATCH_DELAY_MS);
     }
     const highLevelTitle = String(lesson.high_level_title || '').trim();
-    if (highLevelTitle) {
+    if (highLevelTitle &&
+        !(onlyMissing && lesson.high_level_search_embedding != null)) {
         try {
             const embedding = await (0, getEmbedding_1.getEmbedding)(highLevelTitle);
             const { error } = await supabase
@@ -109,27 +115,27 @@ async function embedLessonFields(supabase, lessonId, organizationId) {
     const [causesRes, impactsRes, actionsRes, fpcsRes, metadataRes] = await Promise.all([
         supabase
             .from('lessons_learned_causes')
-            .select('id, cause')
+            .select('id, cause, search_embedding')
             .eq('lessons_learned_id', scope.lessons_learned_id)
             .eq('organization_id', scope.organization_id),
         supabase
             .from('lessons_learned_impacts')
-            .select('id, impact')
+            .select('id, impact, search_embedding')
             .eq('lessons_learned_id', scope.lessons_learned_id)
             .eq('organization_id', scope.organization_id),
         supabase
             .from('action_items')
-            .select('id, action_item')
+            .select('id, action_item, search_embedding')
             .eq('lessons_learned_id', scope.lessons_learned_id)
             .eq('organization_id', scope.organization_id),
         supabase
             .from('future_project_considerations')
-            .select('id, fpc')
+            .select('id, fpc, search_embedding')
             .eq('lessons_learned_id', scope.lessons_learned_id)
             .eq('organization_id', scope.organization_id),
         supabase
             .from('lessons_learned_metadata')
-            .select('id, metadata_type, metadata')
+            .select('id, metadata_type, metadata, search_embedding')
             .eq('lessons_learned_id', scope.lessons_learned_id)
             .eq('organization_id', scope.organization_id),
     ]);
@@ -139,20 +145,83 @@ async function embedLessonFields(supabase, lessonId, organizationId) {
         }
     }
     for (const row of causesRes.data || []) {
-        await embedAndUpdate(supabase, 'lessons_learned_causes', row.id, 'search_embedding', row.cause, `cause id=${row.id}`);
+        await embedAndUpdate(supabase, 'lessons_learned_causes', row.id, 'search_embedding', row.cause, `cause id=${row.id}`, row.search_embedding, onlyMissing);
     }
     for (const row of impactsRes.data || []) {
-        await embedAndUpdate(supabase, 'lessons_learned_impacts', row.id, 'search_embedding', row.impact, `impact id=${row.id}`);
+        await embedAndUpdate(supabase, 'lessons_learned_impacts', row.id, 'search_embedding', row.impact, `impact id=${row.id}`, row.search_embedding, onlyMissing);
     }
     for (const row of actionsRes.data || []) {
-        await embedAndUpdate(supabase, 'action_items', row.id, 'search_embedding', row.action_item, `action_item id=${row.id}`);
+        await embedAndUpdate(supabase, 'action_items', row.id, 'search_embedding', row.action_item, `action_item id=${row.id}`, row.search_embedding, onlyMissing);
     }
     for (const row of fpcsRes.data || []) {
-        await embedAndUpdate(supabase, 'future_project_considerations', row.id, 'search_embedding', row.fpc, `fpc id=${row.id}`);
+        await embedAndUpdate(supabase, 'future_project_considerations', row.id, 'search_embedding', row.fpc, `fpc id=${row.id}`, row.search_embedding, onlyMissing);
     }
     for (const row of metadataRes.data || []) {
         const text = formatMetadataEmbedText(row.metadata_type, row.metadata);
-        await embedAndUpdate(supabase, 'lessons_learned_metadata', row.id, 'search_embedding', text, `metadata id=${row.id}`);
+        await embedAndUpdate(supabase, 'lessons_learned_metadata', row.id, 'search_embedding', text, `metadata id=${row.id}`, row.search_embedding, onlyMissing);
     }
+}
+/**
+ * Returns true if this completed lesson has any embeddable text field with a null embedding.
+ */
+async function lessonNeedsMissingEmbeddings(supabase, lessonId, organizationId, lessonRow) {
+    let lesson = lessonRow || null;
+    if (!lesson) {
+        const { data, error } = await supabase
+            .from('lessons_learned')
+            .select('title, high_level_title, title_search_embedding, high_level_search_embedding')
+            .eq('id', lessonId)
+            .eq('organization_id', organizationId)
+            .maybeSingle();
+        if (error || !data)
+            return false;
+        lesson = data;
+    }
+    const title = String(lesson.title || '').trim();
+    if (title && lesson.title_search_embedding == null)
+        return true;
+    const highLevelTitle = String(lesson.high_level_title || '').trim();
+    if (highLevelTitle && lesson.high_level_search_embedding == null)
+        return true;
+    const scope = {
+        lessons_learned_id: lessonId,
+        organization_id: organizationId,
+    };
+    const checks = [
+        { table: 'lessons_learned_causes', textCol: 'cause' },
+        { table: 'lessons_learned_impacts', textCol: 'impact' },
+        { table: 'action_items', textCol: 'action_item' },
+        { table: 'future_project_considerations', textCol: 'fpc' },
+        { table: 'lessons_learned_metadata', textCol: 'metadata' },
+    ];
+    for (const check of checks) {
+        const selectCols = check.table === 'lessons_learned_metadata'
+            ? 'id, metadata_type, metadata, search_embedding'
+            : `id, ${check.textCol}, search_embedding`;
+        const { data, error } = await supabase
+            .from(check.table)
+            .select(selectCols)
+            .eq('lessons_learned_id', scope.lessons_learned_id)
+            .eq('organization_id', scope.organization_id)
+            .is('search_embedding', null);
+        if (error) {
+            console.error(`lessonNeedsMissingEmbeddings: ${check.table} query failed:`, error.message);
+            continue;
+        }
+        for (const row of data || []) {
+            const record = row;
+            if (check.table === 'lessons_learned_metadata') {
+                const text = formatMetadataEmbedText(record.metadata_type, record.metadata);
+                if (text)
+                    return true;
+            }
+            else {
+                const text = String(record[check.textCol] || '').trim();
+                if (text)
+                    return true;
+            }
+        }
+    }
+    return false;
 }
 //# sourceMappingURL=embedLessonFields.js.map

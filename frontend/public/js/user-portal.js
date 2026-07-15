@@ -9269,6 +9269,7 @@ const projectFormHTML = `
             mountEl: mount,
             project: searchProjectsSelectedProject,
             ctUser,
+            organizationId,
             loadLessonsCategoriesForSelect: (selectEl) =>
                 loadMyProjectsLessonsCategories(
                     searchProjectsSelectedProject,
@@ -9610,6 +9611,11 @@ const projectFormHTML = `
             searchView.classList.remove('search-view--lesson-fullscreen');
         }
         if (mount) {
+            const relevantHost = mount.querySelector('#lessonRelevantResultsHost');
+            if (relevantHost) {
+                relevantHost.innerHTML = '';
+                relevantHost.hidden = true;
+            }
             mount.innerHTML = '';
         }
     }

@@ -13,6 +13,7 @@ const {
 } = require('./same-metadata-tracker');
 const { saveLessons } = require('./dist/lessons/saveLessons');
 const { registerDraftLessonRoutes } = require('./dist/lessons/draftRoutes');
+const { rankRelevantLessons } = require('./dist/lessons/rankRelevantLessons');
 const {
   OPENROUTER_MODEL,
   chatCompletion,
@@ -589,6 +590,40 @@ app.post('/api/openrouter/chat', async (req, res) => {
     console.error('OpenRouter chat failed:', err);
     return res.status(502).json({
       error: err?.message || 'OpenRouter request failed.',
+    });
+  }
+});
+
+// POST /api/find-relevant-lessons/rank
+// Rank completed org lessons using HLT shortlist + weighted project type / metadata / params.
+app.post('/api/find-relevant-lessons/rank', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const lessonId = body.lessonId;
+    const organizationId = body.organizationId;
+    const projectId = body.projectId;
+    if (lessonId == null || organizationId == null || projectId == null) {
+      return res.status(400).json({
+        error: 'lessonId, organizationId, and projectId are required.',
+      });
+    }
+
+    const result = await rankRelevantLessons(supabase, {
+      lessonId,
+      organizationId,
+      projectId,
+      matches: Array.isArray(body.matches) ? body.matches : [],
+      projectDetailsNumberToIdMap:
+        body.projectDetailsNumberToIdMap && typeof body.projectDetailsNumberToIdMap === 'object'
+          ? body.projectDetailsNumberToIdMap
+          : {},
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('find-relevant-lessons/rank failed:', err);
+    return res.status(500).json({
+      error: err?.message || 'Failed to rank relevant lessons.',
     });
   }
 });
