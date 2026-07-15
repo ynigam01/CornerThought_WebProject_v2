@@ -309,10 +309,23 @@ export function formatProjectDetailsForLlm(rows) {
 /**
  * Shows formatted lesson text in a centered read-only popup.
  * Includes a Find button that sends the text to Meta Llama and replaces the body.
+ * When embedBeforeFind is set (draft / for-review), Find stays disabled until
+ * lesson embeddings finish.
  * @param {string} text
+ * @param {{
+ *   embedBeforeFind?: {
+ *     lessonId: string|number,
+ *     organizationId: string|number,
+ *   } | null,
+ * }} [options]
  */
-export function openLessonLlmTextPopup(text) {
+export function openLessonLlmTextPopup(text, options = {}) {
     const sourceText = String(text || '');
+    const embedBeforeFind = options && options.embedBeforeFind ? options.embedBeforeFind : null;
+    const needsEmbed =
+        embedBeforeFind &&
+        embedBeforeFind.lessonId != null &&
+        embedBeforeFind.organizationId != null;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal show modal--center lesson-draft-dialog lesson-llm-text-modal';
@@ -341,6 +354,12 @@ export function openLessonLlmTextPopup(text) {
     pre.textContent = sourceText;
     body.appendChild(pre);
 
+    const embedStatus = document.createElement('div');
+    embedStatus.className = 'upload-message lesson-find-embed-status';
+    embedStatus.setAttribute('aria-live', 'polite');
+    embedStatus.style.display = 'none';
+    body.appendChild(embedStatus);
+
     const actions = document.createElement('div');
     actions.className = 'lesson-draft-dialog-actions';
     const closeAction = document.createElement('button');
@@ -359,6 +378,22 @@ export function openLessonLlmTextPopup(text) {
     content.appendChild(actions);
     overlay.appendChild(content);
     document.body.appendChild(overlay);
+
+    function setEmbedStatus(message, kind) {
+        embedStatus.classList.remove('upload-message--success', 'upload-message--error');
+        if (!message) {
+            embedStatus.style.display = 'none';
+            embedStatus.textContent = '';
+            return;
+        }
+        embedStatus.style.display = '';
+        embedStatus.textContent = message;
+        if (kind === 'error') {
+            embedStatus.classList.add('upload-message--error');
+        } else if (kind === 'success') {
+            embedStatus.classList.add('upload-message--success');
+        }
+    }
 
     function cleanup() {
         overlay.remove();
@@ -387,12 +422,61 @@ export function openLessonLlmTextPopup(text) {
             findAction.textContent = 'Find';
         }
     });
+
+    if (needsEmbed) {
+        findAction.disabled = true;
+        setEmbedStatus(
+            'Embedding this lesson learned… Find is not ready yet. Please wait.',
+            null,
+        );
+
+        (async () => {
+            try {
+                const response = await fetch(
+                    `/api/draft-lessons/${encodeURIComponent(String(embedBeforeFind.lessonId))}/embed`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            organizationId: embedBeforeFind.organizationId,
+                        }),
+                    },
+                );
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch (_) {
+                    data = null;
+                }
+                if (!response.ok) {
+                    throw new Error(
+                        (data && data.error) ||
+                            `Failed to embed lesson (${response.status}).`,
+                    );
+                }
+                setEmbedStatus(
+                    'Embeddings ready. You can click Find to run Find Relevant Lessons Learned.',
+                    'success',
+                );
+                findAction.disabled = false;
+            } catch (err) {
+                console.error(err);
+                setEmbedStatus(
+                    (err && err.message) ||
+                        'Embedding failed. Find is not available until embeddings succeed.',
+                    'error',
+                );
+                findAction.disabled = true;
+            }
+        })();
+    }
 }
 
 /**
  * Loads lesson structure + project details and shows the LLM-formatted text popup.
+ * For draft / for-review lessons, embeddings are refreshed before Find is enabled.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {{ id?: unknown, category?: unknown, title?: unknown }} lessonRow
+ * @param {{ id?: unknown, category?: unknown, title?: unknown, review?: unknown }} lessonRow
  * @param {{ organizationId: string|number|null, projectId: string|number|null }} ctx
  */
 export async function showFindRelevantLessonText(supabase, lessonRow, ctx) {
@@ -418,7 +502,18 @@ export async function showFindRelevantLessonText(supabase, lessonRow, ctx) {
         text = `${lessonText}\n\nProject Details:\n${projectDetailsText}`;
     }
 
-    openLessonLlmTextPopup(text);
+    const review = String((lessonRow && lessonRow.review) || '')
+        .trim()
+        .toLowerCase();
+    const needsEmbed = review === 'draft' || review === 'for review';
+    const lessonId = lessonRow && lessonRow.id != null ? lessonRow.id : null;
+
+    openLessonLlmTextPopup(text, {
+        embedBeforeFind:
+            needsEmbed && lessonId != null && ctx.organizationId != null
+                ? { lessonId, organizationId: ctx.organizationId }
+                : null,
+    });
 }
 
 /**
@@ -796,8 +891,8 @@ export function renderLessonStructureInto(container, detail, ctx, options = {}) 
 }
 
 /**
- * Primary headline (Issue / Success + title) for full-page lesson view.
- * @param {{ category?: unknown, title?: unknown }} row
+ * Primary headline (Issue / Success + high-level title + full title) for full-page lesson view.
+ * @param {{ category?: unknown, title?: unknown, high_level_title?: unknown }} row
  */
 export function buildLessonPrimaryTitle(row) {
     const titleDiv = document.createElement('div');
@@ -808,11 +903,28 @@ export function buildLessonPrimaryTitle(row) {
     const categoryLabel =
         categoryLower === 'success' ? 'Success' : categoryLower === 'issue' ? 'Issue' : 'Lesson';
     const title = row && row.title ? String(row.title).trim() : '(Untitled)';
+    const highLevelTitle =
+        row && row.high_level_title != null ? String(row.high_level_title).trim() : '';
 
     const strong = document.createElement('strong');
     strong.textContent = `${categoryLabel}: `;
-    titleDiv.appendChild(strong);
-    titleDiv.appendChild(document.createTextNode(title));
+
+    if (highLevelTitle) {
+        const highLevelLine = document.createElement('div');
+        highLevelLine.className = 'lesson-detail-high-level';
+        highLevelLine.appendChild(strong);
+        highLevelLine.appendChild(document.createTextNode(highLevelTitle));
+        titleDiv.appendChild(highLevelLine);
+
+        const bodyLine = document.createElement('div');
+        bodyLine.className = 'lesson-detail-title-body';
+        bodyLine.textContent = title;
+        titleDiv.appendChild(bodyLine);
+    } else {
+        titleDiv.appendChild(strong);
+        titleDiv.appendChild(document.createTextNode(title));
+    }
+
     return titleDiv;
 }
 

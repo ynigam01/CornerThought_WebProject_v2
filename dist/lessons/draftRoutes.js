@@ -4,6 +4,7 @@ exports.registerDraftLessonRoutes = registerDraftLessonRoutes;
 const updateLessonReview_1 = require("./updateLessonReview");
 const updateCompleteness_1 = require("./updateCompleteness");
 const completeLessonReview_1 = require("./completeLessonReview");
+const embedLessonForFind_1 = require("./embedLessonForFind");
 const draftEditor_1 = require("./draftEditor");
 // Wraps a handler with uniform error handling, mirroring server.js style.
 function run(res, label, fn) {
@@ -37,6 +38,15 @@ function registerDraftLessonRoutes(app, supabase) {
             throw new Error('Missing lesson or organization.');
         }
         return (0, completeLessonReview_1.completeLessonReview)(supabase, { lessonId, organizationId, userId });
+    }));
+    // Await embeddings before Find Relevant (draft / for-review)
+    app.post(`${BASE}/:lessonId/embed`, (req, res) => run(res, 'embed for find', async () => {
+        const lessonId = req.params.lessonId;
+        const organizationId = req.body?.organizationId;
+        if (lessonId == null || organizationId == null) {
+            throw new Error('Missing lesson or organization.');
+        }
+        return (0, embedLessonForFind_1.embedLessonForFind)(supabase, { lessonId, organizationId });
     }));
     // Save Draft / Send for Review status update
     app.patch(`${BASE}/:lessonId/review`, (req, res) => run(res, 'review', () => (0, updateLessonReview_1.updateLessonReview)(supabase, {

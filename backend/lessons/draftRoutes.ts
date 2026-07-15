@@ -3,6 +3,7 @@ import type { AssignmentKind, SubItemKind } from './types';
 import { updateLessonReview } from './updateLessonReview';
 import { updateCompleteness } from './updateCompleteness';
 import { completeLessonReview } from './completeLessonReview';
+import { embedLessonForFind } from './embedLessonForFind';
 import {
   applyMetadata,
   createAttachment,
@@ -73,6 +74,18 @@ export function registerDraftLessonRoutes(app: RouteApp, supabase: SupabaseClien
         throw new Error('Missing lesson or organization.');
       }
       return completeLessonReview(supabase, { lessonId, organizationId, userId });
+    }),
+  );
+
+  // Await embeddings before Find Relevant (draft / for-review)
+  app.post(`${BASE}/:lessonId/embed`, (req, res) =>
+    run(res, 'embed for find', async () => {
+      const lessonId = req.params!.lessonId;
+      const organizationId = req.body?.organizationId;
+      if (lessonId == null || organizationId == null) {
+        throw new Error('Missing lesson or organization.');
+      }
+      return embedLessonForFind(supabase, { lessonId, organizationId });
     }),
   );
 

@@ -6801,7 +6801,7 @@ const projectFormHTML = `
 
         const { data: lessonRow, error: lessonErr } = await supabase
             .from('lessons_learned')
-            .select('id, title, category, review, created_by')
+            .select('id, title, high_level_title, category, review, created_by')
             .eq('id', lessonId)
             .eq('project_id', projectId)
             .eq('organization_id', organizationId)
@@ -7979,7 +7979,7 @@ const projectFormHTML = `
             const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
             const { data: lessons } = await supabase
                 .from('lessons_learned')
-                .select('id, title, category, review')
+                .select('id, title, high_level_title, category, review')
                 .in('id', lessonIds);
 
             const lessonMap = {};
@@ -8668,7 +8668,7 @@ const projectFormHTML = `
                 const lessonIds = wlRows.map((r) => r.lessons_learned_id).filter(Boolean);
                 const { data: lessons, error: lessonErr } = await supabase
                     .from('lessons_learned')
-                    .select('id, title, category, review, created_by')
+                    .select('id, title, high_level_title, category, review, created_by')
                     .in('id', lessonIds)
                     .order('id', { ascending: false });
                 if (lessonErr) throw lessonErr;
@@ -9037,7 +9037,7 @@ const projectFormHTML = `
 
                 let query = supabase
                     .from('lessons_learned')
-                    .select('id, title, category, review, created_by')
+                    .select('id, title, high_level_title, category, review, created_by')
                     .eq('organization_id', oid)
                     .eq('project_id', pid)
                     .eq('review', 'for review')
@@ -9762,7 +9762,7 @@ const projectFormHTML = `
 
         const { data: supRowsRaw, error: supErr } = await supabase
             .from('lessons_learned')
-            .select('id, title, category, review, created_by')
+            .select('id, title, high_level_title, category, review, created_by')
             .eq('organization_id', organizationId)
             .eq('project_id', projectId)
             .eq('created_by', myUserId)
@@ -10059,7 +10059,7 @@ const projectFormHTML = `
                 if (lessonIds.length > 0) {
                     let lessonQuery = supabase
                         .from('lessons_learned')
-                        .select('id, title, category, review, created_by')
+                        .select('id, title, high_level_title, category, review, created_by')
                         .eq('organization_id', organizationId)
                         .eq('project_id', projectId)
                         .in('id', lessonIds);
@@ -10212,7 +10212,7 @@ const projectFormHTML = `
 
             let lessonQuerySingle = supabase
                 .from('lessons_learned')
-                .select('id, title, category, review, created_by')
+                .select('id, title, high_level_title, category, review, created_by')
                 .eq('organization_id', organizationId)
                 .eq('project_id', projectId)
                 .in('id', lessonIds);

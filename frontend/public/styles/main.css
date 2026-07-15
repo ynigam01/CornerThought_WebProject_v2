@@ -1109,6 +1109,17 @@ body {
     margin-bottom: 14px;
 }
 
+.lesson-detail-high-level {
+    margin-bottom: 6px;
+}
+
+.lesson-detail-title-body {
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.45;
+    color: #333;
+}
+
 .lesson-detail-section {
     margin-top: 16px;
     padding: 16px;

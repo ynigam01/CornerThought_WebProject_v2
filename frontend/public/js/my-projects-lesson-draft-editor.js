@@ -268,6 +268,7 @@ export async function mountDraftLessonEditor(mountEl, row, project, ctx) {
     let lessonRowState = {
         id: lessonId,
         title: row.title,
+        high_level_title: row.high_level_title,
         category: row.category,
         review: row.review,
         created_by: row && row.created_by != null ? row.created_by : undefined,
