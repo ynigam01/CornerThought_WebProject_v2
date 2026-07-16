@@ -12056,6 +12056,9 @@ const projectFormHTML = `
                 const orgUpdateProjectEmbeddingsButton = document.getElementById(
                     'orgUpdateProjectEmbeddingsButton'
                 );
+                const orgUpdateMetadataEmbeddingsButton = document.getElementById(
+                    'orgUpdateMetadataEmbeddingsButton'
+                );
                 const orgProjectEmbeddingsStatus = document.getElementById(
                     'orgProjectEmbeddingsStatus'
                 );
@@ -12084,6 +12087,10 @@ const projectFormHTML = `
                     if (orgUpdateProjectEmbeddingsButton) {
                         orgUpdateProjectEmbeddingsButton.disabled = true;
                         orgUpdateProjectEmbeddingsButton.textContent = 'Update Project Embeddings';
+                    }
+                    if (orgUpdateMetadataEmbeddingsButton) {
+                        orgUpdateMetadataEmbeddingsButton.disabled = true;
+                        orgUpdateMetadataEmbeddingsButton.textContent = 'Update Metadata Embeddings';
                     }
                     setOrgProjectEmbeddingsStatus('', null);
                 }
@@ -13674,6 +13681,9 @@ const projectFormHTML = `
                         if (orgUpdateProjectEmbeddingsButton) {
                             orgUpdateProjectEmbeddingsButton.disabled = false;
                         }
+                        if (orgUpdateMetadataEmbeddingsButton) {
+                            orgUpdateMetadataEmbeddingsButton.disabled = false;
+                        }
                         setOrgProjectEmbeddingsStatus('', null);
                         const numericId = Number.isNaN(Number(projectIdRaw)) ? projectIdRaw : Number(projectIdRaw);
                         loadOrgProjectDetailsForManagePanel(numericId);
@@ -13863,6 +13873,176 @@ const projectFormHTML = `
                             orgUpdateProjectEmbeddingsButton.disabled = !(
                                 orgProjectsSelect && orgProjectsSelect.value
                             );
+                            if (orgUpdateMetadataEmbeddingsButton) {
+                                orgUpdateMetadataEmbeddingsButton.textContent =
+                                    'Update Metadata Embeddings';
+                                orgUpdateMetadataEmbeddingsButton.disabled = !(
+                                    orgProjectsSelect && orgProjectsSelect.value
+                                );
+                            }
+                        }
+                    });
+                }
+
+                if (orgUpdateMetadataEmbeddingsButton) {
+                    orgUpdateMetadataEmbeddingsButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+
+                        if (!organizationId) {
+                            setOrgProjectEmbeddingsStatus(
+                                'Could not determine your organization. Please log out and log back in.',
+                                'error'
+                            );
+                            return;
+                        }
+
+                        const projectIdRaw = orgProjectsSelect ? orgProjectsSelect.value : '';
+                        if (!projectIdRaw) {
+                            setOrgProjectEmbeddingsStatus('Please select a project first.', 'error');
+                            return;
+                        }
+
+                        const projectId = Number.isNaN(Number(projectIdRaw))
+                            ? projectIdRaw
+                            : Number(projectIdRaw);
+
+                        orgUpdateMetadataEmbeddingsButton.disabled = true;
+                        orgUpdateMetadataEmbeddingsButton.textContent = 'Updating...';
+                        if (orgUpdateProjectEmbeddingsButton) {
+                            orgUpdateProjectEmbeddingsButton.disabled = true;
+                        }
+                        setOrgProjectEmbeddingsStatus('Embedding metadata…', null);
+
+                        let embedTotal = 0;
+                        let sawError = false;
+
+                        try {
+                            const response = await fetch(
+                                '/api/backfill-metadata-list-embeddings',
+                                {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ organizationId, projectId }),
+                                }
+                            );
+
+                            if (!response.ok) {
+                                let data = null;
+                                try {
+                                    data = await response.json();
+                                } catch (_) {
+                                    data = null;
+                                }
+                                throw new Error(
+                                    (data && data.error) ||
+                                        `Failed to update metadata embeddings (${response.status}).`
+                                );
+                            }
+
+                            if (!response.body || typeof response.body.getReader !== 'function') {
+                                throw new Error('Streaming response is not supported in this browser.');
+                            }
+
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            let buffer = '';
+
+                            const handleEvent = (event) => {
+                                if (!event || !event.type) return;
+
+                                if (event.type === 'start') {
+                                    embedTotal = Number(event.total) || 0;
+                                    setOrgProjectEmbeddingsStatus(
+                                        `Embedding metadata (0/${embedTotal})…`,
+                                        null
+                                    );
+                                } else if (event.type === 'row') {
+                                    const index = Number(event.index) || 0;
+                                    const total = Number(event.total) || embedTotal;
+                                    setOrgProjectEmbeddingsStatus(
+                                        `Embedding metadata (${index}/${total})…`,
+                                        null
+                                    );
+                                } else if (event.type === 'done') {
+                                    const processed = Number(event.processed) || 0;
+                                    const skipped = Number(event.skipped) || 0;
+                                    const failed = Number(event.failed) || 0;
+                                    setOrgProjectEmbeddingsStatus(
+                                        `Metadata embeddings updated ${processed}, skipped ${skipped}` +
+                                            (failed > 0 ? `, failed ${failed}` : '') +
+                                            '.',
+                                        failed > 0 ? 'error' : 'success'
+                                    );
+                                } else if (event.type === 'error') {
+                                    sawError = true;
+                                    setOrgProjectEmbeddingsStatus(
+                                        event.message || 'Failed to update metadata embeddings.',
+                                        'error'
+                                    );
+                                }
+                            };
+
+                            while (true) {
+                                const { value, done } = await reader.read();
+                                if (done) break;
+                                buffer += decoder.decode(value, { stream: true });
+
+                                let newlineIndex = buffer.indexOf('\n');
+                                while (newlineIndex !== -1) {
+                                    const line = buffer.slice(0, newlineIndex).trim();
+                                    buffer = buffer.slice(newlineIndex + 1);
+                                    newlineIndex = buffer.indexOf('\n');
+                                    if (!line) continue;
+
+                                    let event = null;
+                                    try {
+                                        event = JSON.parse(line);
+                                    } catch (_) {
+                                        continue;
+                                    }
+                                    handleEvent(event);
+                                }
+                            }
+
+                            const trailing = buffer.trim();
+                            if (trailing) {
+                                try {
+                                    handleEvent(JSON.parse(trailing));
+                                } catch (_) {
+                                    // ignore incomplete trailing buffer
+                                }
+                            }
+
+                            if (
+                                sawError &&
+                                orgProjectEmbeddingsStatus &&
+                                !orgProjectEmbeddingsStatus.textContent
+                            ) {
+                                setOrgProjectEmbeddingsStatus(
+                                    'Failed to update metadata embeddings.',
+                                    'error'
+                                );
+                            }
+                        } catch (err) {
+                            console.error('Metadata list embedding backfill failed:', err);
+                            setOrgProjectEmbeddingsStatus(
+                                err && err.message
+                                    ? err.message
+                                    : 'Failed to update metadata embeddings.',
+                                'error'
+                            );
+                        } finally {
+                            const projectSelected = !!(
+                                orgProjectsSelect && orgProjectsSelect.value
+                            );
+                            orgUpdateMetadataEmbeddingsButton.textContent =
+                                'Update Metadata Embeddings';
+                            orgUpdateMetadataEmbeddingsButton.disabled = !projectSelected;
+                            if (orgUpdateProjectEmbeddingsButton) {
+                                orgUpdateProjectEmbeddingsButton.textContent =
+                                    'Update Project Embeddings';
+                                orgUpdateProjectEmbeddingsButton.disabled = !projectSelected;
+                            }
                         }
                     });
                 }

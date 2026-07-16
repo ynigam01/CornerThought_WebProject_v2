@@ -58,6 +58,24 @@ async function getEmbedding(text) {
   return embedding;
 }
 
+/** Format metadata list text for embedding: "[metadata_type]: [metadata]". */
+function formatMetadataListEmbedText(metadataType, metadata) {
+  const type = metadataType != null ? String(metadataType).trim() : '';
+  let metaText = '';
+  if (metadata != null && typeof metadata === 'object') {
+    try {
+      metaText = JSON.stringify(metadata);
+    } catch {
+      metaText = String(metadata);
+    }
+  } else if (metadata != null) {
+    metaText = String(metadata).trim();
+  }
+
+  if (type && metaText) return `${type}: ${metaText}`;
+  return type || metaText;
+}
+
 const app = express();
 // Allow larger bodies because Add Data attachments are sent as base64.
 app.use(express.json({ limit: '25mb' }));
@@ -471,6 +489,122 @@ app.post('/api/backfill-project-and-details-embeddings', async (req, res) => {
     return res.end();
   } catch (err) {
     console.error('Unexpected error in /api/backfill-project-and-details-embeddings:', err);
+    if (res.headersSent) {
+      try {
+        writeEvent({ type: 'error', message: err?.message || 'Internal server error' });
+        res.end();
+      } catch (_) {
+        // ignore write failures after stream errors
+      }
+      return;
+    }
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/backfill-metadata-list-embeddings
+// Streams NDJSON progress while filling missing search_embedding for
+// lessons_learned_metadata_list rows on one project ("[metadata_type]: [metadata]").
+app.post('/api/backfill-metadata-list-embeddings', async (req, res) => {
+  const organizationId = req.body?.organizationId;
+  const projectId = req.body?.projectId;
+  const batchDelayMs = 1100;
+
+  const writeEvent = (event) => {
+    res.write(`${JSON.stringify(event)}\n`);
+  };
+
+  try {
+    if (organizationId == null || organizationId === '') {
+      return res.status(400).json({ error: 'organizationId is required' });
+    }
+    if (projectId == null || projectId === '') {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const { data: rows, error: fetchError } = await supabase
+      .from('lessons_learned_metadata_list')
+      .select('id, metadata_type, metadata, search_embedding')
+      .eq('organization_id', organizationId)
+      .eq('project_id', projectId);
+
+    if (fetchError) {
+      console.error(
+        'Error loading lessons_learned_metadata_list for embedding backfill:',
+        fetchError
+      );
+      return res.status(500).json({ error: 'Failed to load metadata list' });
+    }
+
+    const allRows = rows || [];
+    const needingEmbed = allRows.filter((row) => {
+      if (row.search_embedding != null) return false;
+      const text = formatMetadataListEmbedText(row.metadata_type, row.metadata);
+      return Boolean(text);
+    });
+    const embedTotal = needingEmbed.length;
+
+    res.status(200);
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+
+    writeEvent({ type: 'start', total: embedTotal });
+
+    let processed = 0;
+    let skipped = allRows.length - embedTotal;
+    let failed = 0;
+
+    for (let i = 0; i < needingEmbed.length; i += 1) {
+      const row = needingEmbed[i];
+      const text = formatMetadataListEmbedText(row.metadata_type, row.metadata);
+      const index = i + 1;
+      let status = 'failed';
+
+      try {
+        const embedding = await getEmbedding(text);
+        const { error: updateError } = await supabase
+          .from('lessons_learned_metadata_list')
+          .update({ search_embedding: embedding })
+          .eq('id', row.id);
+
+        if (updateError) {
+          console.error(
+            `Error updating lessons_learned_metadata_list id=${row.id}:`,
+            updateError
+          );
+          failed += 1;
+          status = 'failed';
+        } else {
+          processed += 1;
+          status = 'updated';
+        }
+      } catch (err) {
+        console.error(
+          `Error embedding lessons_learned_metadata_list id=${row.id}:`,
+          err?.message || err
+        );
+        failed += 1;
+        status = 'failed';
+      }
+
+      writeEvent({ type: 'row', index, total: embedTotal, status });
+      await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+    }
+
+    writeEvent({
+      type: 'done',
+      processed,
+      skipped,
+      failed,
+      total: allRows.length,
+    });
+    return res.end();
+  } catch (err) {
+    console.error('Unexpected error in /api/backfill-metadata-list-embeddings:', err);
     if (res.headersSent) {
       try {
         writeEvent({ type: 'error', message: err?.message || 'Internal server error' });

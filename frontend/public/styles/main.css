@@ -3285,6 +3285,13 @@ body {
     align-items: flex-start;
 }
 
+/* Manage Projects sub-module: embedding buttons side by side */
+#orgManageProjectsSubmodule .form-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
 /* Manage Projects sub-module layout */
 #orgManageProjectsSubmodule {
     margin-top: 10px;
