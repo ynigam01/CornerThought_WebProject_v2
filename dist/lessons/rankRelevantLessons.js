@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rankRelevantLessons = rankRelevantLessons;
 const cosineSimilarity_1 = require("../embeddings/cosineSimilarity");
-const HLT_THRESHOLD = 0.5;
+const HLT_THRESHOLD = 0.35;
 const WEIGHT_PROJECT_TYPE = 0.5;
 const WEIGHT_METADATA = 0.3;
 const WEIGHT_PROJECT_PARAMS = 0.2;

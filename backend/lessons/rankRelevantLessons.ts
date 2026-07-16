@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { cosineSimilarity, parseEmbedding } from '../embeddings/cosineSimilarity';
 import type { Id } from './types';
 
-const HLT_THRESHOLD = 0.5;
+const HLT_THRESHOLD = 0.35;
 const WEIGHT_PROJECT_TYPE = 0.5;
 const WEIGHT_METADATA = 0.3;
 const WEIGHT_PROJECT_PARAMS = 0.2;

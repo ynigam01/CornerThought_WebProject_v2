@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "start:server": "node server.js"
+    "start:server": "node server.js",
+    "check:cosine": "node check-cosine-batch.js"
   },
   "repository": {
     "type": "git",
