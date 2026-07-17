@@ -14,6 +14,7 @@ const {
 const { saveLessons } = require('./dist/lessons/saveLessons');
 const { registerDraftLessonRoutes } = require('./dist/lessons/draftRoutes');
 const { rankRelevantLessons } = require('./dist/lessons/rankRelevantLessons');
+const { rankUpcomingTaskLessons } = require('./dist/lessons/rankUpcomingTaskLessons');
 const {
   OPENROUTER_MODEL,
   chatCompletion,
@@ -758,6 +759,35 @@ app.post('/api/find-relevant-lessons/rank', async (req, res) => {
     console.error('find-relevant-lessons/rank failed:', err);
     return res.status(500).json({
       error: err?.message || 'Failed to rank relevant lessons.',
+    });
+  }
+});
+
+// POST /api/upcoming-task-lessons/rank
+// Rank completed lessons for an upcoming assigned task via metadata-list embedding match.
+app.post('/api/upcoming-task-lessons/rank', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const organizationId = body.organizationId;
+    const userId = body.userId;
+    const metadataListId = body.metadataListId;
+    if (organizationId == null || userId == null || metadataListId == null) {
+      return res.status(400).json({
+        error: 'organizationId, userId, and metadataListId are required.',
+      });
+    }
+
+    const result = await rankUpcomingTaskLessons(supabase, {
+      organizationId,
+      userId,
+      metadataListId,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('upcoming-task-lessons/rank failed:', err);
+    return res.status(500).json({
+      error: err?.message || 'Failed to rank upcoming task lessons.',
     });
   }
 });

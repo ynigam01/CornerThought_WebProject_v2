@@ -6208,6 +6208,7 @@ const projectFormHTML = `
         if (workshopsTab) workshopsTab.hidden = workshopInvitesCache.length === 0;
 
         renderTodayWorkshopBanner();
+        void loadUpcomingTaskLessonsSection();
     }
 
     function renderTodayWorkshopBanner() {
@@ -6285,6 +6286,380 @@ const projectFormHTML = `
 
             container.appendChild(card);
         });
+    }
+
+    /** @type {Array<{ metadataListId: string|number, label: string, projectId: string|number|null, start: string }>} */
+    let upcomingTaskLessonsCache = [];
+    let upcomingTaskLessonsSelectWired = false;
+    let upcomingTaskLessonsRequestToken = 0;
+
+    function parseUpcomingTaskDateOnly(value) {
+        if (value == null) return null;
+        const s = String(value).trim();
+        if (!s) return null;
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+        const d = new Date(s);
+        if (Number.isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${mo}-${day}`;
+    }
+
+    function addDaysToDateString(yyyyMmDd, days) {
+        const d = new Date(`${yyyyMmDd}T00:00:00`);
+        d.setDate(d.getDate() + days);
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${mo}-${day}`;
+    }
+
+    function setUpcomingTaskLessonsStatus(message, isError = false) {
+        const statusEl = document.getElementById('upcomingTaskLessonsStatus');
+        if (!statusEl) return;
+        statusEl.classList.remove('upload-message--success', 'upload-message--error');
+        statusEl.textContent = message || '';
+        if (!message) return;
+        statusEl.classList.add(isError ? 'upload-message--error' : 'upload-message--success');
+    }
+
+    function hideUpcomingTaskLessonsSection() {
+        const section = document.getElementById('upcomingTaskLessonsSection');
+        if (section) {
+            section.hidden = true;
+            const headingEl = section.querySelector('.upcoming-task-lessons-heading');
+            if (headingEl) {
+                headingEl.textContent = 'Lessons Learned for Upcoming Tasks';
+            }
+        }
+        upcomingTaskLessonsCache = [];
+        const selectEl = document.getElementById('upcomingTaskLessonsSelect');
+        if (selectEl) {
+            selectEl.innerHTML = '<option value="">Select a task</option>';
+        }
+        const resultsEl = document.getElementById('upcomingTaskLessonsResults');
+        if (resultsEl) resultsEl.innerHTML = '';
+        setUpcomingTaskLessonsStatus('');
+    }
+
+    async function openLessonFromUpcomingTaskLessons(lessonId, projectId) {
+        if (!ctUser || ctUser.id == null || !organizationId) return;
+        if (projectId == null || lessonId == null) return;
+
+        const { data: lessonRow, error: lessonErr } = await supabase
+            .from('lessons_learned')
+            .select('id, title, high_level_title, category, review, created_by')
+            .eq('id', lessonId)
+            .eq('project_id', projectId)
+            .eq('organization_id', organizationId)
+            .maybeSingle();
+
+        if (lessonErr || !lessonRow) {
+            console.error(lessonErr || new Error('Lesson not found.'));
+            setUpcomingTaskLessonsStatus(
+                (lessonErr && lessonErr.message) || 'Could not load this lesson.',
+                true
+            );
+            return;
+        }
+
+        const { data: projectRow, error: projectErr } = await supabase
+            .from('projects')
+            .select('project_id, project_name, project_type_id')
+            .eq('project_id', projectId)
+            .eq('organization_id', organizationId)
+            .maybeSingle();
+
+        if (projectErr || !projectRow) {
+            console.error(projectErr || new Error('Project not found.'));
+            setUpcomingTaskLessonsStatus(
+                (projectErr && projectErr.message) || 'Could not load this project.',
+                true
+            );
+            return;
+        }
+
+        navigate('projects');
+        queueMicrotask(() => {
+            showMyProjectsLessonFullView(lessonRow, projectRow);
+        });
+        if ((location.hash || '#home') !== '#projects') {
+            try {
+                history.replaceState(null, '', `${location.pathname}${location.search}#projects`);
+            } catch (_) {
+                /* keep URL as-is if replaceState fails */
+            }
+        }
+    }
+
+    async function renderUpcomingTaskLessonsForSelection(metadataListId) {
+        const resultsEl = document.getElementById('upcomingTaskLessonsResults');
+        if (!resultsEl) return;
+        resultsEl.innerHTML = '';
+
+        if (!organizationId || !ctUser || ctUser.id == null || metadataListId == null || metadataListId === '') {
+            setUpcomingTaskLessonsStatus('Select a task to see relevant lessons.', true);
+            return;
+        }
+
+        const requestToken = ++upcomingTaskLessonsRequestToken;
+        setUpcomingTaskLessonsStatus('Loading relevant lessons learned…');
+
+        try {
+            const response = await fetch('/api/upcoming-task-lessons/rank', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    organizationId,
+                    userId: ctUser.id,
+                    metadataListId,
+                }),
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (_) {
+                data = null;
+            }
+
+            if (requestToken !== upcomingTaskLessonsRequestToken) return;
+
+            if (!response.ok) {
+                throw new Error(
+                    (data && data.error) ||
+                        `Failed to rank lessons (${response.status}).`
+                );
+            }
+
+            const results = Array.isArray(data && data.results) ? data.results : [];
+            if (results.length === 0) {
+                setUpcomingTaskLessonsStatus('No relevant completed lessons found for this task.');
+                return;
+            }
+
+            setUpcomingTaskLessonsStatus('');
+            results.forEach((item) => {
+                if (!item || item.lessonId == null) return;
+                const row = {
+                    id: item.lessonId,
+                    title: item.title,
+                    high_level_title: item.highLevelTitle,
+                    category: item.category,
+                    review: 'complete',
+                };
+                const project = { project_id: item.projectId };
+                resultsEl.appendChild(
+                    createMyProjectsLessonWrap(row, project, {
+                        onOpenLesson: () => {
+                            void openLessonFromUpcomingTaskLessons(item.lessonId, item.projectId);
+                        },
+                    })
+                );
+            });
+        } catch (err) {
+            if (requestToken !== upcomingTaskLessonsRequestToken) return;
+            console.error('Upcoming task lessons rank failed:', err);
+            setUpcomingTaskLessonsStatus(
+                err && err.message ? err.message : 'Failed to load relevant lessons.',
+                true
+            );
+        }
+    }
+
+    function wireUpcomingTaskLessonsSelect() {
+        if (upcomingTaskLessonsSelectWired) return;
+        const selectEl = document.getElementById('upcomingTaskLessonsSelect');
+        if (!selectEl) return;
+        upcomingTaskLessonsSelectWired = true;
+        selectEl.addEventListener('change', () => {
+            const value = selectEl.value;
+            if (!value) {
+                const resultsEl = document.getElementById('upcomingTaskLessonsResults');
+                if (resultsEl) resultsEl.innerHTML = '';
+                setUpcomingTaskLessonsStatus('');
+                return;
+            }
+            void renderUpcomingTaskLessonsForSelection(value);
+        });
+    }
+
+    async function loadUpcomingTaskLessonsSection() {
+        const section = document.getElementById('upcomingTaskLessonsSection');
+        const selectEl = document.getElementById('upcomingTaskLessonsSelect');
+        const selectWrap = section
+            ? section.querySelector('.upcoming-task-lessons-select-wrap')
+            : null;
+        if (!section || !selectEl) return;
+
+        wireUpcomingTaskLessonsSelect();
+
+        if (!ctUser || ctUser.id == null || !organizationId) {
+            hideUpcomingTaskLessonsSection();
+            return;
+        }
+
+        try {
+            const { data: assignments, error: assignErr } = await supabase
+                .from('project_team_member_assignments')
+                .select('lessons_learned_metadata_list_id, assignment, assignment_type, project_id')
+                .eq('organization_id', organizationId)
+                .eq('user_id', ctUser.id)
+                .eq('assignment_type', 'task');
+
+            if (assignErr) {
+                console.error('Upcoming tasks: assignments load failed:', assignErr);
+                hideUpcomingTaskLessonsSection();
+                return;
+            }
+
+            const assignmentRows = Array.isArray(assignments) ? assignments : [];
+            const listIds = Array.from(
+                new Set(
+                    assignmentRows
+                        .map((r) => r && r.lessons_learned_metadata_list_id)
+                        .filter((id) => id != null)
+                )
+            );
+
+            if (listIds.length === 0) {
+                hideUpcomingTaskLessonsSection();
+                return;
+            }
+
+            const todayStr = getTodayDateString();
+            const windowEndStr = addDaysToDateString(todayStr, 14);
+
+            const detailsByListId = new Map();
+            for (let i = 0; i < listIds.length; i += 100) {
+                const chunk = listIds.slice(i, i + 100);
+                const { data: detailRows, error: detailErr } = await supabase
+                    .from('msproject_task_details')
+                    .select('lessons_learned_metadata_list_id, task_name, start, project_id')
+                    .eq('organization_id', organizationId)
+                    .in('lessons_learned_metadata_list_id', chunk);
+
+                if (detailErr) {
+                    console.error('Upcoming tasks: task details load failed:', detailErr);
+                    hideUpcomingTaskLessonsSection();
+                    return;
+                }
+
+                (detailRows || []).forEach((row) => {
+                    if (row && row.lessons_learned_metadata_list_id != null) {
+                        detailsByListId.set(String(row.lessons_learned_metadata_list_id), row);
+                    }
+                });
+            }
+
+            const listRowsById = new Map();
+            for (let i = 0; i < listIds.length; i += 100) {
+                const chunk = listIds.slice(i, i + 100);
+                const { data: listRows, error: listErr } = await supabase
+                    .from('lessons_learned_metadata_list')
+                    .select('id, metadata, search_embedding, project_id')
+                    .eq('organization_id', organizationId)
+                    .in('id', chunk);
+
+                if (listErr) {
+                    console.error('Upcoming tasks: metadata list load failed:', listErr);
+                    hideUpcomingTaskLessonsSection();
+                    return;
+                }
+
+                (listRows || []).forEach((row) => {
+                    if (row && row.id != null) listRowsById.set(String(row.id), row);
+                });
+            }
+
+            const assignmentLabelByListId = new Map();
+            assignmentRows.forEach((r) => {
+                if (r && r.lessons_learned_metadata_list_id != null) {
+                    assignmentLabelByListId.set(
+                        String(r.lessons_learned_metadata_list_id),
+                        r.assignment != null ? String(r.assignment) : ''
+                    );
+                }
+            });
+
+            const upcoming = [];
+            listIds.forEach((id) => {
+                const key = String(id);
+                const listRow = listRowsById.get(key);
+                if (!listRow || listRow.search_embedding == null) return;
+
+                const detail = detailsByListId.get(key);
+                if (!detail) return;
+                const startDate = parseUpcomingTaskDateOnly(detail.start);
+                if (!startDate) return;
+                if (startDate < todayStr || startDate > windowEndStr) return;
+
+                const labelFromDetail =
+                    detail.task_name != null ? String(detail.task_name).trim() : '';
+                const labelFromAssign = String(assignmentLabelByListId.get(key) || '').trim();
+                const labelFromMeta =
+                    listRow.metadata != null
+                        ? typeof listRow.metadata === 'object'
+                            ? JSON.stringify(listRow.metadata)
+                            : String(listRow.metadata).trim()
+                        : '';
+                const label = labelFromDetail || labelFromAssign || labelFromMeta || '(Untitled task)';
+
+                upcoming.push({
+                    metadataListId: listRow.id,
+                    label,
+                    projectId:
+                        detail.project_id != null
+                            ? detail.project_id
+                            : listRow.project_id != null
+                              ? listRow.project_id
+                              : null,
+                    start: startDate,
+                });
+            });
+
+            upcoming.sort((a, b) => {
+                if (a.start < b.start) return -1;
+                if (a.start > b.start) return 1;
+                return String(a.label).localeCompare(String(b.label));
+            });
+
+            upcomingTaskLessonsCache = upcoming;
+
+            if (upcoming.length === 0) {
+                hideUpcomingTaskLessonsSection();
+                return;
+            }
+
+            section.hidden = false;
+            const headingEl = section.querySelector('.upcoming-task-lessons-heading');
+            if (headingEl) {
+                if (upcoming.length === 1) {
+                    headingEl.textContent = `Lesson Learned for ${upcoming[0].label}`;
+                } else {
+                    headingEl.textContent = 'Lessons Learned for Upcoming Tasks';
+                }
+            }
+            selectEl.innerHTML = '';
+            upcoming.forEach((task) => {
+                const opt = document.createElement('option');
+                opt.value = String(task.metadataListId);
+                opt.textContent = `${task.start} — ${task.label}`;
+                selectEl.appendChild(opt);
+            });
+
+            if (selectWrap) {
+                selectWrap.hidden = upcoming.length < 2;
+            }
+
+            selectEl.value = String(upcoming[0].metadataListId);
+            await renderUpcomingTaskLessonsForSelection(upcoming[0].metadataListId);
+        } catch (err) {
+            console.error('loadUpcomingTaskLessonsSection failed:', err);
+            hideUpcomingTaskLessonsSection();
+        }
     }
 
     function renderReviewNotificationsList() {

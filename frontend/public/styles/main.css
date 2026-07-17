@@ -353,6 +353,36 @@ body {
     color: #1d4ed8;
 }
 
+/* --- Lessons Learned for Upcoming Tasks (home) --- */
+.upcoming-task-lessons-section {
+    margin: 0 0 28px 0;
+    max-width: 720px;
+}
+
+.upcoming-task-lessons-heading {
+    margin: 16px 0 12px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2c3e50;
+}
+
+.upcoming-task-lessons-select-wrap {
+    margin-bottom: 12px;
+    max-width: 520px;
+}
+
+.upcoming-task-lessons-select-wrap select {
+    width: 100%;
+}
+
+.upcoming-task-lessons-results {
+    margin-top: 12px;
+}
+
+.upcoming-task-lessons-section .upload-message {
+    margin: 8px 0;
+}
+
 /* --- Review Notifications view --- */
 .review-notifications-back {
     display: inline-flex;
