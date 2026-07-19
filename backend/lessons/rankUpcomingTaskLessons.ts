@@ -18,6 +18,7 @@ export interface RankUpcomingTaskLessonsRequest {
 export interface RankUpcomingTaskLessonResult {
   lessonId: Id;
   projectId: Id | null;
+  projectName: string | null;
   title: string | null;
   highLevelTitle: string | null;
   category: string | null;
@@ -238,10 +239,11 @@ export async function rankUpcomingTaskLessons(
   );
 
   const projectTypeIdByProjectId = new Map<string, Id>();
+  const projectNameByProjectId = new Map<string, string>();
   for (const chunk of chunkIds(projectIds, 200)) {
     const { data: projects, error } = await supabase
       .from('projects')
-      .select('project_id, project_type_id')
+      .select('project_id, project_type_id, project_name')
       .eq('organization_id', organizationId)
       .in('project_id', chunk);
     if (error) {
@@ -249,8 +251,13 @@ export async function rankUpcomingTaskLessons(
       continue;
     }
     for (const p of projects || []) {
-      if (p.project_id != null && p.project_type_id != null) {
-        projectTypeIdByProjectId.set(String(p.project_id), p.project_type_id);
+      if (p.project_id == null) continue;
+      const key = String(p.project_id);
+      if (p.project_type_id != null) {
+        projectTypeIdByProjectId.set(key, p.project_type_id);
+      }
+      if (p.project_name != null && String(p.project_name).trim()) {
+        projectNameByProjectId.set(key, String(p.project_name).trim());
       }
     }
   }
@@ -330,6 +337,10 @@ export async function rankUpcomingTaskLessons(
     results.push({
       lessonId: lesson.id,
       projectId: lesson.projectId,
+      projectName:
+        lesson.projectId != null
+          ? projectNameByProjectId.get(String(lesson.projectId)) || null
+          : null,
       title: lesson.title,
       highLevelTitle: lesson.highLevelTitle,
       category: lesson.category,

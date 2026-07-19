@@ -1674,6 +1674,13 @@ body {
     line-height: 1.5;
 }
 
+.my-projects-lesson-card-project {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #64748b;
+}
+
 .my-projects-lesson-card--issue {
     background-color: #fdecea; /* light red */
 }
@@ -1884,8 +1891,17 @@ body {
 }
 
 .my-projects-lesson-full-view-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
     margin-bottom: 12px;
+}
+
+.my-projects-lesson-full-view-project {
+    margin-right: auto;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2c3e50;
 }
 
 .my-projects-lesson-full-view-mount {

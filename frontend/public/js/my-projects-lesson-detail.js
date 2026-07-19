@@ -1637,10 +1637,14 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
 /**
  * @param {{ id?: unknown, category?: unknown, title?: unknown }} row
  * @param {{ project_id?: unknown }} project
- * @param {{ onOpenLesson?: (args: { row: typeof row, project: typeof project }) => void }} deps
+ * @param {{
+ *   onOpenLesson?: (args: { row: typeof row, project: typeof project }) => void,
+ *   useYellowHighlight?: boolean,
+ *   projectName?: string|null,
+ * }} deps
  */
 export function createMyProjectsLessonWrap(row, project, deps) {
-    const { onOpenLesson, useYellowHighlight } = deps;
+    const { onOpenLesson, useYellowHighlight, projectName } = deps || {};
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-lesson-wrap';
 
@@ -1650,6 +1654,12 @@ export function createMyProjectsLessonWrap(row, project, deps) {
         ? categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1)
         : 'Issue';
     const title = row && row.title ? String(row.title).trim() : '(Untitled)';
+    const projectNameText =
+        projectName != null && String(projectName).trim()
+            ? String(projectName).trim()
+            : project && project.project_name != null && String(project.project_name).trim()
+              ? String(project.project_name).trim()
+              : '';
 
     const card = document.createElement('div');
     card.className = 'my-projects-lesson-card my-projects-lesson-card--clickable';
@@ -1660,16 +1670,29 @@ export function createMyProjectsLessonWrap(row, project, deps) {
     } else {
         card.classList.add('my-projects-lesson-card--issue');
     }
+
+    const titleLine = document.createElement('div');
+    titleLine.className = 'my-projects-lesson-card-title';
     const label = document.createElement('strong');
     label.textContent = `${categoryDisplay}: `;
-    card.appendChild(label);
-    card.appendChild(document.createTextNode(title));
+    titleLine.appendChild(label);
+    titleLine.appendChild(document.createTextNode(title));
+    card.appendChild(titleLine);
+
+    if (projectNameText) {
+        const projectLine = document.createElement('div');
+        projectLine.className = 'my-projects-lesson-card-project';
+        projectLine.textContent = projectNameText;
+        card.appendChild(projectLine);
+    }
 
     card.setAttribute('role', 'button');
     card.tabIndex = 0;
     card.setAttribute(
         'aria-label',
-        `Open full lesson, ${categoryDisplay}: ${title}`
+        projectNameText
+            ? `Open full lesson, ${categoryDisplay}: ${title}, project ${projectNameText}`
+            : `Open full lesson, ${categoryDisplay}: ${title}`
     );
 
     const open = () => {

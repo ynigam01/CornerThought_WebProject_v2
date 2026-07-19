@@ -8,6 +8,7 @@ export interface RankUpcomingTaskLessonsRequest {
 export interface RankUpcomingTaskLessonResult {
     lessonId: Id;
     projectId: Id | null;
+    projectName: string | null;
     title: string | null;
     highLevelTitle: string | null;
     category: string | null;

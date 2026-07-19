@@ -6450,9 +6450,13 @@ const projectFormHTML = `
                     category: item.category,
                     review: 'complete',
                 };
-                const project = { project_id: item.projectId };
+                const project = {
+                    project_id: item.projectId,
+                    project_name: item.projectName || null,
+                };
                 resultsEl.appendChild(
                     createMyProjectsLessonWrap(row, project, {
+                        projectName: item.projectName || null,
                         onOpenLesson: () => {
                             void openLessonFromUpcomingTaskLessons(item.lessonId, item.projectId);
                         },
@@ -7374,6 +7378,7 @@ const projectFormHTML = `
                 </div>
                 <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
                     <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
+                        <div id="myProjectsLessonFullViewProjectLabel" class="my-projects-lesson-full-view-project" hidden></div>
                         <button type="button" id="myProjectsLessonFullViewBack" class="lesson-detail-back-button">Go back</button>
                     </div>
                     <div id="myProjectsLessonFullViewMount" class="my-projects-lesson-full-view-mount"></div>
@@ -9982,6 +9987,11 @@ const projectFormHTML = `
     function hideMyProjectsLessonFullView() {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
+        const projectLabelEl = document.getElementById('myProjectsLessonFullViewProjectLabel');
+        if (projectLabelEl) {
+            projectLabelEl.textContent = '';
+            projectLabelEl.hidden = true;
+        }
         if (searchView) {
             searchView.classList.remove('search-view--lesson-fullscreen');
         }
@@ -9998,8 +10008,22 @@ const projectFormHTML = `
     function showMyProjectsLessonFullView(row, project) {
         const searchView = document.getElementById('searchView');
         const mount = document.getElementById('myProjectsLessonFullViewMount');
+        const projectLabelEl = document.getElementById('myProjectsLessonFullViewProjectLabel');
         if (!searchView || !mount) return;
         searchView.classList.add('search-view--lesson-fullscreen');
+        if (projectLabelEl) {
+            const projectName =
+                project && project.project_name != null
+                    ? String(project.project_name).trim()
+                    : '';
+            if (projectName) {
+                projectLabelEl.textContent = `Project: ${projectName}`;
+                projectLabelEl.hidden = false;
+            } else {
+                projectLabelEl.textContent = '';
+                projectLabelEl.hidden = true;
+            }
+        }
         const mainEl = document.querySelector('.main-content');
         if (mainEl) {
             mainEl.scrollTo(0, 0);
