@@ -600,6 +600,15 @@ body {
     min-height: 0 !important;
 }
 
+.project-types-panel .choices__list--dropdown .choices__heading,
+.my-projects-project-analysis-category-panel .choices__list--dropdown .choices__heading {
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #2c3e50;
+    padding: 8px 10px 6px;
+}
+
 .login-status-message {
     margin-top: 20px;
     color: #e74c3c; /* Example for error messages */

@@ -9672,6 +9672,171 @@ const projectFormHTML = `
         setMyProjectsLessonsResultsPanelVisible(myProjectsLessonsResultsVisibilityBeforeAnalysis);
     }
 
+    /** @type {WeakMap<HTMLSelectElement, import('choices.js').default>} */
+    const myProjectsLessonsCategoriesChoicesBySelect = new WeakMap();
+
+    /**
+     * @param {HTMLSelectElement} selectEl
+     * @returns {import('choices.js').default | null}
+     */
+    function ensureMyProjectsLessonsCategoriesChoices(selectEl) {
+        if (!selectEl) return null;
+        const existing = myProjectsLessonsCategoriesChoicesBySelect.get(selectEl);
+        if (existing) return existing;
+        if (typeof Choices === 'undefined') return null;
+
+        const instance = new Choices(selectEl, {
+            searchEnabled: true,
+            shouldSort: false,
+            placeholder: true,
+            placeholderValue: 'Select a category',
+            searchPlaceholderValue: 'Type to search...',
+            itemSelectText: '',
+        });
+        myProjectsLessonsCategoriesChoicesBySelect.set(selectEl, instance);
+        return instance;
+    }
+
+    /**
+     * @param {HTMLSelectElement} selectEl
+     * @param {string} text
+     */
+    function setMyProjectsLessonsCategoriesNativePlaceholder(selectEl, text) {
+        selectEl.innerHTML = '';
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = text;
+        selectEl.appendChild(option);
+        selectEl.value = '';
+    }
+
+    /**
+     * @param {HTMLSelectElement} selectEl
+     * @param {string} text
+     */
+    function setMyProjectsLessonsCategoriesPlaceholder(selectEl, text) {
+        const choicesInstance = ensureMyProjectsLessonsCategoriesChoices(selectEl);
+        if (!choicesInstance) {
+            setMyProjectsLessonsCategoriesNativePlaceholder(selectEl, text);
+            return;
+        }
+        choicesInstance.clearStore();
+        choicesInstance.clearChoices();
+        choicesInstance.setChoices(
+            [{ value: '', label: text, disabled: true, selected: true }],
+            'value',
+            'label',
+            true
+        );
+    }
+
+    /**
+     * @param {Array<{ assignment_type?: unknown, assignment?: unknown, lessons_learned_metadata_list_id?: unknown }>} sortedRows
+     * @returns {Array<{ label: string, id: string, choices: Array<{ value: string, label: string }> }>}
+     */
+    function buildMyProjectsLessonsCategoriesChoiceGroups(sortedRows) {
+        const groupsByType = new Map();
+        const seenValues = new Set();
+
+        (Array.isArray(sortedRows) ? sortedRows : []).forEach((row) => {
+            const assignmentTypeRaw = row && row.assignment_type ? String(row.assignment_type).trim() : '';
+            const assignmentType = assignmentTypeRaw || 'Uncategorized';
+            const assignmentRaw = row && row.assignment ? String(row.assignment).trim() : '';
+            const assignmentValue =
+                row && row.lessons_learned_metadata_list_id != null
+                    ? String(row.lessons_learned_metadata_list_id)
+                    : assignmentRaw;
+            const assignmentLabel = assignmentRaw || 'Unlabeled assignment';
+
+            if (!assignmentValue) return;
+            const dedupeKey = `${assignmentType}::${assignmentValue}::${assignmentLabel}`;
+            if (seenValues.has(dedupeKey)) return;
+            seenValues.add(dedupeKey);
+
+            if (!groupsByType.has(assignmentType)) {
+                groupsByType.set(assignmentType, {
+                    label: assignmentType,
+                    id: assignmentType,
+                    choices: [],
+                });
+            }
+            groupsByType.get(assignmentType).choices.push({
+                value: assignmentValue,
+                label: assignmentLabel,
+            });
+        });
+
+        return Array.from(groupsByType.values()).filter((group) => group.choices.length > 0);
+    }
+
+    /**
+     * @param {HTMLSelectElement} selectEl
+     * @param {Array<{ assignment_type?: unknown, assignment?: unknown, lessons_learned_metadata_list_id?: unknown }>} sortedRows
+     */
+    function setMyProjectsLessonsCategoriesOptions(selectEl, sortedRows) {
+        const choiceGroups = buildMyProjectsLessonsCategoriesChoiceGroups(sortedRows);
+        const totalChoices = choiceGroups.reduce((sum, group) => sum + group.choices.length, 0);
+        if (totalChoices === 0) {
+            setMyProjectsLessonsCategoriesPlaceholder(selectEl, 'No categories available yet');
+            return;
+        }
+
+        const choicesInstance = ensureMyProjectsLessonsCategoriesChoices(selectEl);
+        if (!choicesInstance) {
+            selectEl.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select a category';
+            selectEl.appendChild(placeholder);
+            let currentGroupLabel = '';
+            let currentGroupEl = null;
+            const seenValues = new Set();
+
+            sortedRows.forEach((row) => {
+                const assignmentTypeRaw = row && row.assignment_type ? String(row.assignment_type).trim() : '';
+                const assignmentType = assignmentTypeRaw || 'Uncategorized';
+                const assignmentRaw = row && row.assignment ? String(row.assignment).trim() : '';
+                const assignmentValue =
+                    row && row.lessons_learned_metadata_list_id != null
+                        ? String(row.lessons_learned_metadata_list_id)
+                        : assignmentRaw;
+                const assignmentLabel = assignmentRaw || 'Unlabeled assignment';
+
+                if (!assignmentValue) return;
+                const dedupeKey = `${assignmentType}::${assignmentValue}::${assignmentLabel}`;
+                if (seenValues.has(dedupeKey)) return;
+                seenValues.add(dedupeKey);
+
+                if (assignmentType !== currentGroupLabel) {
+                    currentGroupLabel = assignmentType;
+                    currentGroupEl = document.createElement('optgroup');
+                    currentGroupEl.label = assignmentType;
+                    selectEl.appendChild(currentGroupEl);
+                }
+
+                if (!currentGroupEl) return;
+                const option = document.createElement('option');
+                option.value = assignmentValue;
+                option.textContent = assignmentLabel;
+                currentGroupEl.appendChild(option);
+            });
+
+            if (selectEl.options.length <= 1) {
+                setMyProjectsLessonsCategoriesNativePlaceholder(selectEl, 'No categories available yet');
+                return;
+            }
+
+            selectEl.value = '';
+            return;
+        }
+
+        choicesInstance.clearStore();
+        choicesInstance.clearChoices();
+        choicesInstance.setChoices(choiceGroups, 'value', 'label', true);
+        choicesInstance.removeActiveItems();
+        selectEl.value = '';
+    }
+
     /**
      * @param {{ project_id?: unknown } | null} project
      * @param {HTMLSelectElement | null} [categoriesSelectOverride]
@@ -9706,12 +9871,7 @@ const projectFormHTML = `
         };
 
         const setSingleOption = (text) => {
-            categoriesSelect.innerHTML = '';
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = text;
-            categoriesSelect.appendChild(option);
-            categoriesSelect.value = '';
+            setMyProjectsLessonsCategoriesPlaceholder(categoriesSelect, text);
         };
 
         const projectId = project && project.project_id != null ? project.project_id : null;
@@ -9815,51 +9975,7 @@ const projectFormHTML = `
                 return nameA.localeCompare(nameB);
             });
 
-            categoriesSelect.innerHTML = '';
-            const placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = 'Select a category';
-            categoriesSelect.appendChild(placeholder);
-
-            let currentGroupLabel = '';
-            let currentGroupEl = null;
-            const seenValues = new Set();
-
-            sortedRows.forEach((row) => {
-                const assignmentTypeRaw = row && row.assignment_type ? String(row.assignment_type).trim() : '';
-                const assignmentType = assignmentTypeRaw || 'Uncategorized';
-                const assignmentRaw = row && row.assignment ? String(row.assignment).trim() : '';
-                const assignmentValue =
-                    row && row.lessons_learned_metadata_list_id != null
-                        ? String(row.lessons_learned_metadata_list_id)
-                        : assignmentRaw;
-                const assignmentLabel = assignmentRaw || 'Unlabeled assignment';
-
-                if (!assignmentValue) return;
-                const dedupeKey = `${assignmentType}::${assignmentValue}::${assignmentLabel}`;
-                if (seenValues.has(dedupeKey)) return;
-                seenValues.add(dedupeKey);
-
-                if (assignmentType !== currentGroupLabel) {
-                    currentGroupLabel = assignmentType;
-                    currentGroupEl = document.createElement('optgroup');
-                    currentGroupEl.label = assignmentType;
-                    categoriesSelect.appendChild(currentGroupEl);
-                }
-
-                if (!currentGroupEl) return;
-                const option = document.createElement('option');
-                option.value = assignmentValue;
-                option.textContent = assignmentLabel;
-                currentGroupEl.appendChild(option);
-            });
-
-            if (categoriesSelect.options.length <= 1) {
-                setSingleOption('No categories available yet');
-                return;
-            }
-
-            categoriesSelect.value = '';
+            setMyProjectsLessonsCategoriesOptions(categoriesSelect, sortedRows);
         } catch (err) {
             if (categoriesRequestIsStale(requestToken)) return;
             console.error('Unexpected error loading My Projects lessons categories:', err);
