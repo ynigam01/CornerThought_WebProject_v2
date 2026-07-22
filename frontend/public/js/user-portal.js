@@ -10111,17 +10111,27 @@ const projectFormHTML = `
         });
     }
 
-    function renderMyProjectsLessonsCards(rows, project) {
+    function renderMyProjectsLessonsCards(rows, project, options = {}) {
         const resultsEl = document.getElementById('myProjectsLessonsResults');
         if (!resultsEl) return;
         resultsEl.innerHTML = '';
 
         if (!Array.isArray(rows) || rows.length === 0) return;
 
+        const yellowLessonIds = options.yellowLessonIds instanceof Set ? options.yellowLessonIds : null;
+        const categoryLabelsByLessonId =
+            options.categoryLabelsByLessonId instanceof Map ? options.categoryLabelsByLessonId : null;
+
         rows.forEach((row) => {
+            const lessonId = row && row.id != null ? String(row.id) : '';
+            const useYellow = !!(yellowLessonIds && lessonId && yellowLessonIds.has(lessonId));
+            const categoryLabels =
+                categoryLabelsByLessonId && lessonId ? categoryLabelsByLessonId.get(lessonId) || [] : [];
             resultsEl.appendChild(
                 createMyProjectsLessonWrap(row, project, {
                     onOpenLesson: () => showMyProjectsLessonFullView(row, project),
+                    useYellowHighlight: useYellow,
+                    categoryLabels,
                 })
             );
         });
@@ -10129,6 +10139,51 @@ const projectFormHTML = `
 
     const MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID = '__my_projects_lesson_no_metadata__';
     const MY_PROJECTS_UNASSIGNED_LABEL = 'Unassigned';
+
+    /**
+     * Flatten category groups into unique lessons (newest id first) and a per-lesson category label map.
+     * Skips Unassigned / no-metadata groups for tags.
+     * @param {Array<{ id?: string, label?: string, lessons?: object[] }>} groups
+     * @returns {{ lessons: object[], categoryLabelsByLessonId: Map<string, string[]> }}
+     */
+    function flattenMyProjectsLessonGroups(groups) {
+        const lessonById = new Map();
+        const categoryLabelsByLessonId = new Map();
+
+        (Array.isArray(groups) ? groups : []).forEach((group) => {
+            if (!group || !Array.isArray(group.lessons)) return;
+            const groupId = group.id != null ? String(group.id) : '';
+            const isUnassigned =
+                groupId === MY_PROJECTS_SUPPLEMENT_NO_METADATA_ID ||
+                String(group.label || '').trim() === MY_PROJECTS_UNASSIGNED_LABEL;
+            const label = String(group.label || '').trim();
+
+            group.lessons.forEach((row) => {
+                if (!row || row.id == null) return;
+                const lessonId = String(row.id);
+                if (!lessonById.has(lessonId)) {
+                    lessonById.set(lessonId, row);
+                }
+                if (isUnassigned || !label) return;
+                if (!categoryLabelsByLessonId.has(lessonId)) {
+                    categoryLabelsByLessonId.set(lessonId, []);
+                }
+                const labels = categoryLabelsByLessonId.get(lessonId);
+                if (labels && !labels.includes(label)) {
+                    labels.push(label);
+                }
+            });
+        });
+
+        const lessons = Array.from(lessonById.values()).sort((a, b) => {
+            const idA = Number(a && a.id);
+            const idB = Number(b && b.id);
+            if (Number.isFinite(idA) && Number.isFinite(idB)) return idB - idA;
+            return String(b && b.id).localeCompare(String(a && a.id));
+        });
+
+        return { lessons, categoryLabelsByLessonId };
+    }
 
     /**
      * When Status is Draft or For Review and no category is selected, include lessons the
@@ -10549,15 +10604,21 @@ const projectFormHTML = `
                 orderedGroups = mergeResult.groups;
                 const yellowLessonIds = mergeResult.yellowLessonIds;
 
-                if (orderedGroups.length === 0) {
+                const { lessons: flatLessons, categoryLabelsByLessonId } =
+                    flattenMyProjectsLessonGroups(orderedGroups);
+
+                if (flatLessons.length === 0) {
                     setMyProjectsLessonsStatus('No issues or successes found for your assigned categories.');
                     return;
                 }
 
-                renderMyProjectsLessonsGroupedByCategory(orderedGroups, project, { yellowLessonIds });
-                const displayedCount = orderedGroups.reduce((sum, group) => sum + group.lessons.length, 0);
+                renderMyProjectsLessonsCards(flatLessons, project, {
+                    yellowLessonIds,
+                    categoryLabelsByLessonId,
+                });
+                const displayedCount = flatLessons.length;
                 setMyProjectsLessonsStatus(
-                    `Showing ${displayedCount} lesson${displayedCount === 1 ? '' : 's'} across ${orderedGroups.length} categor${orderedGroups.length === 1 ? 'y' : 'ies'}.`
+                    `Showing ${displayedCount} lesson${displayedCount === 1 ? '' : 's'}.`
                 );
             } catch (err) {
                 if (requestToken !== myProjectsLessonsResultsRequestToken) return;
@@ -10648,7 +10709,20 @@ const projectFormHTML = `
                 return;
             }
 
-            renderMyProjectsLessonsCards(lessons, project);
+            const categoriesSelect = document.getElementById('myProjectsLessonsCategoriesSelect');
+            const selectedOption =
+                categoriesSelect && categoriesSelect.selectedIndex >= 0
+                    ? categoriesSelect.options[categoriesSelect.selectedIndex]
+                    : null;
+            const categoryLabel =
+                selectedOption && selectedOption.textContent
+                    ? String(selectedOption.textContent).trim()
+                    : 'Unlabeled Category';
+
+            renderMyProjectsLessonsGroupedByCategory(
+                [{ id: metadataId, label: categoryLabel || 'Unlabeled Category', lessons }],
+                project
+            );
             setMyProjectsLessonsStatus(
                 `Showing ${lessons.length} lesson${lessons.length === 1 ? '' : 's'} for this category.`
             );

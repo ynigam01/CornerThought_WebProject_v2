@@ -1634,6 +1634,16 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
     await refreshBody();
 }
 
+const MY_PROJECTS_CATEGORY_LABEL_PREVIEW_COUNT = 4;
+
+/**
+ * @param {string[]} labels
+ * @returns {string}
+ */
+function formatMyProjectsCategoryLabelsLine(labels) {
+    return `Lessons Learned Categories: ${labels.join(', ')}`;
+}
+
 /**
  * @param {{ id?: unknown, category?: unknown, title?: unknown }} row
  * @param {{ project_id?: unknown }} project
@@ -1641,10 +1651,11 @@ async function mountForReviewNotesOnlyLesson(mountEl, row, project, ctx) {
  *   onOpenLesson?: (args: { row: typeof row, project: typeof project }) => void,
  *   useYellowHighlight?: boolean,
  *   projectName?: string|null,
+ *   categoryLabels?: string[],
  * }} deps
  */
 export function createMyProjectsLessonWrap(row, project, deps) {
-    const { onOpenLesson, useYellowHighlight, projectName } = deps || {};
+    const { onOpenLesson, useYellowHighlight, projectName, categoryLabels } = deps || {};
     const wrap = document.createElement('div');
     wrap.className = 'my-projects-lesson-wrap';
 
@@ -1709,5 +1720,51 @@ export function createMyProjectsLessonWrap(row, project, deps) {
     });
 
     wrap.appendChild(card);
+
+    const labels = Array.isArray(categoryLabels)
+        ? categoryLabels.map((t) => String(t || '').trim()).filter(Boolean)
+        : [];
+    if (labels.length > 0) {
+        const categoriesEl = document.createElement('div');
+        categoriesEl.className = 'my-projects-lesson-categories';
+
+        const textEl = document.createElement('span');
+        textEl.className = 'my-projects-lesson-categories-text';
+        categoriesEl.appendChild(textEl);
+
+        if (labels.length <= MY_PROJECTS_CATEGORY_LABEL_PREVIEW_COUNT) {
+            textEl.textContent = formatMyProjectsCategoryLabelsLine(labels);
+        } else {
+            const previewLabels = labels.slice(0, MY_PROJECTS_CATEGORY_LABEL_PREVIEW_COUNT);
+            let expanded = false;
+            const toggleBtn = document.createElement('button');
+            toggleBtn.type = 'button';
+            toggleBtn.className = 'my-projects-lesson-categories-toggle';
+            toggleBtn.setAttribute('aria-expanded', 'false');
+            toggleBtn.textContent = 'Show more';
+
+            const renderCategories = () => {
+                textEl.textContent = formatMyProjectsCategoryLabelsLine(
+                    expanded ? labels : previewLabels
+                );
+                toggleBtn.textContent = expanded ? 'Show less' : 'Show more';
+                toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            };
+            renderCategories();
+
+            toggleBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                expanded = !expanded;
+                renderCategories();
+            });
+
+            categoriesEl.appendChild(document.createTextNode(' '));
+            categoriesEl.appendChild(toggleBtn);
+        }
+
+        wrap.appendChild(categoriesEl);
+    }
+
     return wrap;
 }
