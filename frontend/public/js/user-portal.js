@@ -12293,15 +12293,33 @@ const projectFormHTML = `
 
         searchView.innerHTML = `
             <h1>General Search</h1>
-            <div class="project-types-panel">
-                <div class="project-types-panel-header">
-                    <div>
-                        <h3>General Search</h3>
-                        <p class="subtitle">This section is coming soon.</p>
-                    </div>
-                </div>
+            <div class="project-types-panel general-search-panel">
+                <h3>Search Public Lessons Learned</h3>
+                <p class="subtitle">
+                    Search by keywords that appear in lesson metadata tags (for example, <em>climate</em>, <em>stakeholder</em>, or <em>supply chain</em>).
+                </p>
+                <form id="generalSearchForm" class="lessons-search-form general-search-form">
+                    <input
+                        type="text"
+                        id="generalSearchInput"
+                        class="search-input"
+                        placeholder="Search lessons by keyword…"
+                        aria-label="Search lessons learned"
+                        autocomplete="off"
+                    >
+                    <button type="button" class="search-button">Search Lessons</button>
+                    <button type="button" class="search-button secondary-search-button">Search Projects</button>
+                    <button type="button" class="search-button">Advanced Search</button>
+                </form>
             </div>
         `;
+
+        const form = document.getElementById('generalSearchForm');
+        if (form) {
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+            });
+        }
     }
 
     async function searchProjectsApi(term, signal) {

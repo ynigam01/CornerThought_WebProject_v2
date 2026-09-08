@@ -3356,6 +3356,35 @@ body {
     box-shadow: 0 4px 8px rgba(0,0,0,0.06);
 }
 
+#searchView .general-search-panel {
+    max-width: 960px;
+}
+
+#searchView .general-search-panel h3 {
+    margin: 0 0 8px;
+    color: #2c3e50;
+}
+
+#searchView .general-search-panel .subtitle {
+    margin: 0 0 20px;
+    font-size: 14px;
+    color: #666;
+}
+
+#searchView .general-search-form {
+    justify-content: flex-start;
+    margin-bottom: 0;
+}
+
+#searchView .general-search-panel input.search-input {
+    width: 250px;
+    flex: 0 1 250px;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
 #searchView #myProjectsWorkshopPanel {
     max-width: 100%;
 }
