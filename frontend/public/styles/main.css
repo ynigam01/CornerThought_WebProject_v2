@@ -3452,6 +3452,28 @@ body {
     gap: 10px;
 }
 
+#searchView .general-search-suggestions {
+    position: relative;
+    width: 100%;
+    margin-top: 0;
+    max-height: 220px;
+    z-index: 8;
+}
+
+#searchView .general-search-suggestions[hidden] {
+    display: none;
+}
+
+#searchView .general-search-results {
+    max-width: 960px;
+    margin-top: 16px;
+}
+
+#searchView #generalSearchStatus {
+    text-align: left;
+    max-width: 960px;
+}
+
 #searchView .general-search-advanced-filters {
     display: flex;
     flex-wrap: wrap;

@@ -12285,6 +12285,238 @@ const projectFormHTML = `
         if (membersPanel) membersPanel.style.display = 'block';
     }
 
+    let generalSearchMetadataIndex = { organizationId: null, rows: [], loaded: false };
+    let generalSearchMetadataIndexPromise = null;
+    let generalSearchSuggestTimer = null;
+    let generalSearchSuggestRequestId = 0;
+
+    function generalSearchMetadataToText(value) {
+        if (value == null) return '';
+        if (typeof value === 'string') return value.trim();
+        if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+        return String(value).trim();
+    }
+
+    function isGeneralSearchBasicMode() {
+        const selected = document.querySelector('#generalSearchModeMenu [role="option"][aria-selected="true"]');
+        if (!selected) return true;
+        return selected.getAttribute('data-value') !== 'ai';
+    }
+
+    function setGeneralSearchStatus(message) {
+        const el = document.getElementById('generalSearchStatus');
+        if (el) el.textContent = message || '';
+    }
+
+    function hideGeneralSearchSuggestions() {
+        const list = document.getElementById('generalSearchSuggestions');
+        if (!list) return;
+        list.innerHTML = '';
+        list.hidden = true;
+    }
+
+    async function ensureGeneralSearchMetadataIndex() {
+        if (!organizationId) {
+            generalSearchMetadataIndex = { organizationId: null, rows: [], loaded: false };
+            return generalSearchMetadataIndex.rows;
+        }
+        const orgKey = String(organizationId);
+        if (
+            generalSearchMetadataIndex.loaded &&
+            generalSearchMetadataIndex.organizationId === orgKey
+        ) {
+            return generalSearchMetadataIndex.rows;
+        }
+        if (generalSearchMetadataIndexPromise) {
+            return generalSearchMetadataIndexPromise;
+        }
+
+        generalSearchMetadataIndex.organizationId = orgKey;
+        generalSearchMetadataIndexPromise = (async () => {
+            const { data, error } = await supabase
+                .from('lessons_learned_metadata')
+                .select('lessons_learned_id, metadata')
+                .eq('organization_id', organizationId)
+                .limit(5000);
+
+            if (error) {
+                console.error('Error loading organization metadata for General Search:', error);
+                generalSearchMetadataIndex.rows = [];
+                generalSearchMetadataIndex.loaded = false;
+                return [];
+            }
+
+            generalSearchMetadataIndex.rows = (data || [])
+                .map((row) => ({
+                    lessonId: row && row.lessons_learned_id,
+                    text: generalSearchMetadataToText(row && row.metadata),
+                }))
+                .filter((row) => row.lessonId != null && row.text);
+            generalSearchMetadataIndex.loaded = true;
+            return generalSearchMetadataIndex.rows;
+        })();
+
+        try {
+            return await generalSearchMetadataIndexPromise;
+        } finally {
+            generalSearchMetadataIndexPromise = null;
+        }
+    }
+
+    function getGeneralSearchMetadataSuggestions(term) {
+        const needle = String(term || '').trim().toLowerCase();
+        if (!needle) return [];
+        const seen = new Set();
+        const matches = [];
+        for (const row of generalSearchMetadataIndex.rows) {
+            const text = row && row.text ? String(row.text) : '';
+            const key = text.toLowerCase();
+            if (!key || seen.has(key) || !key.includes(needle)) continue;
+            seen.add(key);
+            matches.push(text);
+        }
+        matches.sort((a, b) => a.localeCompare(b));
+        return matches.slice(0, 20);
+    }
+
+    function renderGeneralSearchSuggestions(options, inputEl) {
+        const list = document.getElementById('generalSearchSuggestions');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!options || options.length === 0) {
+            list.hidden = true;
+            return;
+        }
+        options.forEach((name) => {
+            const item = document.createElement('div');
+            item.className = 'autocomplete-item';
+            item.textContent = name;
+            item.setAttribute('role', 'option');
+            item.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                if (inputEl) {
+                    inputEl.value = name;
+                    inputEl.style.height = 'auto';
+                    inputEl.style.height = `${inputEl.scrollHeight}px`;
+                }
+                hideGeneralSearchSuggestions();
+            });
+            list.appendChild(item);
+        });
+        list.hidden = false;
+    }
+
+    async function updateGeneralSearchSuggestions(inputEl) {
+        if (!inputEl || !isGeneralSearchBasicMode()) {
+            hideGeneralSearchSuggestions();
+            return;
+        }
+        const term = String(inputEl.value || '').trim();
+        if (!term) {
+            hideGeneralSearchSuggestions();
+            return;
+        }
+        const requestId = ++generalSearchSuggestRequestId;
+        await ensureGeneralSearchMetadataIndex();
+        if (requestId !== generalSearchSuggestRequestId) return;
+        renderGeneralSearchSuggestions(getGeneralSearchMetadataSuggestions(term), inputEl);
+    }
+
+    function renderGeneralSearchLessonCards(lessons, projectsById) {
+        const resultsEl = document.getElementById('generalSearchResults');
+        if (!resultsEl) return;
+        resultsEl.innerHTML = '';
+        (lessons || []).forEach((row) => {
+            if (!row || row.id == null) return;
+            const project = row.project_id != null
+                ? projectsById.get(String(row.project_id)) || { project_id: row.project_id }
+                : null;
+            resultsEl.appendChild(
+                createMyProjectsLessonWrap(row, project, {
+                    projectName: project && project.project_name ? project.project_name : null,
+                    onOpenLesson: () => {
+                        showMyProjectsLessonFullView(row, project || {});
+                    },
+                })
+            );
+        });
+    }
+
+    async function runGeneralSearchByMetadata(term) {
+        const resultsEl = document.getElementById('generalSearchResults');
+        if (resultsEl) resultsEl.innerHTML = '';
+        const trimmed = String(term || '').trim();
+        if (!trimmed) {
+            setGeneralSearchStatus('Enter a metadata term to search.');
+            return;
+        }
+        if (!organizationId) {
+            setGeneralSearchStatus('No organization is associated with this account.');
+            return;
+        }
+
+        setGeneralSearchStatus('Searching lessons…');
+        hideGeneralSearchSuggestions();
+
+        try {
+            const rows = await ensureGeneralSearchMetadataIndex();
+                    const lessonIds = [...new Set(
+                rows
+                    .filter((row) => row && String(row.text) === trimmed)
+                    .map((row) => row.lessonId)
+            )];
+
+            if (lessonIds.length === 0) {
+                setGeneralSearchStatus(`No organization-shared lessons found for “${trimmed}”.`);
+                return;
+            }
+
+            const { data: lessons, error: lessonError } = await supabase
+                .from('lessons_learned')
+                .select('id, title, high_level_title, category, review, project_id, organization_id, created_by')
+                .eq('organization_id', organizationId)
+                .eq('share', 'share with organization')
+                .in('id', lessonIds)
+                .order('id', { ascending: false });
+
+            if (lessonError) throw lessonError;
+
+            const matchedLessons = lessons || [];
+            if (matchedLessons.length === 0) {
+                setGeneralSearchStatus(`No organization-shared lessons found for “${trimmed}”.`);
+                return;
+            }
+
+            const projectIds = [...new Set(
+                matchedLessons
+                    .map((lesson) => lesson && lesson.project_id)
+                    .filter((id) => id != null)
+            )];
+            const projectsById = new Map();
+            if (projectIds.length > 0) {
+                const { data: projects, error: projectError } = await supabase
+                    .from('projects')
+                    .select('project_id, project_name, project_type_id')
+                    .eq('organization_id', organizationId)
+                    .in('project_id', projectIds);
+                if (projectError) throw projectError;
+                (projects || []).forEach((project) => {
+                    if (project && project.project_id != null) {
+                        projectsById.set(String(project.project_id), project);
+                    }
+                });
+            }
+
+            setGeneralSearchStatus(
+                `Showing ${matchedLessons.length} lesson${matchedLessons.length === 1 ? '' : 's'} for “${trimmed}”.`
+            );
+            renderGeneralSearchLessonCards(matchedLessons, projectsById);
+        } catch (err) {
+            console.error('General Search metadata lookup failed:', err);
+            setGeneralSearchStatus('Unable to search lessons right now.');
+        }
+    }
+
     function renderGeneralSearchModule() {
         const searchView = document.getElementById('searchView');
         if (!searchView) return;
@@ -12333,8 +12565,9 @@ const projectFormHTML = `
                             </ul>
                         </div>
                     </div>
+                    <div id="generalSearchSuggestions" class="autocomplete-list general-search-suggestions" role="listbox" hidden></div>
                     <div class="general-search-actions">
-                        <button type="button" class="search-button">Search Lessons</button>
+                        <button type="button" id="generalSearchLessonsButton" class="search-button">Search Lessons</button>
                         <button type="button" id="generalSearchAdvancedButton" class="search-button" aria-expanded="false" aria-controls="generalSearchAdvancedFilters">Advanced Search</button>
                     </div>
                     <div id="generalSearchAdvancedFilters" class="general-search-advanced-filters" hidden>
@@ -12365,6 +12598,15 @@ const projectFormHTML = `
                         </button>
                     </div>
                 </form>
+            </div>
+            <div id="generalSearchStatus" class="search-status" aria-live="polite"></div>
+            <div id="generalSearchResults" class="my-projects-lessons-results general-search-results"></div>
+            <div id="myProjectsLessonFullView" class="my-projects-lesson-full-view" style="display: none;">
+                <div class="lesson-detail-actions my-projects-lesson-full-view-actions">
+                    <div id="myProjectsLessonFullViewProjectLabel" class="my-projects-lesson-full-view-project" hidden></div>
+                    <button type="button" id="myProjectsLessonFullViewBack" class="lesson-detail-back-button">Go back</button>
+                </div>
+                <div id="myProjectsLessonFullViewMount" class="my-projects-lesson-full-view-mount"></div>
             </div>
             <div class="modal modal--center add-data-project-modal" id="generalSearchProjectTypeModal">
                 <div class="modal-content" style="max-width: 520px;">
@@ -12429,8 +12671,35 @@ const projectFormHTML = `
                 input.style.height = 'auto';
                 input.style.height = `${input.scrollHeight}px`;
             };
-            input.addEventListener('input', resizeGeneralSearchInput);
+            input.addEventListener('input', () => {
+                resizeGeneralSearchInput();
+                if (generalSearchSuggestTimer) clearTimeout(generalSearchSuggestTimer);
+                generalSearchSuggestTimer = setTimeout(() => {
+                    void updateGeneralSearchSuggestions(input);
+                }, 200);
+            });
+            input.addEventListener('focus', () => {
+                if (String(input.value || '').trim()) {
+                    void updateGeneralSearchSuggestions(input);
+                }
+            });
             resizeGeneralSearchInput();
+        }
+
+        const searchLessonsButton = document.getElementById('generalSearchLessonsButton');
+        if (searchLessonsButton) {
+            searchLessonsButton.addEventListener('click', () => {
+                if (!isGeneralSearchBasicMode()) return;
+                hideGeneralSearchSuggestions();
+                void runGeneralSearchByMetadata(input ? input.value : '');
+            });
+        }
+
+        const lessonFullBack = document.getElementById('myProjectsLessonFullViewBack');
+        if (lessonFullBack) {
+            lessonFullBack.addEventListener('click', () => {
+                hideMyProjectsLessonFullView();
+            });
         }
         if (modeWrap && modeButton && modeLabel && modeMenu) {
             if (searchView._generalSearchModeAbort) {
@@ -12469,11 +12738,20 @@ const projectFormHTML = `
                     );
                     input.style.height = 'auto';
                     input.style.height = `${input.scrollHeight}px`;
+                    if (isAiSearch) hideGeneralSearchSuggestions();
                 }
                 closeSearchModeMenu();
             }, { signal: modeEvents.signal });
             document.addEventListener('click', (event) => {
                 if (!modeWrap.contains(event.target)) closeSearchModeMenu();
+                const suggestions = document.getElementById('generalSearchSuggestions');
+                if (
+                    suggestions &&
+                    !suggestions.contains(event.target) &&
+                    event.target !== input
+                ) {
+                    hideGeneralSearchSuggestions();
+                }
             }, { signal: modeEvents.signal });
         }
 
