@@ -12290,35 +12290,304 @@ const projectFormHTML = `
         if (!searchView) return;
 
         hideMyProjectsLessonFullView();
+        const previousProjectTypeModal = document.getElementById('generalSearchProjectTypeModal');
+        if (previousProjectTypeModal) previousProjectTypeModal.remove();
+        const previousProjectParametersModal = document.getElementById('generalSearchProjectParametersModal');
+        if (previousProjectParametersModal) previousProjectParametersModal.remove();
 
         searchView.innerHTML = `
             <h1>General Search</h1>
             <div class="project-types-panel general-search-panel">
-                <h3>Search Public Lessons Learned</h3>
-                <p class="subtitle">
-                    Search by keywords that appear in lesson metadata tags (for example, <em>climate</em>, <em>stakeholder</em>, or <em>supply chain</em>).
-                </p>
                 <form id="generalSearchForm" class="lessons-search-form general-search-form">
-                    <input
-                        type="text"
-                        id="generalSearchInput"
-                        class="search-input"
-                        placeholder="Search lessons by keyword…"
-                        aria-label="Search lessons learned"
-                        autocomplete="off"
-                    >
-                    <button type="button" class="search-button">Search Lessons</button>
-                    <button type="button" class="search-button secondary-search-button">Search Projects</button>
-                    <button type="button" class="search-button">Advanced Search</button>
+                    <div class="general-search-field">
+                        <textarea
+                            id="generalSearchInput"
+                            class="search-input general-search-input"
+                            placeholder="Search lessons by keyword…"
+                            aria-label="Search lessons learned"
+                            rows="1"
+                        ></textarea>
+                        <div class="general-search-mode" id="generalSearchMode">
+                            <button
+                                type="button"
+                                id="generalSearchModeButton"
+                                class="general-search-mode-button"
+                                aria-haspopup="listbox"
+                                aria-expanded="false"
+                                aria-controls="generalSearchModeMenu"
+                            >
+                                <span id="generalSearchModeLabel">Basic Search</span>
+                                <svg class="general-search-mode-chevron" viewBox="0 0 12 12" aria-hidden="true">
+                                    <path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                            </button>
+                            <ul
+                                id="generalSearchModeMenu"
+                                class="general-search-mode-menu"
+                                role="listbox"
+                                aria-label="Search mode"
+                                hidden
+                            >
+                                <li role="option" aria-selected="true" data-value="basic">Basic Search</li>
+                                <li role="option" aria-selected="false" data-value="ai">AI Search</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="general-search-actions">
+                        <button type="button" class="search-button">Search Lessons</button>
+                        <button type="button" id="generalSearchAdvancedButton" class="search-button" aria-expanded="false" aria-controls="generalSearchAdvancedFilters">Advanced Search</button>
+                    </div>
+                    <div id="generalSearchAdvancedFilters" class="general-search-advanced-filters" hidden>
+                        <button
+                            type="button"
+                            id="generalSearchProjectTypeButton"
+                            class="search-button general-search-filter-button general-search-icon-button"
+                            aria-label="Project Type"
+                            data-tooltip="Project Type"
+                        >
+                            <img src="images/project-type-folder.png" alt="" class="general-search-icon-image">
+                        </button>
+                        <button
+                            type="button"
+                            id="generalSearchProjectParametersButton"
+                            class="search-button general-search-filter-button general-search-icon-button"
+                            aria-label="Project Parameters"
+                            data-tooltip="Project Parameters"
+                        >
+                            <svg class="general-search-icon-image" viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="3.5" cy="6" r="1.6" fill="currentColor"></circle>
+                                <rect x="7.2" y="4.9" width="14.3" height="2.2" rx="1.1" fill="currentColor"></rect>
+                                <circle cx="3.5" cy="12" r="1.6" fill="currentColor"></circle>
+                                <rect x="7.2" y="10.9" width="14.3" height="2.2" rx="1.1" fill="currentColor"></rect>
+                                <circle cx="3.5" cy="18" r="1.6" fill="currentColor"></circle>
+                                <rect x="7.2" y="16.9" width="14.3" height="2.2" rx="1.1" fill="currentColor"></rect>
+                            </svg>
+                        </button>
+                    </div>
                 </form>
+            </div>
+            <div class="modal modal--center add-data-project-modal" id="generalSearchProjectTypeModal">
+                <div class="modal-content" style="max-width: 520px;">
+                    <span class="close-button" id="generalSearchProjectTypeClose">&times;</span>
+                    <h3>Project Type</h3>
+                    <p class="subtitle">Select a project type for your organization.</p>
+                    <div class="input-group">
+                        <label for="generalSearchProjectTypeSelect">Project Type</label>
+                        <select id="generalSearchProjectTypeSelect">
+                            <option value="">Select a project type</option>
+                        </select>
+                    </div>
+                    <div id="generalSearchProjectTypeStatus" class="upload-message" aria-live="polite"></div>
+                    <div class="modal-actions">
+                        <button type="button" id="generalSearchProjectTypeDone">Close</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal modal--center add-data-project-modal" id="generalSearchProjectParametersModal">
+                <div class="modal-content" style="max-width: 520px;">
+                    <span class="close-button" id="generalSearchProjectParametersClose">&times;</span>
+                    <h3>Project Parameters</h3>
+                    <p class="subtitle">Enter a project parameter and value to filter by.</p>
+                    <div class="input-group">
+                        <label for="generalSearchParameterInput">Parameter</label>
+                        <input
+                            type="text"
+                            id="generalSearchParameterInput"
+                            placeholder='e.g. "Location", "Project Deliverable", "Contractor", etc.'
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="input-group">
+                        <label for="generalSearchParameterValueInput">Value</label>
+                        <input
+                            type="text"
+                            id="generalSearchParameterValueInput"
+                            placeholder='e.g. "New York", "Skyscraper", "A&amp;B Contractors", etc.'
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" id="generalSearchProjectParametersDone">Close</button>
+                    </div>
+                </div>
             </div>
         `;
 
         const form = document.getElementById('generalSearchForm');
+        const input = document.getElementById('generalSearchInput');
+        const modeWrap = document.getElementById('generalSearchMode');
+        const modeButton = document.getElementById('generalSearchModeButton');
+        const modeLabel = document.getElementById('generalSearchModeLabel');
+        const modeMenu = document.getElementById('generalSearchModeMenu');
         if (form) {
             form.addEventListener('submit', (event) => {
                 event.preventDefault();
             });
+        }
+        if (input) {
+            const resizeGeneralSearchInput = () => {
+                input.style.height = 'auto';
+                input.style.height = `${input.scrollHeight}px`;
+            };
+            input.addEventListener('input', resizeGeneralSearchInput);
+            resizeGeneralSearchInput();
+        }
+        if (modeWrap && modeButton && modeLabel && modeMenu) {
+            if (searchView._generalSearchModeAbort) {
+                searchView._generalSearchModeAbort.abort();
+            }
+            const modeEvents = new AbortController();
+            searchView._generalSearchModeAbort = modeEvents;
+            const closeSearchModeMenu = () => {
+                modeMenu.hidden = true;
+                modeButton.setAttribute('aria-expanded', 'false');
+            };
+            const openSearchModeMenu = () => {
+                modeMenu.hidden = false;
+                modeButton.setAttribute('aria-expanded', 'true');
+            };
+            modeButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (modeMenu.hidden) openSearchModeMenu();
+                else closeSearchModeMenu();
+            }, { signal: modeEvents.signal });
+            modeMenu.addEventListener('click', (event) => {
+                const option = event.target.closest('[role="option"]');
+                if (!option) return;
+                modeLabel.textContent = option.textContent;
+                modeMenu.querySelectorAll('[role="option"]').forEach((item) => {
+                    item.setAttribute('aria-selected', item === option ? 'true' : 'false');
+                });
+                if (input) {
+                    const isAiSearch = option.getAttribute('data-value') === 'ai';
+                    input.placeholder = isAiSearch
+                        ? 'Ask CornerThought…'
+                        : 'Search lessons by keyword…';
+                    input.setAttribute(
+                        'aria-label',
+                        isAiSearch ? 'Ask CornerThought' : 'Search lessons learned'
+                    );
+                    input.style.height = 'auto';
+                    input.style.height = `${input.scrollHeight}px`;
+                }
+                closeSearchModeMenu();
+            }, { signal: modeEvents.signal });
+            document.addEventListener('click', (event) => {
+                if (!modeWrap.contains(event.target)) closeSearchModeMenu();
+            }, { signal: modeEvents.signal });
+        }
+
+        const advancedButton = document.getElementById('generalSearchAdvancedButton');
+        const advancedFilters = document.getElementById('generalSearchAdvancedFilters');
+        const projectTypeButton = document.getElementById('generalSearchProjectTypeButton');
+        const projectTypeModal = document.getElementById('generalSearchProjectTypeModal');
+        const projectTypeSelect = document.getElementById('generalSearchProjectTypeSelect');
+        const projectTypeStatus = document.getElementById('generalSearchProjectTypeStatus');
+        const projectTypeClose = document.getElementById('generalSearchProjectTypeClose');
+        const projectTypeDone = document.getElementById('generalSearchProjectTypeDone');
+        if (projectTypeModal) document.body.appendChild(projectTypeModal);
+
+        const projectParametersButton = document.getElementById('generalSearchProjectParametersButton');
+        const projectParametersModal = document.getElementById('generalSearchProjectParametersModal');
+        const projectParametersClose = document.getElementById('generalSearchProjectParametersClose');
+        const projectParametersDone = document.getElementById('generalSearchProjectParametersDone');
+        if (projectParametersModal) document.body.appendChild(projectParametersModal);
+
+        const closeProjectTypeModal = () => {
+            if (projectTypeModal) projectTypeModal.classList.remove('show');
+        };
+        const openProjectTypeModal = async () => {
+            if (!projectTypeModal || !projectTypeSelect) return;
+            closeProjectParametersModal();
+            projectTypeModal.classList.add('show');
+            await populateGeneralSearchProjectTypes(projectTypeSelect, projectTypeStatus);
+        };
+        const closeProjectParametersModal = () => {
+            if (projectParametersModal) projectParametersModal.classList.remove('show');
+        };
+        const openProjectParametersModal = () => {
+            if (!projectParametersModal) return;
+            closeProjectTypeModal();
+            projectParametersModal.classList.add('show');
+        };
+
+        if (advancedButton && advancedFilters) {
+            advancedButton.addEventListener('click', () => {
+                const isOpen = !advancedFilters.hidden;
+                advancedFilters.hidden = isOpen;
+                advancedButton.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+                if (isOpen) {
+                    closeProjectTypeModal();
+                    closeProjectParametersModal();
+                }
+            });
+        }
+        if (projectTypeButton) {
+            projectTypeButton.addEventListener('click', () => {
+                openProjectTypeModal();
+            });
+        }
+        if (projectTypeClose) projectTypeClose.addEventListener('click', closeProjectTypeModal);
+        if (projectTypeDone) projectTypeDone.addEventListener('click', closeProjectTypeModal);
+        if (projectTypeModal) {
+            projectTypeModal.addEventListener('click', (event) => {
+                if (event.target === projectTypeModal) closeProjectTypeModal();
+            });
+        }
+        if (projectParametersButton) {
+            projectParametersButton.addEventListener('click', () => {
+                openProjectParametersModal();
+            });
+        }
+        if (projectParametersClose) projectParametersClose.addEventListener('click', closeProjectParametersModal);
+        if (projectParametersDone) projectParametersDone.addEventListener('click', closeProjectParametersModal);
+        if (projectParametersModal) {
+            projectParametersModal.addEventListener('click', (event) => {
+                if (event.target === projectParametersModal) closeProjectParametersModal();
+            });
+        }
+    }
+
+    async function populateGeneralSearchProjectTypes(select, statusEl) {
+        if (!select) return;
+        select.innerHTML = '<option value="">Select a project type</option>';
+        if (statusEl) statusEl.textContent = '';
+
+        if (!organizationId) {
+            if (statusEl) statusEl.textContent = 'No organization is associated with this account.';
+            return;
+        }
+
+        if (statusEl) statusEl.textContent = 'Loading project types…';
+        try {
+            const { data, error } = await supabase
+                .from('project_type')
+                .select('id, project_type')
+                .eq('organization_id', organizationId)
+                .order('project_type', { ascending: true });
+
+            if (error) {
+                console.error('Error loading organization project types for General Search:', error);
+                if (statusEl) statusEl.textContent = 'Unable to load project types.';
+                return;
+            }
+
+            const rows = (data || []).filter((row) => row && row.project_type);
+            if (rows.length === 0) {
+                if (statusEl) statusEl.textContent = 'No project types found for your organization.';
+                return;
+            }
+
+            rows.forEach((row) => {
+                const option = document.createElement('option');
+                option.value = row.id == null ? '' : String(row.id);
+                option.textContent = String(row.project_type);
+                select.appendChild(option);
+            });
+            if (statusEl) statusEl.textContent = '';
+        } catch (err) {
+            console.error('Unexpected error loading organization project types for General Search:', err);
+            if (statusEl) statusEl.textContent = 'Unable to load project types.';
         }
     }
 

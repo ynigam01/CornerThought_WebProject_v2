@@ -3360,29 +3360,157 @@ body {
     max-width: 960px;
 }
 
-#searchView .general-search-panel h3 {
-    margin: 0 0 8px;
-    color: #2c3e50;
-}
-
-#searchView .general-search-panel .subtitle {
-    margin: 0 0 20px;
-    font-size: 14px;
-    color: #666;
-}
-
 #searchView .general-search-form {
+    flex-direction: column;
+    align-items: stretch;
     justify-content: flex-start;
     margin-bottom: 0;
+    width: 100%;
+    max-width: 100%;
 }
 
-#searchView .general-search-panel input.search-input {
-    width: 250px;
-    flex: 0 1 250px;
-    padding: 10px 15px;
+#searchView .general-search-field {
+    position: relative;
+    width: 100%;
+}
+
+#searchView .general-search-panel textarea.general-search-input {
+    width: 100%;
+    min-height: 44px;
+    height: auto;
+    padding: 10px 140px 10px 15px;
     border: 1px solid #ddd;
     border-radius: 5px;
     font-size: 16px;
+    font-family: inherit;
+    line-height: 1.4;
+    resize: none;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+#searchView .general-search-mode {
+    position: absolute;
+    right: 10px;
+    bottom: 8px;
+}
+
+#searchView .general-search-mode-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#searchView .general-search-mode-button:hover {
+    color: #374151;
+}
+
+#searchView .general-search-mode-chevron {
+    width: 10px;
+    height: 10px;
+    display: block;
+}
+
+#searchView .general-search-mode-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    margin: 0;
+    padding: 6px 0;
+    min-width: 150px;
+    list-style: none;
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    z-index: 5;
+}
+
+#searchView .general-search-mode-menu [role="option"] {
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #374151;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+#searchView .general-search-mode-menu [role="option"]:hover,
+#searchView .general-search-mode-menu [role="option"][aria-selected="true"] {
+    background: #f3f4f6;
+}
+
+#searchView .general-search-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+#searchView .general-search-advanced-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+#searchView .general-search-advanced-filters[hidden] {
+    display: none;
+}
+
+#searchView .general-search-filter-button {
+    background-color: #e5e7eb;
+}
+
+#searchView .general-search-filter-button:hover {
+    background-color: #d1d5db;
+}
+
+#searchView .general-search-icon-button {
+    position: relative;
+    width: 42px;
+    height: 42px;
+    padding: 4px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#searchView .general-search-icon-image {
+    width: 34px;
+    height: 34px;
+    display: block;
+    object-fit: contain;
+    color: #111111;
+}
+
+#searchView .general-search-icon-button[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    padding: 5px 8px;
+    border-radius: 4px;
+    background: #2c3e50;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 6;
+}
+
+#searchView .general-search-icon-button:hover[data-tooltip]::after,
+#searchView .general-search-icon-button:focus[data-tooltip]::after {
+    opacity: 1;
 }
 
 #searchView #myProjectsWorkshopPanel {
