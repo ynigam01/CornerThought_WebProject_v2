@@ -12289,6 +12289,7 @@ const projectFormHTML = `
     let generalSearchMetadataIndexPromise = null;
     let generalSearchSuggestTimer = null;
     let generalSearchSuggestRequestId = 0;
+    let generalSearchParameterFilters = [];
 
     function generalSearchMetadataToText(value) {
         if (value == null) return '';
@@ -12526,6 +12527,10 @@ const projectFormHTML = `
         if (previousProjectTypeModal) previousProjectTypeModal.remove();
         const previousProjectParametersModal = document.getElementById('generalSearchProjectParametersModal');
         if (previousProjectParametersModal) previousProjectParametersModal.remove();
+        const previousAdvancedFiltersModal = document.getElementById('generalSearchAdvancedFiltersModal');
+        if (previousAdvancedFiltersModal) previousAdvancedFiltersModal.remove();
+        const previousFilterMatchesModal = document.getElementById('generalSearchFilterMatchesModal');
+        if (previousFilterMatchesModal) previousFilterMatchesModal.remove();
 
         searchView.innerHTML = `
             <h1>General Search</h1>
@@ -12596,6 +12601,17 @@ const projectFormHTML = `
                                 <rect x="7.2" y="16.9" width="14.3" height="2.2" rx="1.1" fill="currentColor"></rect>
                             </svg>
                         </button>
+                        <button
+                            type="button"
+                            id="generalSearchAdvancedFiltersButton"
+                            class="search-button general-search-filter-button general-search-icon-button"
+                            aria-label="Advanced Search Filters"
+                            data-tooltip="Advanced Search Filters"
+                        >
+                            <svg class="general-search-icon-image" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M3 5.2h18l-6.6 7.4v5.3l-4.8 2.1V12.6z" fill="currentColor"></path>
+                            </svg>
+                        </button>
                     </div>
                 </form>
             </div>
@@ -12648,8 +12664,35 @@ const projectFormHTML = `
                             autocomplete="off"
                         >
                     </div>
+                    <div id="generalSearchProjectParametersStatus" class="upload-message" aria-live="polite"></div>
                     <div class="modal-actions">
+                        <button type="button" id="generalSearchProjectParametersAdd">Add</button>
                         <button type="button" id="generalSearchProjectParametersDone">Close</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal modal--center add-data-project-modal" id="generalSearchAdvancedFiltersModal">
+                <div class="modal-content" style="max-width: 520px;">
+                    <span class="close-button" id="generalSearchAdvancedFiltersClose">&times;</span>
+                    <h3>Advanced Search Filters</h3>
+                    <p class="subtitle">Parameter and value filters saved for this search.</p>
+                    <ul id="generalSearchAdvancedFiltersList" class="general-search-filter-list"></ul>
+                    <div id="generalSearchAdvancedFiltersStatus" class="upload-message" aria-live="polite"></div>
+                    <div class="modal-actions">
+                        <button type="button" id="generalSearchAdvancedFiltersFind">Find</button>
+                        <button type="button" id="generalSearchAdvancedFiltersDone">Close</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal modal--center add-data-project-modal" id="generalSearchFilterMatchesModal">
+                <div class="modal-content" style="max-width: 520px;">
+                    <span class="close-button" id="generalSearchFilterMatchesClose">&times;</span>
+                    <h3>Filter Matches</h3>
+                    <p class="subtitle">Project parameter pairings with cosine similarity above 0.6.</p>
+                    <div id="generalSearchFilterMatchesStatus" class="upload-message" aria-live="polite"></div>
+                    <div id="generalSearchFilterMatchesList" class="general-search-filter-matches"></div>
+                    <div class="modal-actions">
+                        <button type="button" id="generalSearchFilterMatchesDone">Close</button>
                     </div>
                 </div>
             </div>
@@ -12768,8 +12811,58 @@ const projectFormHTML = `
         const projectParametersButton = document.getElementById('generalSearchProjectParametersButton');
         const projectParametersModal = document.getElementById('generalSearchProjectParametersModal');
         const projectParametersClose = document.getElementById('generalSearchProjectParametersClose');
+        const projectParametersAdd = document.getElementById('generalSearchProjectParametersAdd');
         const projectParametersDone = document.getElementById('generalSearchProjectParametersDone');
+        const projectParametersStatus = document.getElementById('generalSearchProjectParametersStatus');
+        const parameterInput = document.getElementById('generalSearchParameterInput');
+        const parameterValueInput = document.getElementById('generalSearchParameterValueInput');
         if (projectParametersModal) document.body.appendChild(projectParametersModal);
+
+        const advancedFiltersButton = document.getElementById('generalSearchAdvancedFiltersButton');
+        const advancedFiltersModal = document.getElementById('generalSearchAdvancedFiltersModal');
+        const advancedFiltersClose = document.getElementById('generalSearchAdvancedFiltersClose');
+        const advancedFiltersFind = document.getElementById('generalSearchAdvancedFiltersFind');
+        const advancedFiltersDone = document.getElementById('generalSearchAdvancedFiltersDone');
+        const advancedFiltersStatus = document.getElementById('generalSearchAdvancedFiltersStatus');
+        if (advancedFiltersModal) document.body.appendChild(advancedFiltersModal);
+
+        const filterMatchesModal = document.getElementById('generalSearchFilterMatchesModal');
+        const filterMatchesClose = document.getElementById('generalSearchFilterMatchesClose');
+        const filterMatchesDone = document.getElementById('generalSearchFilterMatchesDone');
+        const filterMatchesStatus = document.getElementById('generalSearchFilterMatchesStatus');
+        const filterMatchesList = document.getElementById('generalSearchFilterMatchesList');
+        if (filterMatchesModal) document.body.appendChild(filterMatchesModal);
+
+        const renderAdvancedFiltersList = () => {
+            const list = document.getElementById('generalSearchAdvancedFiltersList');
+            if (!list) return;
+            list.innerHTML = '';
+            if (generalSearchParameterFilters.length === 0) {
+                const empty = document.createElement('li');
+                empty.className = 'general-search-filter-empty';
+                empty.textContent = 'No filters added yet.';
+                list.appendChild(empty);
+                return;
+            }
+            generalSearchParameterFilters.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'general-search-filter-item';
+                const label = document.createElement('span');
+                label.textContent = `${item.parameter}:${item.value}`;
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'general-search-filter-remove';
+                remove.textContent = 'Remove';
+                remove.setAttribute('aria-label', `Remove ${item.parameter}:${item.value}`);
+                remove.addEventListener('click', () => {
+                    generalSearchParameterFilters.splice(index, 1);
+                    renderAdvancedFiltersList();
+                });
+                li.appendChild(label);
+                li.appendChild(remove);
+                list.appendChild(li);
+            });
+        };
 
         const closeProjectTypeModal = () => {
             if (projectTypeModal) projectTypeModal.classList.remove('show');
@@ -12777,6 +12870,8 @@ const projectFormHTML = `
         const openProjectTypeModal = async () => {
             if (!projectTypeModal || !projectTypeSelect) return;
             closeProjectParametersModal();
+            closeAdvancedFiltersModal();
+            closeFilterMatchesModal();
             projectTypeModal.classList.add('show');
             await populateGeneralSearchProjectTypes(projectTypeSelect, projectTypeStatus);
         };
@@ -12786,7 +12881,139 @@ const projectFormHTML = `
         const openProjectParametersModal = () => {
             if (!projectParametersModal) return;
             closeProjectTypeModal();
+            closeAdvancedFiltersModal();
+            closeFilterMatchesModal();
+            if (projectParametersStatus) projectParametersStatus.textContent = '';
             projectParametersModal.classList.add('show');
+        };
+        const closeAdvancedFiltersModal = () => {
+            if (advancedFiltersModal) advancedFiltersModal.classList.remove('show');
+        };
+        const openAdvancedFiltersModal = () => {
+            if (!advancedFiltersModal) return;
+            closeProjectTypeModal();
+            closeProjectParametersModal();
+            closeFilterMatchesModal();
+            if (advancedFiltersStatus) advancedFiltersStatus.textContent = '';
+            renderAdvancedFiltersList();
+            advancedFiltersModal.classList.add('show');
+        };
+        const closeFilterMatchesModal = () => {
+            if (filterMatchesModal) filterMatchesModal.classList.remove('show');
+        };
+        const openFilterMatchesModal = () => {
+            if (!filterMatchesModal) return;
+            closeProjectTypeModal();
+            closeProjectParametersModal();
+            closeAdvancedFiltersModal();
+            filterMatchesModal.classList.add('show');
+        };
+        const renderFilterMatches = (groups, statusMessage) => {
+            if (filterMatchesList) filterMatchesList.innerHTML = '';
+            if (filterMatchesStatus) filterMatchesStatus.textContent = statusMessage || '';
+            if (!filterMatchesList || !Array.isArray(groups)) return;
+
+            groups.forEach((group) => {
+                const section = document.createElement('section');
+                section.className = 'general-search-filter-match-group';
+
+                const heading = document.createElement('h4');
+                heading.className = 'general-search-filter-match-heading';
+                heading.textContent = group && group.filter ? String(group.filter) : '';
+                section.appendChild(heading);
+
+                const matches = Array.isArray(group && group.matches) ? group.matches : [];
+                if (matches.length === 0) {
+                    const empty = document.createElement('p');
+                    empty.className = 'general-search-filter-empty';
+                    empty.textContent = 'No matches above 0.6.';
+                    section.appendChild(empty);
+                } else {
+                    const list = document.createElement('ul');
+                    list.className = 'general-search-filter-list';
+                    matches.forEach((match) => {
+                        const li = document.createElement('li');
+                        li.className = 'general-search-filter-item';
+                        const name = match && match.parameter_name != null ? String(match.parameter_name) : '';
+                        const entry = match && match.parameter_entry != null ? String(match.parameter_entry) : '';
+                        li.textContent = `${name}: ${entry}`;
+                        list.appendChild(li);
+                    });
+                    section.appendChild(list);
+                }
+                filterMatchesList.appendChild(section);
+            });
+        };
+        const findParameterFilterMatches = async () => {
+            if (generalSearchParameterFilters.length === 0) {
+                if (advancedFiltersStatus) {
+                    advancedFiltersStatus.textContent = 'Add at least one parameter/value filter.';
+                }
+                return;
+            }
+            if (!organizationId) {
+                if (advancedFiltersStatus) {
+                    advancedFiltersStatus.textContent = 'No organization is associated with this account.';
+                }
+                return;
+            }
+
+            closeAdvancedFiltersModal();
+            if (filterMatchesList) filterMatchesList.innerHTML = '';
+            if (filterMatchesStatus) filterMatchesStatus.textContent = 'Finding matching project parameters…';
+            openFilterMatchesModal();
+            if (advancedFiltersFind) advancedFiltersFind.disabled = true;
+
+            try {
+                const response = await fetch('/api/find-parameter-filters', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        organizationId,
+                        filters: generalSearchParameterFilters,
+                    }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    renderFilterMatches([], payload.error || 'Unable to find matching project parameters.');
+                    return;
+                }
+                const groups = Array.isArray(payload.results) ? payload.results : [];
+                const hasAnyMatch = groups.some((group) => Array.isArray(group.matches) && group.matches.length > 0);
+                renderFilterMatches(
+                    groups,
+                    hasAnyMatch ? '' : 'No matches above 0.6.'
+                );
+            } catch (err) {
+                console.error('Unexpected error finding parameter filter matches:', err);
+                renderFilterMatches([], 'Unable to find matching project parameters.');
+            } finally {
+                if (advancedFiltersFind) advancedFiltersFind.disabled = false;
+            }
+        };
+        const addProjectParameterFilter = () => {
+            const parameter = String(parameterInput && parameterInput.value || '').trim();
+            const value = String(parameterValueInput && parameterValueInput.value || '').trim();
+            if (!parameter || !value) {
+                if (projectParametersStatus) {
+                    projectParametersStatus.textContent = 'Enter both a parameter and a value.';
+                }
+                return;
+            }
+            const exists = generalSearchParameterFilters.some(
+                (item) => item.parameter === parameter && item.value === value
+            );
+            if (!exists) {
+                generalSearchParameterFilters.push({ parameter, value });
+            }
+            if (parameterInput) parameterInput.value = '';
+            if (parameterValueInput) parameterValueInput.value = '';
+            if (projectParametersStatus) {
+                projectParametersStatus.textContent = exists
+                    ? 'That filter is already saved.'
+                    : 'Filter added.';
+            }
+            if (parameterInput) parameterInput.focus();
         };
 
         if (advancedButton && advancedFilters) {
@@ -12797,6 +13024,8 @@ const projectFormHTML = `
                 if (isOpen) {
                     closeProjectTypeModal();
                     closeProjectParametersModal();
+                    closeAdvancedFiltersModal();
+                    closeFilterMatchesModal();
                 }
             });
         }
@@ -12818,10 +13047,49 @@ const projectFormHTML = `
             });
         }
         if (projectParametersClose) projectParametersClose.addEventListener('click', closeProjectParametersModal);
+        if (projectParametersAdd) projectParametersAdd.addEventListener('click', addProjectParameterFilter);
         if (projectParametersDone) projectParametersDone.addEventListener('click', closeProjectParametersModal);
+        if (parameterInput) {
+            parameterInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addProjectParameterFilter();
+                }
+            });
+        }
+        if (parameterValueInput) {
+            parameterValueInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addProjectParameterFilter();
+                }
+            });
+        }
         if (projectParametersModal) {
             projectParametersModal.addEventListener('click', (event) => {
                 if (event.target === projectParametersModal) closeProjectParametersModal();
+            });
+        }
+        if (advancedFiltersButton) {
+            advancedFiltersButton.addEventListener('click', () => {
+                openAdvancedFiltersModal();
+            });
+        }
+        if (advancedFiltersClose) advancedFiltersClose.addEventListener('click', closeAdvancedFiltersModal);
+        if (advancedFiltersFind) advancedFiltersFind.addEventListener('click', () => {
+            void findParameterFilterMatches();
+        });
+        if (advancedFiltersDone) advancedFiltersDone.addEventListener('click', closeAdvancedFiltersModal);
+        if (advancedFiltersModal) {
+            advancedFiltersModal.addEventListener('click', (event) => {
+                if (event.target === advancedFiltersModal) closeAdvancedFiltersModal();
+            });
+        }
+        if (filterMatchesClose) filterMatchesClose.addEventListener('click', closeFilterMatchesModal);
+        if (filterMatchesDone) filterMatchesDone.addEventListener('click', closeFilterMatchesModal);
+        if (filterMatchesModal) {
+            filterMatchesModal.addEventListener('click', (event) => {
+                if (event.target === filterMatchesModal) closeFilterMatchesModal();
             });
         }
     }

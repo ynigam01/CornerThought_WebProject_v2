@@ -15,6 +15,7 @@ const { saveLessons } = require('./dist/lessons/saveLessons');
 const { registerDraftLessonRoutes } = require('./dist/lessons/draftRoutes');
 const { rankRelevantLessons } = require('./dist/lessons/rankRelevantLessons');
 const { rankUpcomingTaskLessons } = require('./dist/lessons/rankUpcomingTaskLessons');
+const { cosineSimilarity, parseEmbedding } = require('./dist/embeddings/cosineSimilarity');
 const {
   OPENROUTER_MODEL,
   chatCompletion,
@@ -288,6 +289,99 @@ app.post('/api/search-projects', async (req, res) => {
   } catch (err) {
     console.error('Unexpected error in /api/search-projects:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+const PARAMETER_FILTER_SIMILARITY_THRESHOLD = 0.6;
+const PROJECT_DETAILS_PAGE_SIZE = 1000;
+
+async function loadOrganizationProjectDetailEmbeddings(organizationId) {
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + PROJECT_DETAILS_PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from('project_details')
+      .select('id, parameter_name, parameter_entry, search_embedding')
+      .eq('organization_id', organizationId)
+      .not('search_embedding', 'is', null)
+      .range(from, to);
+
+    if (error) throw error;
+
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < PROJECT_DETAILS_PAGE_SIZE) break;
+    from += PROJECT_DETAILS_PAGE_SIZE;
+  }
+
+  return rows
+    .map((row) => {
+      const embedding = parseEmbedding(row.search_embedding);
+      if (!embedding) return null;
+      return {
+        parameter_name: String(row.parameter_name || '').trim(),
+        parameter_entry: String(row.parameter_entry || '').trim(),
+        embedding,
+      };
+    })
+    .filter(Boolean);
+}
+
+// POST /api/find-parameter-filters
+// Embeds saved General Search parameter:value filters and returns org
+// project_details pairings with cosine similarity above 0.6.
+app.post('/api/find-parameter-filters', async (req, res) => {
+  try {
+    const organizationId = req.body?.organizationId;
+    const rawFilters = Array.isArray(req.body?.filters) ? req.body.filters : [];
+    const filters = rawFilters
+      .map((item) => ({
+        parameter: String(item && item.parameter != null ? item.parameter : '').trim(),
+        value: String(item && item.value != null ? item.value : '').trim(),
+      }))
+      .filter((item) => item.parameter && item.value);
+
+    if (organizationId == null || organizationId === '') {
+      return res.status(400).json({ error: 'organizationId is required' });
+    }
+    if (filters.length === 0) {
+      return res.status(400).json({ error: 'At least one parameter/value filter is required' });
+    }
+
+    const detailRows = await loadOrganizationProjectDetailEmbeddings(organizationId);
+    const results = [];
+
+    for (const filter of filters) {
+      const queryText = `${filter.parameter}: ${filter.value}`;
+      const queryEmbedding = await getEmbedding(queryText);
+      const matchesByKey = new Map();
+
+      for (const row of detailRows) {
+        const similarity = cosineSimilarity(queryEmbedding, row.embedding);
+        if (similarity <= PARAMETER_FILTER_SIMILARITY_THRESHOLD) continue;
+        const key = `${row.parameter_name}\0${row.parameter_entry}`;
+        const existing = matchesByKey.get(key);
+        if (!existing || similarity > existing.similarity) {
+          matchesByKey.set(key, {
+            parameter_name: row.parameter_name,
+            parameter_entry: row.parameter_entry,
+            similarity,
+          });
+        }
+      }
+
+      results.push({
+        filter: `${filter.parameter}:${filter.value}`,
+        matches: Array.from(matchesByKey.values()).sort((a, b) => b.similarity - a.similarity),
+      });
+    }
+
+    res.json({ results });
+  } catch (err) {
+    console.error('Unexpected error in /api/find-parameter-filters:', err);
+    return res.status(500).json({ error: 'Unable to find matching project parameters' });
   }
 });
 
